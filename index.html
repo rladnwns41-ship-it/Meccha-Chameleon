@@ -16,17 +16,81 @@
   #bar { width:280px; height:6px; background:#333; border-radius:3px; overflow:hidden; }
   #barFill { height:100%; width:0%; background:linear-gradient(90deg,#4dd07a,#ffca28); transition:width .2s; }
 
-  /* 시작 화면 */
-  #start {
+  /* 화면들 공통 */
+  .screen {
     position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    z-index:150; background:rgba(0,0,0,0.55); backdrop-filter:blur(8px); gap:16px; color:#fff; cursor:pointer;
+    z-index:150; background:rgba(0,0,0,0.55); backdrop-filter:blur(8px); gap:16px; color:#fff; padding:20px;
   }
-  #start.hidden { display:none; }
-  #start h1 { font-size:42px; margin:0; font-weight:800; letter-spacing:-1px; }
-  #start .cta { background:#4dd07a; color:#000; padding:12px 28px; border-radius:12px; font-weight:700; font-size:16px; }
-  #start .nick { display:flex; gap:8px; align-items:center; }
-  #start input { padding:8px 14px; border-radius:8px; border:2px solid #444; background:rgba(0,0,0,0.4); color:#fff; font-size:14px; width:180px; text-align:center; }
+  .screen.hidden { display:none; }
+  .screen h1 { font-size:38px; margin:0; font-weight:800; letter-spacing:-1px; }
+  .cta { background:#4dd07a; color:#000; padding:12px 28px; border-radius:12px; font-weight:700; font-size:16px; cursor:pointer; border:none; transition:transform 0.1s; }
+  .cta:hover { transform:translateY(-2px); }
+  .cta.secondary { background:rgba(255,255,255,0.15); color:#fff; }
+  .nick { display:flex; gap:8px; align-items:center; }
+  .nick input { padding:8px 14px; border-radius:8px; border:2px solid #444; background:rgba(0,0,0,0.4); color:#fff; font-size:14px; width:180px; text-align:center; }
+  
+  /* 방 목록 */
+  #roomListBox { width:min(500px,90vw); max-height:50vh; overflow-y:auto; background:rgba(0,0,0,0.35); border-radius:14px; padding:10px; border:1px solid rgba(255,255,255,0.08); }
+  .room-item { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-radius:10px; background:rgba(255,255,255,0.05); margin:6px 0; cursor:pointer; transition:all 0.15s; }
+  .room-item:hover { background:rgba(77,208,122,0.15); transform:translateX(4px); }
+  .room-item .info { font-weight:600; }
+  .room-item .count { color:#4dd07a; font-size:13px; }
+  .room-item .state { font-size:11px; padding:3px 8px; border-radius:6px; background:rgba(255,255,255,0.1); }
+  .room-item .state.playing { background:#ff4757; color:#fff; }
+  .empty-rooms { text-align:center; padding:40px; opacity:0.5; }
 
+  /* 로비 */
+  .lobbyInfo { display:flex; gap:24px; font-size:16px; align-items:center; }
+  #lobbyCountdown { font-size:28px; color:#ffca28; font-weight:800; }
+  .playerList { display:flex; flex-direction:column; gap:8px; width:min(400px,90vw); background:rgba(0,0,0,0.35); border-radius:14px; padding:12px; }
+  .player-row { display:flex; justify-content:space-between; padding:10px 14px; background:rgba(255,255,255,0.06); border-radius:8px; }
+  .player-row .host { color:#ffca28; font-size:11px; }
+
+  /* 투표 */
+  .voteBox { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+  .voteMap { width:220px; padding:20px; background:rgba(0,0,0,0.4); border-radius:14px; border:2px solid rgba(255,255,255,0.1); cursor:pointer; text-align:center; transition:all 0.15s; }
+  .voteMap:hover { border-color:#4dd07a; transform:translateY(-4px); }
+  .voteMap.voted { border-color:#4dd07a; background:rgba(77,208,122,0.2); }
+  .voteMap .mapName { font-size:20px; font-weight:800; margin:8px 0; }
+  .voteMap .voteCount { color:#4dd07a; font-size:14px; margin-top:8px; }
+  #voteTimer { color:#ffca28; font-weight:700; }
+
+  /* 뽑기 애니메이션 */
+  .drawSpin { display:flex; overflow:hidden; width:min(400px,90vw); height:80px; background:rgba(0,0,0,0.4); border-radius:14px; border:2px solid #4dd07a; position:relative; }
+  .drawSpin .item { min-width:180px; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800; border-right:1px solid rgba(255,255,255,0.1); }
+  .drawSpin .indicator { position:absolute; top:0; bottom:0; left:50%; width:3px; background:#ffca28; box-shadow:0 0 12px #ffca28; }
+  .drawStrip { display:flex; transition:transform 4s cubic-bezier(0.15, 0.85, 0.35, 1); }
+
+  /* 라운드 바 */
+  #roundBar {
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:20;
+    background:rgba(15,15,20,0.75); backdrop-filter:blur(10px); color:#fff;
+    padding:10px 20px; border-radius:14px; display:flex; gap:20px; align-items:center;
+    border:1px solid rgba(255,255,255,0.1); font-weight:700;
+  }
+  #roundTimer { font-size:26px; color:#ffca28; font-family:monospace; }
+  #roundInfo { display:flex; gap:16px; font-size:14px; align-items:center; }
+  #roleTag { padding:4px 10px; border-radius:8px; background:rgba(77,208,122,0.25); }
+  #roleTag.seeker { background:rgba(255,71,87,0.3); }
+  
+  /* 죽음 화면 */
+  #deathScreen {
+    position:fixed; inset:0; background:rgba(255,0,0,0.15); backdrop-filter:blur(4px);
+    display:flex; align-items:center; justify-content:center; z-index:50; pointer-events:none;
+  }
+  #deathScreen.hidden { display:none; }
+  .deathBox {
+    background:rgba(0,0,0,0.8); padding:40px 60px; border-radius:20px; text-align:center; color:#fff;
+    border:3px solid #ff4757;
+  }
+  
+  /* 점수판 */
+  #scoreList .player-row { justify-content:space-between; padding:14px 18px; }
+  #scoreList .player-row.first { background:linear-gradient(90deg, rgba(255,202,40,0.3), transparent); border:1px solid #ffca28; }
+  #scoreList .player-row .score-val { color:#4dd07a; font-weight:800; font-size:20px; }
+  #scoreList .player-row .rank { font-weight:800; margin-right:12px; opacity:0.7; }
+  
+  /* HUD */
   /* HUD */
   #hud {
     position:fixed; top:14px; left:14px; z-index:20;
@@ -121,26 +185,84 @@
 </head>
 <body>
 
-<div id="loading">
+<div id="loading" class="hidden">
   <div>🏙️ 도쿄 불러오는 중...</div>
   <div id="bar"><div id="barFill"></div></div>
   <div id="pct" style="font-size:12px;opacity:0.6">0%</div>
   <div id="loadStat" style="font-size:11px;opacity:0.5;font-family:monospace">캐릭터: 0% / 0% · 도쿄: 0%</div>
 </div>
 
-<div id="start" class="hidden">
+<!-- 화면들 (배타적) -->
+<div id="scr-nick" class="screen">
   <h1>🦎 멧챠 카멜레온</h1>
   <div style="opacity:0.7;font-size:14px">도쿄 뒷골목에서 숨어라</div>
   <div class="nick">
     <span>닉네임</span>
     <input id="nickInput" placeholder="시그마보이" maxlength="16">
   </div>
-  <div class="cta" id="playBtn">▶ 시작하기</div>
+  <div class="cta" id="nickNext">▶ 다음</div>
+</div>
+
+<div id="scr-rooms" class="screen hidden">
+  <h1 style="margin-bottom:6px">방 목록</h1>
+  <div style="opacity:0.6;font-size:13px">방에 들어가거나 새로 만들기</div>
+  <div id="roomListBox">
+    <div id="roomList"></div>
+  </div>
+  <div style="display:flex;gap:12px">
+    <input id="newRoomName" placeholder="방 이름..." maxlength="20" style="flex:1;padding:10px 14px;border-radius:10px;border:2px solid #444;background:rgba(0,0,0,0.4);color:#fff">
+    <button class="cta" id="createRoomBtn">+ 방 만들기</button>
+  </div>
+</div>
+
+<div id="scr-lobby" class="screen hidden">
+  <h1 id="lobbyName">방 대기실</h1>
+  <div class="lobbyInfo">
+    <div>👥 <span id="lobbyPlayerCount">1</span>/5 명</div>
+    <div id="lobbyCountdown"></div>
+  </div>
+  <div id="lobbyPlayers" class="playerList"></div>
+  <button class="cta secondary" id="leaveRoomBtn">← 나가기</button>
+</div>
+
+<div id="scr-vote" class="screen hidden">
+  <h1>🗺️ 맵 투표</h1>
+  <div style="opacity:0.7;font-size:13px" id="voteTimer">남은 시간: 15초</div>
+  <div id="voteMaps" class="voteBox"></div>
+</div>
+
+<div id="scr-draw" class="screen hidden">
+  <h1>🎯 술래 뽑기</h1>
+  <div id="drawSpinner" class="drawSpin"></div>
+  <div id="drawResult" style="font-size:22px;margin-top:12px;min-height:30px"></div>
 </div>
 
 <div id="hud">
   <b>WASD</b> 이동 · <b>Shift</b> 달리기 · <b>Space</b> 점프<br>
-  <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>T</b> 역할전환 · <b>ESC</b> 시점 풀기
+  <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>ESC</b> 시점 풀기<br>
+  <span id="hudShootHint" style="display:none;color:#ff4757"><b>좌클릭 = 발사!</b></span>
+</div>
+
+<div id="roundBar">
+  <div id="roundTimer">--:--</div>
+  <div id="roundInfo">
+    <div>💯 <span id="myScore">0</span></div>
+    <div id="roleTag">숨는 자</div>
+  </div>
+</div>
+
+<div id="deathScreen" class="hidden">
+  <div class="deathBox">
+    <div style="font-size:56px;margin-bottom:8px">💀</div>
+    <div style="font-size:28px;font-weight:800">잡혔다!</div>
+    <div style="opacity:0.6;font-size:14px;margin-top:6px">관전 중 · 다음 라운드 대기</div>
+  </div>
+</div>
+
+<div id="scoreboard" class="screen hidden">
+  <h1>🏆 라운드 결과</h1>
+  <div id="scoreList" class="playerList" style="width:min(500px,90vw)"></div>
+  <button class="cta" id="backToLobbyBtn">← 방으로 돌아가기</button>
 </div>
 
 <div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 · 🗺️ <span id="mapName">-</span></div>
@@ -442,11 +564,221 @@ function setRole(role) {
   }
 }
 
-// 임시: T 키로 역할 전환 (테스트용)
-addEventListener('keydown', e => {
-  if (e.code === 'KeyT') {
-    setRole(myRole === 'hider' ? 'seeker' : 'hider');
+// ============================================================
+// 라운드 시스템 (타이머, 슈팅, 점수, 사망)
+// ============================================================
+const ROUND_DURATION_MS = 60000; // 60초
+const SHOOT_RANGE = 40;
+const VISION_FOV_COS = Math.cos(THREE.MathUtils.degToRad(35)); // 시야 각도 35도
+
+let roundState = { phase: 'idle', startedAt: 0, endsAt: 0 };
+let myAlive = true;
+let myScore = 0;
+let scoreTimer = null;
+let roundTimerHandle = null;
+
+// 라운드 상태 리스너 (방 안 game_state)
+function subscribeRoundState() {
+  if (!myRoomId) return;
+  onValue(ref(fbDb, `rooms/${myRoomId}/round`), snap => {
+    const rs = snap.val();
+    if (!rs) return;
+    roundState = rs;
+    if (rs.phase === 'playing' && !roundTimerHandle) startRoundTimer();
+    if (rs.phase === 'ended' && currentScreen === 'game') showScoreboard();
+    // 내 생존 상태
+    const alive = rs.alive?.[myUid];
+    if (alive === false && myAlive) onIDied();
+    myAlive = alive !== false;
+  });
+}
+
+// 라운드 시작 (방장이 startGame 이후 호출)
+async function initRound() {
+  if (!uid_is_host_by_id(myRoomId)) return;
+  const startAt = Date.now();
+  const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
+  const room = roomSnap.val();
+  const alive = {};
+  Object.keys(room.players || {}).forEach(u => alive[u] = true);
+  await set(ref(fbDb, `rooms/${myRoomId}/round`), {
+    phase: 'playing',
+    startedAt: startAt,
+    endsAt: startAt + ROUND_DURATION_MS,
+    alive: alive,
+    scores: {},
+    seekerUid: room.seekerUid
+  });
+}
+async function uid_is_host_by_id(roomId) {
+  const s = await get(ref(fbDb, `rooms/${roomId}`));
+  return s.val()?.hostUid === myUid;
+}
+
+// 라운드 타이머 UI
+function startRoundTimer() {
+  const el = document.getElementById('roundTimer');
+  const tick = () => {
+    const remain = Math.max(0, roundState.endsAt - Date.now());
+    const s = Math.ceil(remain / 1000);
+    const mm = String(Math.floor(s/60)).padStart(1,'0');
+    const ss = String(s%60).padStart(2,'0');
+    el.textContent = mm + ':' + ss;
+    if (remain <= 0) {
+      clearInterval(roundTimerHandle);
+      roundTimerHandle = null;
+      endRound();
+    }
+  };
+  tick();
+  roundTimerHandle = setInterval(tick, 200);
+  
+  // 점수 적립 (매 1초)
+  if (scoreTimer) clearInterval(scoreTimer);
+  scoreTimer = setInterval(() => {
+    if (!myRoomId || !myAlive || myRole !== 'hider') return;
+    // 술래한테 보이면 +5, 아니면 +1
+    const bonus = isVisibleToSeeker() ? 5 : 1;
+    myScore += bonus;
+    update(ref(fbDb, `rooms/${myRoomId}/round/scores`), { [myUid]: myScore });
+    document.getElementById('myScore').textContent = myScore;
+  }, 1000);
+}
+
+// 술래한테 보이는지 체크 (내 시야가 아닌 - 다른 사람의 술래 시야에 내가 있는지)
+// 다른 플레이어(술래)의 위치와 회전을 이용
+function isVisibleToSeeker() {
+  const seekerUid = roundState.seekerUid;
+  if (!seekerUid || seekerUid === myUid) return false;
+  const seeker = otherPlayers[seekerUid];
+  if (!seeker) return false;
+  
+  // 술래 → 내 벡터
+  const toMe = new THREE.Vector3().subVectors(player.position, seeker.group.position);
+  const dist = toMe.length();
+  if (dist > SHOOT_RANGE) return false;
+  toMe.normalize();
+  
+  // 술래가 바라보는 방향 (Y 회전 기준)
+  const seekerFwd = new THREE.Vector3(-Math.sin(seeker.group.rotation.y), 0, -Math.cos(seeker.group.rotation.y));
+  const dot = toMe.dot(seekerFwd);
+  return dot > VISION_FOV_COS;
+}
+
+// 술래가 발사 (좌클릭)
+const shootRc = new THREE.Raycaster();
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (paintMode) return; // 페인트 모드에선 발사 X
+  if (myRole !== 'seeker') return;
+  if (!myAlive) return;
+  if (!pointerLocked) return;
+  shootFromCamera();
+});
+
+function shootFromCamera() {
+  // 카메라 중심에서 앞으로 raycast
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  shootRc.set(camera.position, dir);
+  shootRc.far = SHOOT_RANGE;
+  
+  // 모든 hider 플레이어 mesh 수집
+  const targets = [];
+  const uidByObj = new Map();
+  Object.entries(otherPlayers).forEach(([uid, op]) => {
+    if (roundState.alive?.[uid] === false) return;
+    op.group.traverse(o => {
+      if (o.isMesh) {
+        targets.push(o);
+        uidByObj.set(o.id, uid);
+      }
+    });
+  });
+  
+  const hits = shootRc.intersectObjects(targets, false);
+  if (!hits.length) {
+    console.log('❌ 빗나감');
+    return;
   }
+  const hitUid = uidByObj.get(hits[0].object.id);
+  if (!hitUid) return;
+  console.log('🎯 명중:', hitUid);
+  killPlayer(hitUid);
+}
+
+async function killPlayer(uid) {
+  // 사망 마킹 + 술래 점수 +50
+  const scoresRef = ref(fbDb, `rooms/${myRoomId}/round/scores`);
+  const snap = await get(scoresRef);
+  const scores = snap.val() || {};
+  scores[myUid] = (scores[myUid] || 0) + 50;
+  await update(ref(fbDb, `rooms/${myRoomId}/round`), {
+    [`alive/${uid}`]: false,
+    scores: scores
+  });
+}
+
+function onIDied() {
+  document.getElementById('deathScreen').classList.remove('hidden');
+  console.log('💀 내가 죽음');
+  setTimeout(() => document.getElementById('deathScreen').classList.add('hidden'), 3000);
+}
+
+async function endRound() {
+  if (!await uid_is_host_by_id(myRoomId)) return;
+  await update(ref(fbDb, `rooms/${myRoomId}/round`), { phase: 'ended' });
+}
+
+async function showScoreboard() {
+  currentScreen = 'scoreboard';
+  document.exitPointerLock();
+  const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
+  const room = roomSnap.val();
+  const roundSnap = await get(ref(fbDb, `rooms/${myRoomId}/round`));
+  const round = roundSnap.val();
+  const players = room.players || {};
+  const scores = round.scores || {};
+  const rows = Object.keys(players).map(uid => ({
+    uid, nick: players[uid].nick, score: scores[uid] || 0, alive: round.alive?.[uid] !== false,
+    isSeeker: uid === room.seekerUid
+  }));
+  rows.sort((a, b) => b.score - a.score);
+  
+  const box = document.getElementById('scoreList');
+  box.innerHTML = '';
+  rows.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'player-row' + (i === 0 ? ' first' : '');
+    const medal = i === 0 ? '🥇' : (i === 1 ? '🥈' : (i === 2 ? '🥉' : (i+1)+''));
+    row.innerHTML = `
+      <div><span class="rank">${medal}</span>${r.nick}${r.isSeeker ? ' 🎯' : ''}${!r.alive && !r.isSeeker ? ' 💀' : ''}</div>
+      <div class="score-val">${r.score}</div>
+    `;
+    box.appendChild(row);
+  });
+  showScreen('scoreboard');
+}
+
+// 결과 화면에서 방으로 돌아가기
+document.getElementById('backToLobbyBtn').addEventListener('click', async () => {
+  // 방장이 상태 리셋
+  if (await uid_is_host_by_id(myRoomId)) {
+    await update(ref(fbDb, `rooms/${myRoomId}`), {
+      state: 'lobby',
+      round: null,
+      countdownEndAt: null,
+      selectedMap: null,
+      seekerUid: null
+    });
+    // 플레이어들 vote 리셋
+    const s = await get(ref(fbDb, `rooms/${myRoomId}/players`));
+    const players = s.val() || {};
+    for (const uid of Object.keys(players)) {
+      await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
+    }
+  }
+  showScreen('lobby');
 });
 
 
@@ -538,24 +870,32 @@ const collidableMeshes = [];
 let mixer = null;
 const clock = new THREE.Clock();
 
-// ==== 맵 랜덤 선택 시스템 ====
+// ==== 맵 시스템 (투표로 선택) ====
 const MAPS = [
   {
     name: '도쿄 뒷골목',
     url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
     scale: 0.18,
-    hasWalls: false  // 벽 없음 → 내가 콘크리트 벽 자동 생성
+    hasWalls: false
   },
   {
     name: 'Sponza 궁전',
     url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Sponza/glTF/Sponza.gltf',
     scale: 3,
-    hasWalls: true  // 원래 벽 있는 실내 → 벽 안 만듦
+    hasWalls: true
   },
 ];
-const selectedMap = MAPS[Math.floor(Math.random() * MAPS.length)];
-console.log('🗺️ 선택된 맵:', selectedMap.name);
-document.getElementById('mapName').textContent = selectedMap.name;
+let selectedMap = MAPS[0];
+let mapLoaded = false;
+
+function loadSelectedMap(mapIdx) {
+  if (mapLoaded) return;
+  mapLoaded = true;
+  selectedMap = MAPS[mapIdx] || MAPS[0];
+  console.log('🗺️ 맵 로딩:', selectedMap.name);
+  document.getElementById('mapName').textContent = selectedMap.name;
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('loading').querySelector('div').textContent = '🏙️ ' + selectedMap.name + ' 불러오는 중...';
 
 gltfLoader.load(
   selectedMap.url,
@@ -629,7 +969,6 @@ gltfLoader.load(
     velocityY = 0; isGrounded = true;
 
     document.getElementById('loading').classList.add('hidden');
-    document.getElementById('start').classList.remove('hidden');
   },
   xhr => {
     if (xhr.total) {
@@ -641,6 +980,7 @@ gltfLoader.load(
   },
   err => console.error('Tokyo 로드 실패:', err)
 );
+} // loadSelectedMap 끝
 
 // ================ Controls ================
 const keys = {};
@@ -650,13 +990,384 @@ addEventListener('keyup', e => keys[e.code] = false);
 let cameraYaw = Math.PI, cameraPitch = 0.15;
 let pointerLocked = false, paintMode = false;
 
-document.getElementById('playBtn').addEventListener('click', () => {
+// ============================================================
+// 로비/방/투표/뽑기 시스템
+// ============================================================
+import { push, update, get, remove, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+let myRoomId = null;
+let currentScreen = 'nick';
+let roomListUnsub = null;
+let roomUnsub = null;
+let voteTimerInterval = null;
+
+function showScreen(name) {
+  currentScreen = name;
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  const el = document.getElementById('scr-' + name);
+  if (el) el.classList.remove('hidden');
+}
+
+// 1단계: 닉네임 입력 완료 → 방 목록으로
+document.getElementById('nickNext').addEventListener('click', () => {
   const nick = document.getElementById('nickInput').value.trim();
   myNick = nick || '익명' + Math.floor(Math.random()*100);
-  document.getElementById('start').classList.add('hidden');
-  renderer.domElement.requestPointerLock();
-  startFirebaseSync();
+  showScreen('rooms');
+  subscribeRoomList();
 });
+document.getElementById('nickInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('nickNext').click();
+});
+
+// ============ 방 목록 ============
+function subscribeRoomList() {
+  const roomsRef = ref(fbDb, 'rooms');
+  if (roomListUnsub) roomListUnsub();
+  roomListUnsub = onValue(roomsRef, snap => {
+    const data = snap.val() || {};
+    const list = document.getElementById('roomList');
+    const roomEntries = Object.entries(data).filter(([id, r]) => r && r.name);
+    if (roomEntries.length === 0) {
+      list.innerHTML = '<div class="empty-rooms">방이 없음. 만들어봐 ↓</div>';
+      return;
+    }
+    list.innerHTML = '';
+    roomEntries.forEach(([id, room]) => {
+      const players = room.players || {};
+      const count = Object.keys(players).length;
+      const state = room.state || 'lobby';
+      const div = document.createElement('div');
+      div.className = 'room-item';
+      div.innerHTML = `
+        <div>
+          <div class="info">${room.name}</div>
+          <div class="count">👥 ${count}/5</div>
+        </div>
+        <div class="state ${state === 'playing' ? 'playing' : ''}">${state === 'playing' ? '게임 중' : '대기'}</div>
+      `;
+      div.addEventListener('click', () => joinRoom(id));
+      list.appendChild(div);
+    });
+  });
+}
+
+// 방 만들기
+document.getElementById('createRoomBtn').addEventListener('click', async () => {
+  const name = document.getElementById('newRoomName').value.trim() || (myNick + '의 방');
+  if (!myUid) { alert('로그인 대기중...'); return; }
+  const roomsRef = ref(fbDb, 'rooms');
+  const newRoom = push(roomsRef);
+  await set(newRoom, {
+    name: name,
+    hostUid: myUid,
+    state: 'lobby',
+    createdAt: Date.now()
+  });
+  await set(ref(fbDb, `rooms/${newRoom.key}/players/${myUid}`), {
+    nick: myNick, joinedAt: Date.now()
+  });
+  myRoomId = newRoom.key;
+  onDisconnect(ref(fbDb, `rooms/${newRoom.key}/players/${myUid}`)).remove();
+  enterRoom(newRoom.key);
+});
+
+// 방 입장
+async function joinRoom(roomId) {
+  const roomSnap = await get(ref(fbDb, `rooms/${roomId}`));
+  const room = roomSnap.val();
+  if (!room) { alert('방이 없음'); return; }
+  const count = Object.keys(room.players || {}).length;
+  if (count >= 5) { alert('방이 꽉 참'); return; }
+  if (room.state === 'playing') { alert('이미 게임 중'); return; }
+  await set(ref(fbDb, `rooms/${roomId}/players/${myUid}`), {
+    nick: myNick, joinedAt: Date.now()
+  });
+  myRoomId = roomId;
+  onDisconnect(ref(fbDb, `rooms/${roomId}/players/${myUid}`)).remove();
+  enterRoom(roomId);
+}
+
+function enterRoom(roomId) {
+  if (roomListUnsub) { roomListUnsub(); roomListUnsub = null; }
+  showScreen('lobby');
+  subscribeRoom(roomId);
+}
+
+// ============ 로비 (방 안) ============
+function subscribeRoom(roomId) {
+  const roomRef = ref(fbDb, `rooms/${roomId}`);
+  if (roomUnsub) roomUnsub();
+  roomUnsub = onValue(roomRef, snap => {
+    const room = snap.val();
+    if (!room) { leaveToRooms(); return; }
+    const players = room.players || {};
+    const uids = Object.keys(players);
+    const count = uids.length;
+    
+    document.getElementById('lobbyName').textContent = room.name;
+    document.getElementById('lobbyPlayerCount').textContent = count;
+    
+    // 플레이어 목록
+    const box = document.getElementById('lobbyPlayers');
+    box.innerHTML = '';
+    uids.forEach(uid => {
+      const p = players[uid];
+      const row = document.createElement('div');
+      row.className = 'player-row';
+      row.innerHTML = `<span>${p.nick}${uid === myUid ? ' (나)' : ''}</span>` + (uid === room.hostUid ? '<span class="host">👑 방장</span>' : '');
+      box.appendChild(row);
+    });
+    
+    // 상태별 화면 전환
+    if (room.state === 'voting' && currentScreen === 'lobby') {
+      startVotingUI(room);
+    } else if (room.state === 'drawing' && currentScreen !== 'draw') {
+      startDrawingUI(room);
+    } else if (room.state === 'playing' && currentScreen !== 'game') {
+      startGame(room);
+    }
+    
+    // 카운트다운 로직 (방장만 관리)
+    if (room.state === 'lobby' && uid_is_host(room)) {
+      manageCountdown(roomId, room, count);
+    }
+    updateCountdownDisplay(room);
+  });
+}
+
+function uid_is_host(room) { return room.hostUid === myUid; }
+
+let countdownTimer = null;
+function manageCountdown(roomId, room, count) {
+  const now = Date.now();
+  if (count < 2) {
+    // 인원 부족 - 카운트다운 없음
+    if (room.countdownEndAt) {
+      update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: null });
+    }
+    return;
+  }
+  // 2명 이상 - 카운트다운 필요
+  if (!room.countdownEndAt) {
+    // 새로 시작 (5초)
+    const isFull = count >= 5;
+    const secs = isFull ? 5 : 5;
+    update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: now + secs*1000 });
+  }
+  // 카운트다운 끝났으면 → 투표로
+  if (room.countdownEndAt && room.countdownEndAt < now && count >= 2) {
+    update(ref(fbDb, `rooms/${roomId}`), {
+      state: 'voting',
+      voteEndAt: now + 15000,
+      countdownEndAt: null
+    });
+  }
+}
+
+// 새 플레이어 입장 감지 → 카운트다운 3초 추가 (방장만)
+let lastPlayerCount = 0;
+function updateCountdownDisplay(room) {
+  const el = document.getElementById('lobbyCountdown');
+  const count = Object.keys(room.players || {}).length;
+  if (count !== lastPlayerCount && lastPlayerCount > 0 && count > lastPlayerCount && uid_is_host(room)) {
+    // 인원 늘어남 → 카운트다운 3초 연장
+    if (room.countdownEndAt) {
+      update(ref(fbDb, `rooms/${myRoomId}`), { countdownEndAt: Date.now() + 3000 });
+    }
+  }
+  lastPlayerCount = count;
+  
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (!room.countdownEndAt) {
+    el.textContent = count < 2 ? '⏳ 최소 2명 필요' : '';
+    return;
+  }
+  const tick = () => {
+    const remain = room.countdownEndAt - Date.now();
+    if (remain <= 0) { el.textContent = '시작!'; clearInterval(countdownTimer); return; }
+    el.textContent = '⏱️ ' + Math.ceil(remain/1000) + '초';
+  };
+  tick();
+  countdownTimer = setInterval(tick, 200);
+}
+
+// 방 나가기
+document.getElementById('leaveRoomBtn').addEventListener('click', leaveToRooms);
+async function leaveToRooms() {
+  if (myRoomId && myUid) {
+    await remove(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`));
+    // 방장이었으면 방장 이양 (다른 사람 있으면)
+    const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
+    const room = roomSnap.val();
+    if (room) {
+      const others = Object.keys(room.players || {}).filter(u => u !== myUid);
+      if (room.hostUid === myUid && others.length > 0) {
+        await update(ref(fbDb, `rooms/${myRoomId}`), { hostUid: others[0] });
+      } else if (others.length === 0) {
+        await remove(ref(fbDb, `rooms/${myRoomId}`));
+      }
+    }
+  }
+  myRoomId = null;
+  if (roomUnsub) { roomUnsub(); roomUnsub = null; }
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  showScreen('rooms');
+  subscribeRoomList();
+}
+
+// ============ 투표 ============
+function startVotingUI(room) {
+  showScreen('vote');
+  renderVoteMaps(room);
+}
+
+function renderVoteMaps(room) {
+  const box = document.getElementById('voteMaps');
+  const players = room.players || {};
+  const votes = {};
+  Object.values(players).forEach(p => {
+    if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1;
+  });
+  const myVote = players[myUid]?.vote;
+  box.innerHTML = '';
+  MAPS.forEach((m, i) => {
+    const d = document.createElement('div');
+    d.className = 'voteMap' + (myVote === String(i) ? ' voted' : '');
+    d.innerHTML = `
+      <div style="font-size:36px">${i === 0 ? '🏙️' : '🏛️'}</div>
+      <div class="mapName">${m.name}</div>
+      <div class="voteCount">${votes[i] || 0} 표</div>
+    `;
+    d.addEventListener('click', () => {
+      set(ref(fbDb, `rooms/${myRoomId}/players/${myUid}/vote`), String(i));
+    });
+    box.appendChild(d);
+  });
+  
+  // 타이머
+  const timerEl = document.getElementById('voteTimer');
+  if (voteTimerInterval) clearInterval(voteTimerInterval);
+  const updateVoteTimer = () => {
+    if (!room.voteEndAt) return;
+    const remain = Math.max(0, room.voteEndAt - Date.now());
+    timerEl.textContent = '남은 시간: ' + Math.ceil(remain/1000) + '초';
+    if (remain <= 0 && uid_is_host(room)) {
+      // 투표 종료 → 뽑기 단계
+      clearInterval(voteTimerInterval);
+      finishVoting();
+    }
+  };
+  updateVoteTimer();
+  voteTimerInterval = setInterval(updateVoteTimer, 200);
+}
+
+async function finishVoting() {
+  const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
+  const room = roomSnap.val();
+  if (!room) return;
+  const players = room.players || {};
+  const votes = {};
+  Object.values(players).forEach(p => {
+    if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1;
+  });
+  // 최다 득표 (동률이면 랜덤)
+  let maxV = -1, winners = [];
+  Object.entries(votes).forEach(([k, v]) => {
+    if (v > maxV) { maxV = v; winners = [k]; }
+    else if (v === maxV) winners.push(k);
+  });
+  const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
+  const seekerUid = Object.keys(players)[Math.floor(Math.random() * Object.keys(players).length)];
+  await update(ref(fbDb, `rooms/${myRoomId}`), {
+    state: 'drawing',
+    selectedMap: chosen,
+    seekerUid: seekerUid,
+    drawEndAt: Date.now() + 5000
+  });
+}
+
+// ============ 뽑기 애니메이션 ============
+function startDrawingUI(room) {
+  showScreen('draw');
+  const spinner = document.getElementById('drawSpinner');
+  spinner.innerHTML = '<div class="indicator"></div>';
+  const strip = document.createElement('div');
+  strip.className = 'drawStrip';
+  const players = room.players || {};
+  const uids = Object.keys(players);
+  // 스트립: 랜덤 순서 여러 번 반복
+  const cycles = 6;
+  const allNames = [];
+  for (let c = 0; c < cycles; c++) {
+    const shuffled = [...uids].sort(() => Math.random() - 0.5);
+    shuffled.forEach(u => allNames.push({ uid: u, nick: players[u].nick }));
+  }
+  // 마지막에 술래 배치
+  allNames.push({ uid: room.seekerUid, nick: players[room.seekerUid]?.nick || '?' });
+  allNames.forEach(({ uid, nick }) => {
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.textContent = nick;
+    if (uid === room.seekerUid) item.style.color = '#ff4757';
+    strip.appendChild(item);
+  });
+  spinner.appendChild(strip);
+  
+  // 애니메이션: 마지막 아이템(술래)이 지시자 중앙에 오도록
+  const itemW = 180;
+  const containerW = spinner.clientWidth;
+  const targetIdx = allNames.length - 1;
+  const finalOffset = -(targetIdx * itemW - containerW/2 + itemW/2);
+  strip.style.transform = 'translateX(0)';
+  requestAnimationFrame(() => {
+    strip.style.transform = `translateX(${finalOffset}px)`;
+  });
+  
+  setTimeout(() => {
+    const winner = players[room.seekerUid];
+    document.getElementById('drawResult').innerHTML = 
+      `<span style="color:#ff4757">🎯 ${winner?.nick || '?'}</span> 이(가) 술래!`;
+  }, 3800);
+  
+  // 방장이 게임 시작
+  if (uid_is_host(room)) {
+    setTimeout(() => {
+      update(ref(fbDb, `rooms/${myRoomId}`), { state: 'playing', playStartAt: Date.now() });
+    }, 5000);
+  }
+}
+
+// ============ 게임 시작 ============
+async function startGame(room) {
+  currentScreen = 'game';
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  
+  // 선택된 맵으로 세팅
+  const mapIdx = parseInt(room.selectedMap || 0);
+  loadSelectedMap(mapIdx);
+  
+  // 내 역할 세팅
+  if (room.seekerUid === myUid) {
+    setRole('seeker');
+  } else {
+    setRole('hider');
+  }
+  
+  // 역할 태그 UI
+  document.getElementById('roleTag').textContent = myRole === 'seeker' ? '🎯 술래' : '🦎 숨는 자';
+  document.getElementById('roleTag').classList.toggle('seeker', myRole === 'seeker');
+  document.getElementById('hudShootHint').style.display = myRole === 'seeker' ? 'inline' : 'none';
+  myScore = 0;
+  document.getElementById('myScore').textContent = 0;
+  
+  // 카메라 포인터락
+  renderer.domElement.requestPointerLock();
+  // 위치 동기화 시작
+  startFirebaseSync(room);
+  // 라운드 리스너 + 방장이면 라운드 시작
+  subscribeRoundState();
+  setTimeout(() => initRound(), 500);
+}
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
@@ -930,16 +1641,16 @@ updateFromHSV();
 const otherPlayers = {}; // uid → { group, mesh }
 let syncStarted = false;
 
-function startFirebaseSync() {
+function startFirebaseSync(room) {
   if (syncStarted) return;
   syncStarted = true;
 
   const tryReg = () => {
     if (!myUid) { setTimeout(tryReg, 200); return; }
-    myRef = ref(fbDb, `players/${myUid}`);
-    onDisconnect(myRef).remove();
+    // 방 안 game/{uid} 경로에 위치 씀
+    myRef = ref(fbDb, `rooms/${myRoomId}/game/${myUid}`);
 
-    // 100ms마다 내 상태 업데이트
+    // 150ms마다 내 상태 업데이트
     setInterval(() => {
       if (!myRef) return;
       set(myRef, {
@@ -949,12 +1660,13 @@ function startFirebaseSync() {
         r: +player.rotation.y.toFixed(2),
         n: myNick,
         p: currentPose,
+        role: myRole,
         t: Date.now()
       });
     }, 150);
 
-    // 다른 플레이어 listen
-    onValue(ref(fbDb, 'players'), snap => {
+    // 방 안 다른 플레이어 listen
+    onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
       const data = snap.val() || {};
       const uids = Object.keys(data);
       document.getElementById('onlineCount').textContent = uids.length;
