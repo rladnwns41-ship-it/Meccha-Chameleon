@@ -470,9 +470,16 @@ function processGlb(gltf, poseName) {
     if (o.isMesh) {
       o.castShadow = true;
       o.receiveShadow = true;
-      // 공유 페인트 텍스처 적용 (모든 포즈가 같은 페인트 사용)
+      // 버텍스 컬러 속성 (없으면 흰색으로 초기화)
+      if (!o.geometry.attributes.color) {
+        const count = o.geometry.attributes.position.count;
+        const colors = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
+        o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      }
+      // vertex color 재질 (UV 없어도 페인트 됨)
       o.material = new THREE.MeshStandardMaterial({
-        map: paintTexture, roughness: 0.55, metalness: 0.0
+        vertexColors: true, roughness: 0.55, metalness: 0.0
       });
     }
   });
@@ -743,17 +750,24 @@ document.getElementById('brushRange').addEventListener('input', e => {
 const paintRc = new THREE.Raycaster();
 let lastPaintTime = 0;
 
-// 버킷: 즉시 전체 채우기 (raycast 필요없음)
+// 버텍스 컬러 페인트 시스템 (UV 필요없음)
+const _tmpMat = new THREE.Matrix4();
+const _tmpVec = new THREE.Vector3();
+
 function bucketFill() {
-  paintCtx.fillStyle = currentColor;
-  paintCtx.fillRect(0, 0, PAINT_SIZE, PAINT_SIZE);
-  paintTexture.needsUpdate = true;
+  const c = new THREE.Color(currentColor);
+  characterMeshes.forEach(mesh => {
+    const colors = mesh.geometry.attributes.color;
+    if (!colors) return;
+    for (let i = 0; i < colors.count; i++) colors.setXYZ(i, c.r, c.g, c.b);
+    colors.needsUpdate = true;
+  });
   addRecentColor(currentColor);
   console.log('🪣 버킷 전체 채움:', currentColor);
 }
 
 function paint(clientX, clientY) {
-  if (!characterMeshes.length) { console.warn('캐릭터 mesh 없음'); return; }
+  if (!characterMeshes.length) { return; }
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
     ((clientX - rect.left)/rect.width)*2 - 1,
@@ -761,24 +775,35 @@ function paint(clientX, clientY) {
   );
   paintRc.setFromCamera(mv, camera);
   const hits = paintRc.intersectObjects(characterMeshes, true);
-  if (!hits.length) { return; }
-  const uv = hits[0].uv;
-  if (!uv) { console.warn('UV 없음, 페인트 불가'); return; }
-  const px = uv.x * PAINT_SIZE;
-  const py = uv.y * PAINT_SIZE;
-
-  if (currentTool === 'brush') {
-    paintCtx.fillStyle = currentColor;
-    paintCtx.beginPath();
-    paintCtx.arc(px, py, brushSize, 0, Math.PI*2);
-    paintCtx.fill();
-  } else if (currentTool === 'eraser') {
-    paintCtx.fillStyle = '#ffffff';
-    paintCtx.beginPath();
-    paintCtx.arc(px, py, brushSize, 0, Math.PI*2);
-    paintCtx.fill();
+  if (!hits.length) return;
+  const hit = hits[0];
+  const mesh = hit.object;
+  const worldPoint = hit.point.clone();
+  
+  // 월드 좌표 → mesh 로컬 좌표
+  _tmpMat.copy(mesh.matrixWorld).invert();
+  const localPoint = worldPoint.clone().applyMatrix4(_tmpMat);
+  
+  const positions = mesh.geometry.attributes.position;
+  const colors = mesh.geometry.attributes.color;
+  if (!colors) return;
+  
+  // 붓 크기를 월드 반경으로 (brushSize 픽셀 → 대략 캐릭터 스케일)
+  const radiusLocal = brushSize * 0.008 / mesh.getWorldScale(_tmpVec).x;
+  const radiusSq = radiusLocal * radiusLocal;
+  
+  const paintColor = new THREE.Color(currentTool === 'eraser' ? '#ffffff' : currentColor);
+  
+  // 반경 내 모든 정점 색 변경
+  for (let i = 0; i < positions.count; i++) {
+    const dx = positions.getX(i) - localPoint.x;
+    const dy = positions.getY(i) - localPoint.y;
+    const dz = positions.getZ(i) - localPoint.z;
+    if (dx*dx + dy*dy + dz*dz < radiusSq) {
+      colors.setXYZ(i, paintColor.r, paintColor.g, paintColor.b);
+    }
   }
-  paintTexture.needsUpdate = true;
+  colors.needsUpdate = true;
   addRecentColor(currentColor);
 }
 
