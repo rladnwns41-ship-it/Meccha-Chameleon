@@ -355,15 +355,14 @@ function processGlb(gltf, poseName) {
   const scale = 1.7 / (poseName === 'stand' ? size.y : size.y * 1.5); // 숙인 건 좀 더 큰 스케일 유지
   glb.scale.setScalar(poseName === 'stand' ? (1.7 / size.y) : (1.7 / size.y)); // 일단 같은 스케일
   const box2 = new THREE.Box3().setFromObject(glb);
-  // X/Z 중심도 원점 정렬 (뒤틀림 방지)
+  // X/Z 중심 원점 정렬 (뒤틀림 방지)
   glb.position.y = -box2.min.y;
   const center = new THREE.Vector3(); box2.getCenter(center);
   glb.position.x = -center.x;
   glb.position.z = -center.z;
-  // 실제 머리 높이 측정
-  const box3 = new THREE.Box3().setFromObject(glb);
-  poseHeadY[poseName] = box3.max.y * 0.92;
-  console.log(`포즈 [${poseName}] 머리 Y:`, poseHeadY[poseName].toFixed(2));
+  // 머리 y = 포즈별 고정값 (bbox는 스켈레톤 본까지 잡혀서 부정확)
+  poseHeadY[poseName] = poseName === 'crouch' ? 0.9 : 1.55;
+  console.log(`포즈 [${poseName}] 머리 Y:`, poseHeadY[poseName]);
   glb.traverse(o => {
     if (o.isMesh) {
       o.castShadow = true;
@@ -434,10 +433,15 @@ const MAPS = [
   {
     name: '도쿄 뒷골목',
     url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
-    scale: 0.18
+    scale: 0.18,
+    hasWalls: false  // 벽 없음 → 내가 콘크리트 벽 자동 생성
   },
-  // Sketchfab 에서 GLB 받아서 shipment_arena.glb 로 넣으면 활성화됨
-  // { name: 'Shipment Arena', url: './shipment_arena.glb', scale: 1 },
+  {
+    name: 'Sponza 궁전',
+    url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Sponza/glTF/Sponza.gltf',
+    scale: 3,
+    hasWalls: true  // 원래 벽 있는 실내 → 벽 안 만듦
+  },
 ];
 const selectedMap = MAPS[Math.floor(Math.random() * MAPS.length)];
 console.log('🗺️ 선택된 맵:', selectedMap.name);
@@ -468,19 +472,26 @@ gltfLoader.load(
       mixer.clipAction(gltf.animations[0]).play();
     }
 
-    // 벽 재배치
+    // 벽 재배치 (맵에 벽 없는 경우만)
     const finalBox = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3(); finalBox.getSize(size);
     const center = new THREE.Vector3(); finalBox.getCenter(center);
     const halfX = size.x/2 + 0.5;
     const halfZ = size.z/2 + 0.5;
-    buildWalls(center, halfX, halfZ);
-    wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
+    if (!selectedMap.hasWalls) {
+      buildWalls(center, halfX, halfZ);
+      wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
+    }
 
-    // 바닥 확장
-    ground.geometry.dispose();
-    ground.geometry = new THREE.PlaneGeometry(halfX*2+20, halfZ*2+20);
-    ground.position.set(center.x, -0.02, center.z);
+    // 바닥 확장 (실내 맵은 자체 바닥 있으니 안 늘림)
+    if (!selectedMap.hasWalls) {
+      ground.geometry.dispose();
+      ground.geometry = new THREE.PlaneGeometry(halfX*2+20, halfZ*2+20);
+      ground.position.set(center.x, -0.02, center.z);
+    } else {
+      // 실내 맵은 우리 바닥 안 보이게 확 아래로
+      ground.position.y = -50;
+    }
 
     // 스폰 찾기
     const spawnCandidates = [];
@@ -526,7 +537,7 @@ const keys = {};
 addEventListener('keydown', e => keys[e.code] = true);
 addEventListener('keyup', e => keys[e.code] = false);
 
-let cameraYaw = Math.PI, cameraPitch = 0.2;
+let cameraYaw = Math.PI, cameraPitch = 0.15;
 let pointerLocked = false, paintMode = false;
 
 document.getElementById('playBtn').addEventListener('click', () => {
@@ -935,14 +946,14 @@ function animate() {
 
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
   const headY = poseHeadY[currentPose] || 1.5;
-  const camDist = paintMode ? 3.5 : 5;
+  const camDist = paintMode ? 4 : 6;
   const focusY = player.position.y + headY;
   const hd = camDist * Math.cos(cameraPitch);
   const vo = camDist * Math.sin(cameraPitch);
   camera.position.x = player.position.x + Math.sin(cameraYaw) * hd;
   camera.position.z = player.position.z + Math.cos(cameraYaw) * hd;
   camera.position.y = Math.max(0.5, focusY + vo);
-  camera.lookAt(player.position.x, focusY, player.position.z);
+  camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
 
   renderer.render(scene, camera);
 }
