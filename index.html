@@ -238,7 +238,7 @@
 </div>
 
 <div id="hud">
-  <b>WASD</b> 이동 · <b>Shift</b> 달리기 · <b>Space</b> 점프<br>
+  <b>WASD</b> 이동 · <b>Shift</b> 달리기 · <b>Space</b> 점프/벽타기<br>
   <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:#ff4757"><b>좌클릭 = 발사!</b></span>
 </div>
@@ -1406,6 +1406,26 @@ let velocityY = 0, isGrounded = true;
 const GRAVITY = -30, JUMP_V = 10;
 let cachedGroundY = null, lastGroundX = 0, lastGroundZ = 0;
 
+// 벽 타기 (스페이스 길게)
+let isClimbing = false;
+const CLIMB_SPEED = 6;
+const WALL_DETECT_DIST = 0.85;
+const wallRc = new THREE.Raycaster();
+const _wallOrigin = new THREE.Vector3();
+const _wallDirs = [
+  new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
+];
+function checkNearWall() {
+  _wallOrigin.set(player.position.x, player.position.y + 1.0, player.position.z);
+  for (const d of _wallDirs) {
+    wallRc.set(_wallOrigin, d);
+    wallRc.far = WALL_DETECT_DIST;
+    if (wallRc.intersectObjects(collidableMeshes, false).length > 0) return true;
+  }
+  return false;
+}
+
 const groundRay = new THREE.Raycaster();
 const downV = new THREE.Vector3(0,-1,0);
 function getGroundHeight(x, z) {
@@ -1771,17 +1791,30 @@ function animate() {
     }
   }
 
-  // 물리 - grounded 상태에선 groundY 캐시 (raycast 스킵)
-  velocityY += GRAVITY * dt;
+  // 벽 타기 판정 (스페이스 홀드 + 벽 근처)
+  const spaceHeld = keys['Space'];
+  const nearWall = spaceHeld && !paintMode ? checkNearWall() : false;
+  if (nearWall && !isGrounded && spaceHeld) {
+    isClimbing = true;
+  } else {
+    isClimbing = false;
+  }
+  
+  // 물리
+  if (isClimbing) {
+    velocityY = CLIMB_SPEED; // 위로 등반
+  } else {
+    velocityY += GRAVITY * dt;
+  }
   player.position.y += velocityY * dt;
-  // 움직였거나 공중이면 재계산
+  
   const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
   if (!isGrounded || moved || cachedGroundY === null) {
     cachedGroundY = getGroundHeight(player.position.x, player.position.z);
     lastGroundX = player.position.x; lastGroundZ = player.position.z;
   }
   const gY = cachedGroundY;
-  if (player.position.y <= gY) { player.position.y = gY; velocityY = 0; isGrounded = true; }
+  if (player.position.y <= gY) { player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false; }
   else if (player.position.y > gY + 0.1) isGrounded = false;
 
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
