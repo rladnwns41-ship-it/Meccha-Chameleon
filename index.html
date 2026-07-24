@@ -427,15 +427,19 @@ function buildWalls(center, halfX, halfZ) {
   makeSide(center.x-halfX, center.z, halfZ*2, Math.PI/2);
   makeSide(center.x+halfX, center.z, halfZ*2, Math.PI/2);
   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => {
-    // 5m 크기 대형 코너 기둥 + 갓돌
+    // 5m 대형 코너 기둥 (보이는 것)
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(5, wh, 5), cornerMat);
     pillar.position.set(center.x+sx*halfX, wh/2, center.z+sz*halfZ);
     pillar.castShadow = true; pillar.receiveShadow = true;
     wallGroup.add(pillar);
-    // 코너 갓돌
     const cornerCap = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.5, 5.4), capMat);
     cornerCap.position.set(center.x+sx*halfX, wh+0.1, center.z+sz*halfZ);
     wallGroup.add(cornerCap);
+    // 안 보이는 코너 안전벽 (모서리 사각지대 블록)
+    const invisMat = new THREE.MeshBasicMaterial({ visible: false });
+    const safety = new THREE.Mesh(new THREE.BoxGeometry(10, wh, 10), invisMat);
+    safety.position.set(center.x+sx*(halfX+2), wh/2, center.z+sz*(halfZ+2));
+    wallGroup.add(safety);
   });
 }
 
@@ -926,8 +930,8 @@ gltfLoader.load(
     const finalBox = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3(); finalBox.getSize(size);
     const center = new THREE.Vector3(); finalBox.getCenter(center);
-    const halfX = size.x/2 + 0.5;
-    const halfZ = size.z/2 + 0.5;
+    const halfX = size.x/2 - 1.5;  // 벽을 안쪽으로 밀어서 모델 사이 공간 없앰
+    const halfZ = size.z/2 - 1.5;
     if (!selectedMap.hasWalls) {
       buildWalls(center, halfX, halfZ);
       wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
@@ -1816,6 +1820,14 @@ function animate() {
   const gY = cachedGroundY;
   if (player.position.y <= gY) { player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false; }
   else if (player.position.y > gY + 0.1) isGrounded = false;
+  
+  // 안전망: 지면 이상 낮이 되거나 맵 밖으로 떨어지면 복귀
+  if (player.position.y < -20 || !isFinite(player.position.y)) {
+    console.warn('추락 감지 → 복귀');
+    player.position.set(0, 20, 0);
+    velocityY = 0;
+    cachedGroundY = null;
+  }
 
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
   const headY = poseHeadY[currentPose] || 1.5;
