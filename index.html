@@ -143,7 +143,7 @@
   <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>ESC</b> 시점 풀기
 </div>
 
-<div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인</div>
+<div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 · 🗺️ <span id="mapName">-</span></div>
 
 <div id="paintIndicator">🎨 페인트 모드 (P로 종료)</div>
 <div id="crosshair"></div>
@@ -305,10 +305,15 @@ function buildWalls(center, halfX, halfZ) {
   makeSide(center.x-halfX, center.z, halfZ*2, Math.PI/2);
   makeSide(center.x+halfX, center.z, halfZ*2, Math.PI/2);
   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => {
-    const pillar = new THREE.Mesh(new THREE.BoxGeometry(2.8, wh, 2.8), cornerMat);
+    // 5m 크기 대형 코너 기둥 + 갓돌
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(5, wh, 5), cornerMat);
     pillar.position.set(center.x+sx*halfX, wh/2, center.z+sz*halfZ);
     pillar.castShadow = true; pillar.receiveShadow = true;
     wallGroup.add(pillar);
+    // 코너 갓돌
+    const cornerCap = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.5, 5.4), capMat);
+    cornerCap.position.set(center.x+sx*halfX, wh+0.1, center.z+sz*halfZ);
+    wallGroup.add(cornerCap);
   });
 }
 
@@ -336,19 +341,29 @@ draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/gl
 const gltfLoader = new GLTFLoader();
 gltfLoader.setDRACOLoader(draco);
 
-// 두 포즈 저장
+// 두 포즈 저장 (모델 + 머리 y 위치)
 const poseModels = { stand: null, crouch: null };
-let currentPose = 'stand'; // 현재 포즈
-let currentPoseGlb = null; // 현재 씬에 있는 GLB
+const poseHeadY = { stand: 1.6, crouch: 1.0 }; // 기본값 (로드 후 실측)
+let currentPose = 'stand';
+let currentPoseGlb = null;
 
-function processGlb(gltf) {
+function processGlb(gltf, poseName) {
   const glb = gltf.scene;
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
-  const scale = 1.7 / size.y;
-  glb.scale.setScalar(scale);
+  // 서있는 포즈는 1.7m, 숙인 포즈는 원본 크기 유지 (같은 스케일로)
+  const scale = 1.7 / (poseName === 'stand' ? size.y : size.y * 1.5); // 숙인 건 좀 더 큰 스케일 유지
+  glb.scale.setScalar(poseName === 'stand' ? (1.7 / size.y) : (1.7 / size.y)); // 일단 같은 스케일
   const box2 = new THREE.Box3().setFromObject(glb);
+  // X/Z 중심도 원점 정렬 (뒤틀림 방지)
   glb.position.y = -box2.min.y;
+  const center = new THREE.Vector3(); box2.getCenter(center);
+  glb.position.x = -center.x;
+  glb.position.z = -center.z;
+  // 실제 머리 높이 측정
+  const box3 = new THREE.Box3().setFromObject(glb);
+  poseHeadY[poseName] = box3.max.y * 0.92;
+  console.log(`포즈 [${poseName}] 머리 Y:`, poseHeadY[poseName].toFixed(2));
   glb.traverse(o => {
     if (o.isMesh) {
       o.castShadow = true;
@@ -382,7 +397,7 @@ function updateLoadingText() {
 }
 
 gltfLoader.load('./stand.glb', gltf => {
-  poseModels.stand = processGlb(gltf);
+  poseModels.stand = processGlb(gltf, 'stand');
   console.log('✅ 서있는 포즈 로드 완료');
   if (!currentPoseGlb) switchPose('stand');
   characterTemplate = poseModels.stand;
@@ -392,7 +407,7 @@ gltfLoader.load('./stand.glb', gltf => {
 }, err => console.error('서있는 포즈 실패:', err));
 
 gltfLoader.load('./crouch.glb', gltf => {
-  poseModels.crouch = processGlb(gltf);
+  poseModels.crouch = processGlb(gltf, 'crouch');
   console.log('✅ 숙인 포즈 로드 완료');
   loadProgress.crouch = 100; updateLoadingText();
 }, xhr => {
@@ -414,11 +429,25 @@ const collidableMeshes = [];
 let mixer = null;
 const clock = new THREE.Clock();
 
+// ==== 맵 랜덤 선택 시스템 ====
+const MAPS = [
+  {
+    name: '도쿄 뒷골목',
+    url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
+    scale: 0.18
+  },
+  // Sketchfab 에서 GLB 받아서 shipment_arena.glb 로 넣으면 활성화됨
+  // { name: 'Shipment Arena', url: './shipment_arena.glb', scale: 1 },
+];
+const selectedMap = MAPS[Math.floor(Math.random() * MAPS.length)];
+console.log('🗺️ 선택된 맵:', selectedMap.name);
+document.getElementById('mapName').textContent = selectedMap.name;
+
 gltfLoader.load(
-  'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
+  selectedMap.url,
   gltf => {
     const model = gltf.scene;
-    model.scale.set(0.18, 0.18, 0.18);
+    model.scale.setScalar(selectedMap.scale);
     const box = new THREE.Box3().setFromObject(model);
     model.position.y = -box.min.y;
     model.traverse(o => {
@@ -531,7 +560,7 @@ addEventListener('keydown', e => {
   // 도구 단축키
   if (paintMode) {
     if (e.code === 'KeyB') setTool('brush');
-    if (e.code === 'KeyF') setTool('bucket');
+    if (e.code === 'KeyF') bucketFill();
     if (e.code === 'KeyE') setTool('eraser');
   }
   // 점프
@@ -585,7 +614,11 @@ function setTool(t) {
   currentTool = t;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
 }
-document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => {
+  const t = b.dataset.tool;
+  if (t === 'bucket') { bucketFill(); return; } // 버킷은 툴 선택 즉시 채움
+  setTool(t);
+}));
 
 document.getElementById('brushRange').addEventListener('input', e => {
   brushSize = +e.target.value;
@@ -596,8 +629,17 @@ document.getElementById('brushRange').addEventListener('input', e => {
 const paintRc = new THREE.Raycaster();
 let lastPaintTime = 0;
 
+// 버킷: 즉시 전체 채우기 (raycast 필요없음)
+function bucketFill() {
+  paintCtx.fillStyle = currentColor;
+  paintCtx.fillRect(0, 0, PAINT_SIZE, PAINT_SIZE);
+  paintTexture.needsUpdate = true;
+  addRecentColor(currentColor);
+  console.log('🪣 버킷 전체 채움:', currentColor);
+}
+
 function paint(clientX, clientY) {
-  if (!characterMeshes.length) return;
+  if (!characterMeshes.length) { console.warn('캐릭터 mesh 없음'); return; }
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
     ((clientX - rect.left)/rect.width)*2 - 1,
@@ -605,16 +647,13 @@ function paint(clientX, clientY) {
   );
   paintRc.setFromCamera(mv, camera);
   const hits = paintRc.intersectObjects(characterMeshes, true);
-  if (!hits.length) return;
+  if (!hits.length) { return; }
   const uv = hits[0].uv;
-  if (!uv) return;
+  if (!uv) { console.warn('UV 없음, 페인트 불가'); return; }
   const px = uv.x * PAINT_SIZE;
   const py = uv.y * PAINT_SIZE;
 
-  if (currentTool === 'bucket') {
-    paintCtx.fillStyle = currentColor;
-    paintCtx.fillRect(0, 0, PAINT_SIZE, PAINT_SIZE);
-  } else if (currentTool === 'brush') {
+  if (currentTool === 'brush') {
     paintCtx.fillStyle = currentColor;
     paintCtx.beginPath();
     paintCtx.arc(px, py, brushSize, 0, Math.PI*2);
@@ -894,9 +933,10 @@ function animate() {
   if (player.position.y <= gY) { player.position.y = gY; velocityY = 0; isGrounded = true; }
   else if (player.position.y > gY + 0.1) isGrounded = false;
 
-  // 카메라 - 3인칭 (페인트 모드에선 좀 더 캐릭터에 가깝게)
+  // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
+  const headY = poseHeadY[currentPose] || 1.5;
   const camDist = paintMode ? 3.5 : 5;
-  const focusY = player.position.y + (paintMode ? 1.0 : 1.2);
+  const focusY = player.position.y + headY;
   const hd = camDist * Math.cos(cameraPitch);
   const vo = camDist * Math.sin(cameraPitch);
   camera.position.x = player.position.x + Math.sin(cameraYaw) * hd;
