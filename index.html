@@ -140,7 +140,7 @@
 
 <div id="hud">
   <b>WASD</b> 이동 · <b>Shift</b> 달리기 · <b>Space</b> 점프<br>
-  <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>ESC</b> 시점 풀기
+  <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>T</b> 역할전환 · <b>ESC</b> 시점 풀기
 </div>
 
 <div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 · 🗺️ <span id="mapName">-</span></div>
@@ -347,6 +347,109 @@ const poseHeadY = { stand: 1.6, crouch: 1.0 }; // 기본값 (로드 후 실측)
 let currentPose = 'stand';
 let currentPoseGlb = null;
 
+// 술래(seeker) 모델 + 총
+let seekerModel = null;   // 술래 원본 (복제용)
+let seekerGunModel = null; // 총 원본
+
+// 내 역할: 'hider' (숨는 자) or 'seeker' (술래)
+let myRole = 'hider';
+
+// 술래 모델 로드
+gltfLoader.load('./tager.glb', gltf => {
+  const glb = gltf.scene;
+  const box = new THREE.Box3().setFromObject(glb);
+  const size = new THREE.Vector3(); box.getSize(size);
+  // 술래는 카멜레온보다 1.4배 크게 (실제 게임 스펙)
+  const scale = 2.4 / size.y;
+  glb.scale.setScalar(scale);
+  const box2 = new THREE.Box3().setFromObject(glb);
+  glb.position.y = -box2.min.y;
+  const c = new THREE.Vector3(); box2.getCenter(c);
+  glb.position.x = -c.x; glb.position.z = -c.z;
+  glb.traverse(o => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+  });
+  seekerModel = glb;
+  console.log('✅ 술래 모델 로드 완료');
+}, undefined, err => console.warn('술래 모델 로드 실패 (tager.glb 없음):', err.message));
+
+// 총 로드 
+gltfLoader.load('./gun.glb', gltf => {
+  const glb = gltf.scene;
+  const box = new THREE.Box3().setFromObject(glb);
+  const size = new THREE.Vector3(); box.getSize(size);
+  // 총은 60cm 정도로 스케일
+  const scale = 0.6 / Math.max(size.x, size.y, size.z);
+  glb.scale.setScalar(scale);
+  glb.traverse(o => {
+    if (o.isMesh) { o.castShadow = true; }
+  });
+  seekerGunModel = glb;
+  console.log('✅ 총 모델 로드 완료');
+}, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
+
+// 술래 캐릭터에 총 붙이기 (오른손 위치)
+function attachGunToSeeker(seekerGlb) {
+  if (!seekerGunModel) return null;
+  const gunClone = seekerGunModel.clone(true);
+  // 오른손 본 찾기 (rigging된 모델이면)
+  let rightHand = null;
+  seekerGlb.traverse(o => {
+    if (o.isBone && !rightHand) {
+      const n = (o.name || '').toLowerCase();
+      if (n.includes('righthand') || n.includes('r_hand') || n.includes('hand.r') || 
+          n.includes('right_hand') || n.includes('handright')) {
+        rightHand = o;
+      }
+    }
+  });
+  if (rightHand) {
+    // 손 본에 직접 부착
+    gunClone.position.set(0, 0, 0);
+    rightHand.add(gunClone);
+    console.log('총을 오른손 본에 부착:', rightHand.name);
+  } else {
+    // 본 없으면 캐릭터 앞쪽 허리 높이에 고정
+    gunClone.position.set(0.35, 1.0, 0.2);
+    gunClone.rotation.y = -Math.PI / 2;
+    seekerGlb.add(gunClone);
+    console.log('본 없음 - 총을 허리 위치에 고정');
+  }
+  return gunClone;
+}
+
+// 역할 전환 - 술래로 바꾸면 캐릭터 모델도 술래 모델로 교체
+function setRole(role) {
+  myRole = role;
+  console.log('🎭 내 역할:', role);
+  if (role === 'seeker' && seekerModel) {
+    if (currentPoseGlb) player.remove(currentPoseGlb);
+    const seekerClone = seekerModel.clone(true);
+    seekerClone.traverse(o => {
+      if (o.isMesh) {
+        o.castShadow = true; o.receiveShadow = true;
+      }
+    });
+    attachGunToSeeker(seekerClone);
+    player.add(seekerClone);
+    currentPoseGlb = seekerClone;
+    characterMeshes = [];
+    seekerClone.traverse(o => { if (o.isMesh) characterMeshes.push(o); });
+    poseHeadY.stand = 2.2; // 술래 머리 위치 (더 큼)
+  } else {
+    // 숨는 자 - 원래 캐릭터로
+    switchPose(currentPose);
+  }
+}
+
+// 임시: T 키로 역할 전환 (테스트용)
+addEventListener('keydown', e => {
+  if (e.code === 'KeyT') {
+    setRole(myRole === 'hider' ? 'seeker' : 'hider');
+  }
+});
+
+
 function processGlb(gltf, poseName) {
   const glb = gltf.scene;
   const box = new THREE.Box3().setFromObject(glb);
@@ -438,7 +541,7 @@ const MAPS = [
   },
   {
     name: 'Sponza 궁전',
-    url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Sponza/glTF/Sponza.gltf',
+    url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Sponza/glTF/Sponza.gltf',
     scale: 3,
     hasWalls: true  // 원래 벽 있는 실내 → 벽 안 만듦
   },
