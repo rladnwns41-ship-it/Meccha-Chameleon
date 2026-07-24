@@ -581,6 +581,63 @@ let myScore = 0;
 let scoreTimer = null;
 let roundTimerHandle = null;
 
+// 방장 상태 관리 - 매초 체크해서 자동 전환
+let _hostTickLog = 0;
+setInterval(async () => {
+  if (!myRoomId || !myUid) return;
+  try {
+    const snap = await get(ref(fbDb, `rooms/${myRoomId}`));
+    const room = snap.val();
+    if (!room) return;
+    if (room.hostUid !== myUid) return;
+    const now = Date.now();
+    const count = Object.keys(room.players || {}).length;
+    
+    // 5초마다 한 번씩 상태 로그
+    if (_hostTickLog++ % 10 === 0) {
+      console.log(`👑 [방장 tick] state=${room.state}, count=${count}, countdownEndAt=${room.countdownEndAt}, now-endAt=${room.countdownEndAt ? (now - room.countdownEndAt) : 'N/A'}`);
+    }
+    
+    // 로비 → 투표 전환
+    if (room.state === 'lobby' && room.countdownEndAt && room.countdownEndAt < now && count >= 2) {
+      await update(ref(fbDb, `rooms/${myRoomId}`), {
+        state: 'voting',
+        voteEndAt: now + 15000,
+        countdownEndAt: null
+      });
+      console.log('▶ 상태전환: lobby → voting');
+    }
+    
+    // 투표 → 뽑기 전환
+    if (room.state === 'voting' && room.voteEndAt && room.voteEndAt < now) {
+      const players = room.players || {};
+      const votes = {};
+      Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
+      let maxV = -1, winners = [];
+      Object.entries(votes).forEach(([k, v]) => {
+        if (v > maxV) { maxV = v; winners = [k]; }
+        else if (v === maxV) winners.push(k);
+      });
+      const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
+      const uids = Object.keys(players);
+      const seekerUid = uids[Math.floor(Math.random() * uids.length)];
+      await update(ref(fbDb, `rooms/${myRoomId}`), {
+        state: 'drawing',
+        selectedMap: chosen,
+        seekerUid: seekerUid,
+        drawEndAt: now + 5000
+      });
+      console.log('▶ 상태전환: voting → drawing');
+    }
+    
+    // 뽑기 → 게임 전환
+    if (room.state === 'drawing' && room.drawEndAt && room.drawEndAt < now) {
+      await update(ref(fbDb, `rooms/${myRoomId}`), { state: 'playing', playStartAt: now });
+      console.log('▶ 상태전환: drawing → playing');
+    }
+  } catch(e) { console.error('❌ 방장 tick 에러:', e); }
+}, 500);
+
 // 라운드 상태 리스너 (방 안 game_state)
 function subscribeRoundState() {
   if (!myRoomId) return;
@@ -1065,8 +1122,10 @@ document.getElementById('createRoomBtn').addEventListener('click', async () => {
     name: name,
     hostUid: myUid,
     state: 'lobby',
+    countdownEndAt: null,
     createdAt: Date.now()
   });
+  console.log('✅ 방 생성:', newRoom.key, '방장=', myUid);
   await set(ref(fbDb, `rooms/${newRoom.key}/players/${myUid}`), {
     nick: myNick, joinedAt: Date.now()
   });
@@ -1088,6 +1147,7 @@ async function joinRoom(roomId) {
   });
   myRoomId = roomId;
   onDisconnect(ref(fbDb, `rooms/${roomId}/players/${myUid}`)).remove();
+  console.log('🚪 방 입장:', roomId, '내 UID=', myUid);
   enterRoom(roomId);
 }
 
@@ -1145,26 +1205,16 @@ let countdownTimer = null;
 function manageCountdown(roomId, room, count) {
   const now = Date.now();
   if (count < 2) {
-    // 인원 부족 - 카운트다운 없음
     if (room.countdownEndAt) {
+      console.log('⏹ 인원 부족 - 카운트다운 취소');
       update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: null });
     }
     return;
   }
-  // 2명 이상 - 카운트다운 필요
-  if (!room.countdownEndAt) {
-    // 새로 시작 (5초)
-    const isFull = count >= 5;
-    const secs = isFull ? 5 : 5;
-    update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: now + secs*1000 });
-  }
-  // 카운트다운 끝났으면 → 투표로
-  if (room.countdownEndAt && room.countdownEndAt < now && count >= 2) {
-    update(ref(fbDb, `rooms/${roomId}`), {
-      state: 'voting',
-      voteEndAt: now + 15000,
-      countdownEndAt: null
-    });
+  if (!room.countdownEndAt || room.countdownEndAt < now) {
+    // 없거나 이미 지났으면 재시작
+    console.log('▶ 카운트다운 시작: 5초 후');
+    update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: now + 5000 });
   }
 }
 
@@ -1183,13 +1233,24 @@ function updateCountdownDisplay(room) {
   
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
   if (!room.countdownEndAt) {
-    el.textContent = count < 2 ? '⏳ 최소 2명 필요' : '';
+    el.textContent = count < 2 ? '최소 2명 필요' : '';
+    el.style.fontSize = '20px';
+    el.style.color = '#ffca28';
     return;
   }
+  el.style.fontSize = '48px';
+  const endAt = room.countdownEndAt;
   const tick = () => {
-    const remain = room.countdownEndAt - Date.now();
-    if (remain <= 0) { el.textContent = '시작!'; clearInterval(countdownTimer); return; }
-    el.textContent = '⏱️ ' + Math.ceil(remain/1000) + '초';
+    const remain = endAt - Date.now();
+    if (remain <= 0) {
+      el.textContent = '시작!';
+      el.style.color = '#4dd07a';
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      return;
+    }
+    el.style.color = '#ffca28';
+    el.textContent = Math.ceil(remain/1000) + '';
   };
   tick();
   countdownTimer = setInterval(tick, 200);
