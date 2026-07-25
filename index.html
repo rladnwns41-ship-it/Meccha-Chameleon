@@ -1198,31 +1198,40 @@ gltfLoader.load('./gun.glb', gltf => {
   const glb = gltf.scene;
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
-  // 총은 60cm 정도로 스케일
-  const scale = 0.6 / Math.max(size.x, size.y, size.z);
+  // 총을 1.2m 정도로 크게 (몸에 파묻히지 않게)
+  const scale = 1.2 / Math.max(size.x, size.y, size.z);
   glb.scale.setScalar(scale);
   glb.traverse(o => {
-    if (o.isMesh) { o.castShadow = true; }
+    o.visible = true;
+    if (o.isMesh) {
+      o.castShadow = true;
+      o.frustumCulled = false;
+      // 재질이 이상하면 강제 교체 (검은 총 방지)
+      if (!o.material || o.material.transparent) {
+        o.material = new THREE.MeshLambertMaterial({ color: 0x333333 });
+      }
+    }
   });
   seekerGunModel = glb;
-  console.log('✅ 총 모델 로드 완료');
-  // 로딩 늦게 끝났을 때: 이미 술래면 지금 붙임
+  console.log('✅ 총 모델 로드 완료 / 스케일:', scale.toFixed(3));
   if (myRole === 'seeker' && !attachedGun) attachGunToPlayer();
-  // 다른 술래 플레이어들에게도 소급 부착
   refreshOtherSeekerGuns();
 }, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
 
-// 총 = player 그룹에 직접 붙임 (모든 포즈에서 오른손 위치에 나타남)
+// 총 = player 그룹에 직접 붙임
 let attachedGun = null;
 function attachGunToPlayer() {
   if (!seekerGunModel || attachedGun) return;
   attachedGun = seekerGunModel.clone(true);
-  attachedGun.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  // 오른손 앞쪽 (몸 오른쪽, 앞으로 살짝, 배 높이)
-  attachedGun.position.set(0.42, 1.0, 0.35);
-  attachedGun.rotation.y = -Math.PI / 2;
+  attachedGun.traverse(o => {
+    o.visible = true;
+    if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; }
+  });
+  // 캐릭터 오른쪽 앞으로 잘 보이게 (어깨 높이 · 앞으로 · 오른쪽)
+  attachedGun.position.set(0.5, 1.3, 0.6);
+  attachedGun.rotation.set(0, -Math.PI / 2, 0);
   player.add(attachedGun);
-  console.log('🔫 총 부착');
+  console.log('🔫 총 부착 완료');
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1233,8 +1242,12 @@ function attachGunToOther(uid) {
   const ot = otherPlayers[uid];
   if (!ot || !seekerGunModel || ot.gun) return;
   const g = seekerGunModel.clone(true);
-  g.position.set(0.42, 1.0, 0.35);
-  g.rotation.y = -Math.PI / 2;
+  g.traverse(o => {
+    o.visible = true;
+    if (o.isMesh) { o.frustumCulled = false; }
+  });
+  g.position.set(0.5, 1.3, 0.6);
+  g.rotation.set(0, -Math.PI / 2, 0);
   ot.group.add(g);
   ot.gun = g;
 }
@@ -2002,7 +2015,7 @@ let pointerLocked = false, paintMode = false;
 // ============================================================
 // 로비/방/투표/뽑기 시스템
 // ============================================================
-import { push, update, get, remove, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { push, update, get, remove, off, onChildAdded, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 let myRoomId = null;
 let currentScreen = 'nick';
@@ -2549,9 +2562,14 @@ function bucketFill() {
   let total = 0;
   characterMeshes.forEach(m => { total += m.geometry.attributes.color?.count || 0; });
   console.log('🪣 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
+  // Firebase 로 브로드캐스트 (특수 스트로크)
+  if (myRoomId && myUid) {
+    const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
+    push(strokesRef, { bucket: true, c: currentColor, t: Date.now() });
+  }
 }
 
-// 스포이드 - 모든 씬 오브젝트에서 색 뽑기 (벽, 맵, 캐릭터 다)
+// 스포이드 - 페인트 가능한 캐릭터에서만 색 뽑기 (맵/벽 무시)
 function pickColor(clientX, clientY) {
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
@@ -2559,47 +2577,40 @@ function pickColor(clientX, clientY) {
     -((clientY - rect.top)/rect.height)*2 + 1
   );
   paintRc.setFromCamera(mv, camera);
-  // 씬의 모든 mesh 대상 (캐릭터 포함)
-  const allMeshes = [];
-  scene.traverse(o => {
-    if (o.isMesh && o.visible) allMeshes.push(o);
+  // 페인트 가능한 표면만 대상 (내 캐릭터 + 다른 플레이어 캐릭터)
+  const targets = [...characterMeshes];
+  Object.values(otherPlayers).forEach(ot => {
+    if (ot.charMesh) ot.charMesh.traverse(o => { if (o.isMesh) targets.push(o); });
   });
-  const hits = paintRc.intersectObjects(allMeshes, false);
-  if (!hits.length) { console.log('🎯 스포이드 - 아무것도 안 맞음'); return; }
+  const hits = paintRc.intersectObjects(targets, false);
+  if (!hits.length) { console.log('🎯 스포이드 - 캐릭터 안 맞음'); return; }
   const hit = hits[0];
   const mesh = hit.object;
   let hex = null;
   
-  // 1) vertex color 있으면 그거 사용 (캐릭터)
+  // vertex color (페인트한 색)
   const colors = mesh.geometry.attributes.color;
   if (colors && mesh.material.vertexColors) {
     _tmpMat.copy(mesh.matrixWorld).invert();
     const localPoint = hit.point.clone().applyMatrix4(_tmpMat);
     const positions = mesh.geometry.attributes.position;
-    let bestI = 0, bestDist = Infinity;
-    for (let i = 0; i < positions.count; i++) {
-      const dx = positions.getX(i) - localPoint.x;
-      const dy = positions.getY(i) - localPoint.y;
-      const dz = positions.getZ(i) - localPoint.z;
-      const d = dx*dx + dy*dy + dz*dz;
-      if (d < bestDist) { bestDist = d; bestI = i; }
+    // face 의 3 정점 중 가장 가까운 것 → 더 정확
+    const face = hit.face;
+    if (face) {
+      const indices = [face.a, face.b, face.c];
+      let bestI = indices[0], bestDist = Infinity;
+      for (const i of indices) {
+        const dx = positions.getX(i) - localPoint.x;
+        const dy = positions.getY(i) - localPoint.y;
+        const dz = positions.getZ(i) - localPoint.z;
+        const d = dx*dx + dy*dy + dz*dz;
+        if (d < bestDist) { bestDist = d; bestI = i; }
+      }
+      const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
+      hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
     }
-    const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
-    hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
   }
-  // 2) 텍스처가 있으면 UV 좌표에서 픽셀 뽑기
-  else if (hit.uv && mesh.material.map && mesh.material.map.image) {
-    const img = mesh.material.map.image;
-    const cv = document.createElement('canvas');
-    cv.width = img.width; cv.height = img.height;
-    const cx = cv.getContext('2d');
-    cx.drawImage(img, 0, 0);
-    const px = Math.floor(hit.uv.x * img.width);
-    const py = Math.floor((1 - hit.uv.y) * img.height);
-    const d = cx.getImageData(px, py, 1, 1).data;
-    hex = '#' + [d[0],d[1],d[2]].map(v => v.toString(16).padStart(2,'0')).join('');
-  }
-  // 3) 그것도 없으면 material color 자체
+  // material color fallback
   else if (mesh.material.color) {
     hex = '#' + mesh.material.color.getHexString();
   }
@@ -2609,7 +2620,7 @@ function pickColor(clientX, clientY) {
   document.getElementById('preview').style.background = hex;
   document.getElementById('hexInput').value = hex;
   console.log('🎯 스포이드 색:', hex);
-  setTool('brush'); // 자동으로 브러시 모드
+  setTool('brush');
 }
 
 function paint(clientX, clientY) {
@@ -2663,12 +2674,12 @@ function paint(clientX, clientY) {
   addRecentColor(currentColor);
   console.log('🎨 페인트 적용:', painted, '개 정점, 색=', currentColor, '반경=', radiusLocal.toFixed(2));
 
-  // Firebase에 스트로크 동기화 (throttle: 150ms)
-  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 150) {
+  // Firebase에 스트로크 이벤트 push (모든 붓 스트로크가 전달됨)
+  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 40) {
     _lastPaintSyncTime = Date.now();
     const meshIdx = characterMeshes.indexOf(mesh);
-    const strokeRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}`);
-    set(strokeRef, {
+    const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
+    push(strokesRef, {
       x: +localPoint.x.toFixed(3),
       y: +localPoint.y.toFixed(3),
       z: +localPoint.z.toFixed(3),
@@ -2846,6 +2857,19 @@ function startFirebaseSync(room) {
       if (!ot) return;
       const meshes = [];
       ot.charMesh.traverse(o => { if (o.isMesh) meshes.push(o); });
+      // 버킷 스트로크: 모든 정점 다 채움
+      if (stroke.bucket) {
+        _remoteColor.set(stroke.c);
+        meshes.forEach(mesh => {
+          const colors = mesh.geometry.attributes.color;
+          if (!colors) return;
+          for (let i = 0; i < colors.count; i++) {
+            colors.setXYZ(i, _remoteColor.r, _remoteColor.g, _remoteColor.b);
+          }
+          colors.needsUpdate = true;
+        });
+        return;
+      }
       const mesh = meshes[stroke.m] || meshes[0];
       if (!mesh) return;
       const colors = mesh.geometry.attributes.color;
@@ -2866,7 +2890,13 @@ function startFirebaseSync(room) {
     }
     function subscribePaintForUid(uid) {
       if (_paintListeners[uid]) return;
-      const unsub = onValue(ref(fbDb, `rooms/${myRoomId}/paint/${uid}`), snap => {
+      // 최근 200개 스트로크만 listen (오래된 건 방 나갈 때 청소됨)
+      const q = query(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/strokes`), limitToLast(200));
+      const _seen = new Set();
+      const unsub = onChildAdded(q, snap => {
+        const key = snap.key;
+        if (_seen.has(key)) return;
+        _seen.add(key);
         const stroke = snap.val();
         if (stroke) applyRemotePaint(uid, stroke);
       });
