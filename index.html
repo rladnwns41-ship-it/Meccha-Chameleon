@@ -189,6 +189,7 @@
     background:rgba(0,0,0,0.55); color:#fff; pointer-events:none;
   }
   #hidePhaseOverlay.hidden { display:none !important; }
+  #gameStartClick.show { display:flex !important; }
   #hidePhaseOverlay .msg { font-size:36px; font-weight:800; margin-bottom:12px; }
   #hidePhaseOverlay .timer { font-size:64px; color:#ffca28; font-weight:900; font-family:monospace; }
 </style>
@@ -283,6 +284,11 @@
 
 <div id="paintIndicator">🎨 페인트 모드 (P로 종료)</div>
 <div id="crosshair"></div>
+<div id="gameStartClick" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:80;align-items:center;justify-content:center;color:#fff;cursor:pointer;font-size:24px;font-weight:700;backdrop-filter:blur(4px);flex-direction:column;gap:12px">
+  <div style="font-size:48px">🎮</div>
+  <div>화면 클릭해서 시작</div>
+  <div style="font-size:14px;opacity:0.6">ESC 키로 마우스 풀기</div>
+</div>
 <div id="gameCrosshair" style="display:none;position:fixed;left:50%;top:50%;width:24px;height:24px;margin:-12px 0 0 -12px;pointer-events:none;z-index:15">
   <div style="position:absolute;left:11px;top:0;width:2px;height:8px;background:#ff4757"></div>
   <div style="position:absolute;left:11px;bottom:0;width:2px;height:8px;background:#ff4757"></div>
@@ -884,14 +890,8 @@ function processGlb(gltf, poseName) {
   const glb = gltf.scene;
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
-  let scale;
-  if (poseName === 'stand') {
-    scale = 1.9 / size.y;  // 서있는 포즈 1.9m로 큼직하게
-    _standRefScale = scale;
-  } else {
-    // crouch는 stand 스케일 상대적으로 (같은 배율)
-    scale = _standRefScale || (1.9 / size.y);
-  }
+  // 두 포즈 모두 자기 크기 기준 1.7m 로 정규화 (동일 시각 크기)
+  const scale = 1.7 / size.y;
   glb.scale.setScalar(scale);
   const box2 = new THREE.Box3().setFromObject(glb);
   // X/Z 중심 원점 정렬 (뒤틀림 방지)
@@ -906,46 +906,41 @@ function processGlb(gltf, poseName) {
     if (o.isMesh) {
       o.castShadow = true;
       o.receiveShadow = true;
-      // 버텍스 컬러 속성 (없으면 흰색으로 초기화)
-      if (!o.geometry.attributes.color) {
-        const count = o.geometry.attributes.position.count;
-        const colors = new Float32Array(count * 3);
-        for (let i = 0; i < count; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
-        o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      }
-      // vertex color 재질 (UV 없어도 페인트 됨)
+      // 정점 컬러 속성 확실히 (흰색 초기화)
+      const posCount = o.geometry.attributes.position.count;
+      const colors = new Float32Array(posCount * 3);
+      for (let i = 0; i < posCount; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
+      o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      // vertex color 재질
       o.material = new THREE.MeshStandardMaterial({
-        vertexColors: true, roughness: 0.55, metalness: 0.0
+        color: 0xffffff, vertexColors: true, roughness: 0.55, metalness: 0.0
       });
+      o.material.needsUpdate = true;
+      // 프러스텀 컬링 끄기 (안 보이는 문제 방지)
+      o.frustumCulled = false;
     }
   });
+  // 로드 즉시 player 에 추가 (일단 숨김)
+  glb.visible = false;
+  player.add(glb);
   return glb;
 }
 
 // 포즈 전환
 function switchPose(poseName) {
   if (!poseModels[poseName]) { console.warn('포즈 없음:', poseName); return; }
-  if (currentPoseGlb) player.remove(currentPoseGlb);
   currentPose = poseName;
   currentPoseGlb = poseModels[poseName];
-  player.add(currentPoseGlb);
+  // 두 모델 다 씬에 두고 visibility 만 토글 (자연스러운 즉시 전환)
+  Object.entries(poseModels).forEach(([name, model]) => {
+    if (model) model.visible = (name === poseName);
+  });
+  // characterMeshes 갱신
   characterMeshes = [];
   currentPoseGlb.traverse(o => {
-    if (o.isMesh) {
-      // 재질 확실히 vertex color 방식으로 (매번 재확인)
-      if (!o.material.vertexColors) {
-        o.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 });
-      }
-      // color 속성 없으면 흰색으로 초기화
-      if (!o.geometry.attributes.color) {
-        const count = o.geometry.attributes.position.count;
-        const cs = new Float32Array(count * 3).fill(1);
-        o.geometry.setAttribute('color', new THREE.BufferAttribute(cs, 3));
-      }
-      characterMeshes.push(o);
-    }
+    if (o.isMesh) characterMeshes.push(o);
   });
-  console.log('👤 포즈 전환:', poseName, '/ mesh 수:', characterMeshes.length);
+  console.log('👤 포즈 전환:', poseName, '/ 보이는 mesh 수:', characterMeshes.length);
 }
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -1254,8 +1249,11 @@ function subscribeRoom(roomId) {
     });
     
     // 상태별 화면 전환
-    if (room.state === 'voting' && currentScreen === 'lobby') {
-      startVotingUI(room);
+    if (room.state === 'voting') {
+      if (currentScreen !== 'vote') startVotingUI(room);
+      else renderVoteMaps(room);  // 다른 사람 투표하면 실시간 갱신
+      const timerEl = document.getElementById('voteTimer');
+      if (timerEl) timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
     } else if (room.state === 'drawing' && currentScreen !== 'draw') {
       startDrawingUI(room);
     } else if (room.state === 'playing' && currentScreen !== 'game') {
@@ -1435,8 +1433,17 @@ async function startGame(room) {
   myScore = 0;
   document.getElementById('myScore').textContent = 0;
   
-  // 카메라 포인터락
-  renderer.domElement.requestPointerLock();
+  // 사용자 클릭 유도 오버레이 (브라우저 정책)
+  const clickOverlay = document.getElementById('gameStartClick');
+  clickOverlay.classList.add('show');
+  clickOverlay.style.display = 'flex';
+  const clickHandler = () => {
+    clickOverlay.style.display = 'none';
+    clickOverlay.classList.remove('show');
+    renderer.domElement.requestPointerLock();
+    clickOverlay.removeEventListener('click', clickHandler);
+  };
+  clickOverlay.addEventListener('click', clickHandler);
   // 위치 동기화 시작
   startFirebaseSync(room);
   // 라운드 리스너 + 스코어 타이머 시작
@@ -1571,7 +1578,9 @@ function bucketFill() {
     colors.needsUpdate = true;
   });
   addRecentColor(currentColor);
-  console.log('🪣 버킷 전체 채움:', currentColor);
+  let total = 0;
+  characterMeshes.forEach(m => { total += m.geometry.attributes.color?.count || 0; });
+  console.log('🪣 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
 }
 
 function paint(clientX, clientY) {
@@ -1624,22 +1633,28 @@ function paint(clientX, clientY) {
   if (!colors) return;
   
   // 붓 크기를 월드 반경으로 (brushSize 픽셀 → 대략 캐릭터 스케일)
-  const radiusLocal = brushSize * 0.008 / mesh.getWorldScale(_tmpVec).x;
+  // 브러시 반경 - 최소 3cm 보장 (정점 하나는 확실히 잡히게)
+  const worldScale = mesh.getWorldScale(_tmpVec).x || 1;
+  let radiusLocal = brushSize * 0.008 / worldScale;
+  if (radiusLocal < 0.03) radiusLocal = 0.03;
   const radiusSq = radiusLocal * radiusLocal;
   
   const paintColor = new THREE.Color(currentTool === 'eraser' ? '#ffffff' : currentColor);
   
   // 반경 내 모든 정점 색 변경
+  let painted = 0;
   for (let i = 0; i < positions.count; i++) {
     const dx = positions.getX(i) - localPoint.x;
     const dy = positions.getY(i) - localPoint.y;
     const dz = positions.getZ(i) - localPoint.z;
     if (dx*dx + dy*dy + dz*dz < radiusSq) {
       colors.setXYZ(i, paintColor.r, paintColor.g, paintColor.b);
+      painted++;
     }
   }
   colors.needsUpdate = true;
   addRecentColor(currentColor);
+  console.log('🎨 페인트 적용:', painted, '개 정점, 색=', currentColor, '반경=', radiusLocal.toFixed(2));
 }
 
 let isPainting = false;
