@@ -868,14 +868,6 @@
 <div id="scr-nick" class="screen hidden">
 
   <div class="logo-wrap">
-    <div class="icon-ring-wrap">
-      <div class="icon-ring"></div>
-      <div class="icon-ring"></div>
-      <div class="icon-ring"></div>
-      <div class="game-icon">
-        <span class="icon-fallback">🦎</span>
-      </div>
-    </div>
     <div class="game-name">웹챠 카멜레온</div>
     <div class="game-tagline">숨어라</div>
   </div>
@@ -943,7 +935,7 @@
 
 <div id="hud">
   <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
 </div>
 
@@ -2977,9 +2969,89 @@ function startFirebaseSync(room) {
         }
       });
     });
+    // ========== 도발 휘슬 시스템 ==========
+    subscribeWhistles();
   };
   tryReg();
 }
+
+// ================ 도발 휘슬 시스템 (H) ================
+const WHISTLE_URL = 'https://www.myinstants.com/media/sounds/geoje-yaho.mp3';
+const WHISTLE_MAX_DIST = 60; // 이 거리 넘으면 안 들림
+const WHISTLE_COOLDOWN = 3000; // 로컬 스팸 방지
+let _lastWhistleSent = 0;
+const _lastWhistleSeen = {}; // uid -> last timestamp we played
+// 프리로드 (한 번 캐시)
+const _whistlePreload = new Audio(WHISTLE_URL);
+_whistlePreload.preload = 'auto';
+_whistlePreload.load();
+
+function playWhistleAt(x, y, z, isMe) {
+  let vol;
+  if (isMe) {
+    vol = 0.7;
+  } else {
+    const dx = x - player.position.x;
+    const dy = y - player.position.y;
+    const dz = z - player.position.z;
+    const dist = Math.hypot(dx, dy, dz);
+    vol = Math.max(0, 1 - dist / WHISTLE_MAX_DIST);
+    if (vol <= 0.02) return;
+    vol = vol * vol;
+  }
+  const a = new Audio(WHISTLE_URL);
+  a.volume = Math.min(1, vol);
+  a.play().catch(err => console.warn('휘슬 재생 실패:', err.message));
+}
+
+async function sendWhistle() {
+  if (!myUid || !myRoomId) return;
+  const now = Date.now();
+  if (now - _lastWhistleSent < WHISTLE_COOLDOWN) {
+    console.log('⏱ 휘슬 쿨다운 중');
+    return;
+  }
+  _lastWhistleSent = now;
+  // 로컬 즉시 재생
+  playWhistleAt(player.position.x, player.position.y, player.position.z, true);
+  // Firebase 로 브로드캐스트 (위치 포함)
+  try {
+    await set(ref(fbDb, `rooms/${myRoomId}/whistles/${myUid}`), {
+      at: now,
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z
+    });
+    console.log('📢 휘슬 전송');
+  } catch (err) {
+    console.warn('휘슬 전송 실패:', err);
+  }
+}
+
+function subscribeWhistles() {
+  if (!myRoomId) return;
+  onValue(ref(fbDb, `rooms/${myRoomId}/whistles`), snap => {
+    const data = snap.val() || {};
+    Object.entries(data).forEach(([uid, w]) => {
+      if (!w || !w.at) return;
+      if (uid === myUid) return; // 내 건 이미 로컬 재생
+      const prev = _lastWhistleSeen[uid] || 0;
+      if (w.at <= prev) return; // 새 이벤트만
+      _lastWhistleSeen[uid] = w.at;
+      // 처음 구독시엔 기존 값들 무시 (최근 5초 이내만 재생)
+      if (Date.now() - w.at > 5000) return;
+      playWhistleAt(w.x || 0, w.y || 0, w.z || 0, false);
+      console.log('📣 상대 휘슬 감지:', uid);
+    });
+  });
+}
+
+// H 키로 휘슬
+addEventListener('keydown', e => {
+  if (e.code === 'KeyH' && !paintMode && currentScreen === 'game') {
+    sendWhistle();
+  }
+});
 
 // ================ Animate ================
 function animate() {
