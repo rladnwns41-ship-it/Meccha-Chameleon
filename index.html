@@ -912,6 +912,42 @@
     margin-top:3px; pointer-events:none;
   }
 
+  /* ============ 글리치(분신 명중) 효과 ============ */
+  #glitchOverlay {
+    position: fixed; inset: 0; z-index: 200;
+    pointer-events: none; opacity: 0;
+    background:
+      linear-gradient(rgba(255,20,90,0.18), rgba(0,255,220,0.18)),
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 2px, transparent 2px 4px);
+    mix-blend-mode: screen;
+    will-change: opacity, transform, filter;
+  }
+  #glitchOverlay.active {
+    animation: glitchEffect 0.7s steps(10) forwards;
+  }
+  @keyframes glitchEffect {
+    0%   { opacity: 0.95; transform: translate(0,0); filter: hue-rotate(0deg) saturate(2); }
+    10%  { transform: translate(-10px, 5px); filter: hue-rotate(90deg) saturate(3); }
+    22%  { transform: translate(8px, -4px); filter: hue-rotate(-80deg) invert(0.1); }
+    35%  { transform: translate(-6px, 8px); filter: hue-rotate(180deg); }
+    50%  { opacity: 0.85; transform: translate(4px, -6px); filter: hue-rotate(45deg); }
+    65%  { transform: translate(-3px, 3px); filter: hue-rotate(-30deg); }
+    80%  { opacity: 0.5; transform: translate(2px, -1px); }
+    100% { opacity: 0; transform: translate(0,0); filter: none; }
+  }
+  body.glitchShake canvas {
+    animation: canvasShake 0.7s steps(14) forwards;
+  }
+  @keyframes canvasShake {
+    0%,100% { transform: translate(0,0); filter: none; }
+    12%     { transform: translate(-6px, 2px); filter: hue-rotate(15deg) contrast(1.4); }
+    25%     { transform: translate(5px, -3px); filter: hue-rotate(-15deg) contrast(1.6); }
+    40%     { transform: translate(-3px, 4px); filter: hue-rotate(20deg); }
+    55%     { transform: translate(4px, -2px); filter: hue-rotate(-10deg); }
+    70%     { transform: translate(-2px, 1px); }
+    85%     { transform: translate(1px, -1px); }
+  }
+
 </style>
 </head>
 <body>
@@ -997,8 +1033,9 @@
 
 <div id="hud">
   <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
+  &nbsp; <span style="color:#ffe066;">👍 <span id="myLikeCount">0</span></span>
 </div>
 
 <div id="roundBar">
@@ -1008,6 +1045,8 @@
     <div id="roleTag">숨는 자</div>
   </div>
 </div>
+
+<div id="glitchOverlay"></div>
 
 <div id="chatBox" style="position:fixed;left:12px;bottom:88px;width:280px;
      background:rgba(0,0,0,0.5);border-radius:10px;padding:8px;font-size:13px;
@@ -1789,6 +1828,53 @@ renderer.domElement.addEventListener('mousedown', e => {
   shootFromCamera();
 });
 
+// C 키로 분신 만들기 (숨는 자만)
+addEventListener('keydown', e => {
+  if (e.code !== 'KeyC') return;
+  if (window._chatTyping) return;
+  if (currentScreen !== 'game') return;
+  if (paintMode) return;
+  if (myRole === 'seeker') return;   // 술래는 못 만듦
+  if (typeof window.createDecoy === 'function') window.createDecoy();
+});
+
+// L 키로 조준한 플레이어에게 좋아요
+addEventListener('keydown', async e => {
+  if (e.code !== 'KeyL') return;
+  if (window._chatTyping) return;
+  if (currentScreen !== 'game') return;
+  if (!pointerLocked) return;
+  if (!myRoomId || !myUid) return;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  shootRc.set(camera.position, dir);
+  shootRc.far = 80;
+  const targets = [];
+  const uidByObj = new Map();
+  Object.entries(otherPlayers).forEach(([uid, op]) => {
+    op.group.traverse(o => {
+      if (o.isMesh || o.isSprite) {
+        targets.push(o);
+        uidByObj.set(o.id, uid);
+      }
+    });
+  });
+  const hits = shootRc.intersectObjects(targets, false);
+  if (!hits.length) return;
+  const hitUid = uidByObj.get(hits[0].object.id);
+  if (!hitUid || hitUid === myUid) return;
+  try {
+    await set(ref(fbDb, `rooms/${myRoomId}/likes/${hitUid}/${myUid}`), true);
+    console.log('👍 좋아요 →', hitUid);
+    // 시각 피드백 - 카운트 살짝 튀게
+    const ot = otherPlayers[hitUid];
+    if (ot && ot.likeSprite) {
+      ot.likeSprite.scale.set(0.9, 0.9, 1);
+      setTimeout(() => { if (ot.likeSprite) ot.likeSprite.scale.set(0.6, 0.6, 1); }, 180);
+    }
+  } catch(err) { console.warn('좋아요 실패:', err); }
+});
+
 function shootFromCamera() {
   if (inHidePhase) { console.log('🙈 숨는 시간 - 발사 X'); return; }
   // 카메라 중심에서 앞으로 raycast
@@ -1800,6 +1886,7 @@ function shootFromCamera() {
   // 모든 hider 플레이어 mesh 수집
   const targets = [];
   const uidByObj = new Map();
+  const decoyByObj = new Map();
   Object.entries(otherPlayers).forEach(([uid, op]) => {
     if (roundState.alive?.[uid] === false) return;
     op.group.traverse(o => {
@@ -1809,16 +1896,48 @@ function shootFromCamera() {
       }
     });
   });
+  // 분신도 타겟에 포함
+  if (window._decoys) {
+    Object.entries(window._decoys).forEach(([key, dec]) => {
+      dec.group.traverse(o => {
+        if (o.isMesh) {
+          targets.push(o);
+          decoyByObj.set(o.id, key);
+        }
+      });
+    });
+  }
   
   const hits = shootRc.intersectObjects(targets, false);
   if (!hits.length) {
     console.log('❌ 빗나감');
     return;
   }
-  const hitUid = uidByObj.get(hits[0].object.id);
+  const hitObjId = hits[0].object.id;
+  const decoyKey = decoyByObj.get(hitObjId);
+  if (decoyKey) {
+    console.log('🎭 분신 명중! 글리치');
+    triggerGlitch();
+    return;
+  }
+  const hitUid = uidByObj.get(hitObjId);
   if (!hitUid) return;
   console.log('🎯 명중:', hitUid);
   killPlayer(hitUid);
+}
+
+// 분신 맞았을 때 글리치 효과
+function triggerGlitch() {
+  const el = document.getElementById('glitchOverlay');
+  if (!el) return;
+  el.classList.remove('active');
+  void el.offsetWidth; // reflow 강제해서 애니메이션 재시작
+  el.classList.add('active');
+  document.body.classList.add('glitchShake');
+  setTimeout(() => {
+    el.classList.remove('active');
+    document.body.classList.remove('glitchShake');
+  }, 700);
 }
 
 async function killPlayer(uid) {
@@ -2705,6 +2824,43 @@ async function startGame(room) {
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
+  // 게임 중 락이 풀렸으면 오버레이 다시 띄워서 재잠금 가능하게
+  if (!pointerLocked && currentScreen === 'game' && !paintMode) {
+    const ov = document.getElementById('gameStartClick');
+    if (ov) {
+      ov.style.display = 'flex';
+      ov.classList.add('show');
+      // 라벨을 재잠금용으로 변경
+      const label = ov.querySelector('.start-label');
+      const sub   = ov.querySelector('.start-sub');
+      if (label) label.textContent = '클릭 또는 ESC로 다시 잠금';
+      if (sub) sub.textContent = '마우스 조준 재개';
+      // 클릭 리스너 재설정 (중복 방지)
+      if (!ov._relockBound) {
+        ov._relockBound = true;
+        const relock = () => {
+          try { renderer.domElement.requestPointerLock(); } catch(e){}
+        };
+        ov.addEventListener('click', relock);
+        ov._relockFn = relock;
+      }
+    }
+  } else if (pointerLocked) {
+    // 락 성공 → 오버레이 숨김
+    const ov = document.getElementById('gameStartClick');
+    if (ov) { ov.style.display = 'none'; ov.classList.remove('show'); }
+  }
+});
+
+// ESC로 재잠금 (락이 풀린 상태에서만 발동, 채팅 중이면 스킵)
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (window._chatTyping) return;
+  if (currentScreen !== 'game') return;
+  if (paintMode) return;
+  if (pointerLocked) return; // 이미 잠겨있으면 브라우저가 풀 것
+  // 이 ESC는 이미 락이 풀린 후의 두 번째 ESC → 재잠금 시도
+  try { renderer.domElement.requestPointerLock(); } catch(err) {}
 });
 
 document.addEventListener('mousemove', e => {
@@ -3144,6 +3300,13 @@ function startFirebaseSync(room) {
     // 방 안 game/{uid} 경로에 위치 씀
     myRef = ref(fbDb, `rooms/${myRoomId}/game/${myUid}`);
 
+    // 내가 받은 좋아요 개수를 HUD에 표시
+    onValue(ref(fbDb, `rooms/${myRoomId}/likes/${myUid}`), snap => {
+      const val = snap.val() || {};
+      const el = document.getElementById('myLikeCount');
+      if (el) el.textContent = Object.keys(val).length;
+    });
+
     // 250ms마다 내 상태 업데이트 (변화 없으면 스킵)
     let _lastSyncX = null, _lastSyncY = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null, _lastSyncStuck = null;
     setInterval(() => {
@@ -3230,6 +3393,147 @@ function startFirebaseSync(room) {
     function unsubPaintForUid(uid) {
       if (_paintListeners[uid]) { _paintListeners[uid](); delete _paintListeners[uid]; }
     }
+
+    // ============ 따봉(좋아요) 시스템 ============
+    const _likeListeners = {}; // uid → unsub
+    function makeLikeTexture(count) {
+      const cv = document.createElement('canvas');
+      cv.width = 128; cv.height = 128;
+      const cx = cv.getContext('2d');
+      // 둥근 배경
+      cx.fillStyle = 'rgba(0,0,0,0.7)';
+      cx.beginPath(); cx.arc(64, 64, 58, 0, Math.PI*2); cx.fill();
+      cx.strokeStyle = '#ffe066'; cx.lineWidth = 3; cx.stroke();
+      // 👍 이모지
+      cx.font = '52px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText('👍', 64, 50);
+      // 카운트
+      cx.fillStyle = '#ffe066';
+      cx.font = 'bold 26px sans-serif';
+      cx.fillText(String(count || 0), 64, 96);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.needsUpdate = true;
+      return tex;
+    }
+    function updateLikeSprite(ot, count) {
+      if (!ot || !ot.likeSprite) return;
+      ot.likeCount = count;
+      if (ot.likeSprite.material.map) ot.likeSprite.material.map.dispose();
+      ot.likeSprite.material.map = makeLikeTexture(count);
+      ot.likeSprite.material.needsUpdate = true;
+    }
+    function subscribeLikesForUid(uid) {
+      if (_likeListeners[uid]) return;
+      const r = ref(fbDb, `rooms/${myRoomId}/likes/${uid}`);
+      const off = onValue(r, snap => {
+        const val = snap.val() || {};
+        const count = Object.keys(val).length;
+        const ot = otherPlayers[uid];
+        if (ot) updateLikeSprite(ot, count);
+        // 내 좋아요 카운트도 HUD에 반영
+        if (uid === myUid) {
+          const el = document.getElementById('myLikeCount');
+          if (el) el.textContent = count;
+        }
+      });
+      _likeListeners[uid] = () => off();
+    }
+    function unsubLikesForUid(uid) {
+      if (_likeListeners[uid]) { _likeListeners[uid](); delete _likeListeners[uid]; }
+    }
+
+    // ============ 분신(디코이) 시스템 ============
+    const decoys = {}; // key → { group, ownerUid }
+    window._decoys = decoys; // shoot 함수에서 접근용
+    const DECOY_COOLDOWN = 8000;
+    const DECOY_LIFE = 20000;
+    let _lastDecoyTime = 0;
+    function spawnDecoy(key, d) {
+      if (decoys[key]) return;
+      const templatePose = (d.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : poseModels.stand;
+      if (!templatePose) return;
+      const clone = templatePose.clone(true);
+      clone.visible = true;
+      const isMine = d.owner === myUid;
+      clone.traverse(o => {
+        o.visible = true;
+        if (o.isMesh) {
+          o.frustumCulled = false;
+          o.material = new THREE.MeshLambertMaterial({
+            color: 0xffffff,
+            transparent: isMine,
+            opacity: isMine ? 0.55 : 1.0
+          });
+        }
+      });
+      const grp = new THREE.Group();
+      grp.add(clone);
+      grp.position.set(d.x, d.y, d.z);
+      grp.rotation.y = d.r || 0;
+      // 주인한테만 "분" 표시 뜨게 (자기 분신 위치 파악용)
+      if (isMine) {
+        const cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 64;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = 'rgba(80,140,255,0.85)';
+        cx.beginPath(); cx.arc(32, 32, 28, 0, Math.PI*2); cx.fill();
+        cx.fillStyle = '#fff'; cx.font = 'bold 36px sans-serif';
+        cx.textAlign = 'center'; cx.textBaseline = 'middle';
+        cx.fillText('분', 32, 34);
+        const tex = new THREE.CanvasTexture(cv);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+        sp.scale.set(0.5, 0.5, 1);
+        sp.position.y = 2.5;
+        grp.add(sp);
+      }
+      scene.add(grp);
+      decoys[key] = { group: grp, ownerUid: d.owner };
+    }
+    function despawnDecoy(key) {
+      const d = decoys[key];
+      if (!d) return;
+      scene.remove(d.group);
+      delete decoys[key];
+    }
+    // 방 전체 decoys 노드 구독
+    onValue(ref(fbDb, `rooms/${myRoomId}/decoys`), snap => {
+      const data = snap.val() || {};
+      Object.entries(data).forEach(([key, d]) => {
+        if (!decoys[key]) spawnDecoy(key, d);
+      });
+      Object.keys(decoys).forEach(key => {
+        if (!data[key]) despawnDecoy(key);
+      });
+    });
+    // 분신 생성 함수 (C 키)
+    window.createDecoy = async function() {
+      const now = Date.now();
+      if (now - _lastDecoyTime < DECOY_COOLDOWN) {
+        console.log('⏳ 분신 쿨다운:', Math.ceil((DECOY_COOLDOWN - (now - _lastDecoyTime))/1000), '초 남음');
+        return;
+      }
+      if (!myRoomId || !myUid) return;
+      _lastDecoyTime = now;
+      const dRef = push(ref(fbDb, `rooms/${myRoomId}/decoys`));
+      const payload = {
+        owner: myUid,
+        x: +player.position.x.toFixed(2),
+        y: +player.position.y.toFixed(2),
+        z: +player.position.z.toFixed(2),
+        r: +player.rotation.y.toFixed(2),
+        p: currentPose,
+        t: now,
+      };
+      try {
+        await set(dRef, payload);
+        onDisconnect(dRef).remove();
+        setTimeout(async () => {
+          try { await remove(dRef); } catch(e) {}
+        }, DECOY_LIFE);
+        console.log('👥 분신 생성');
+      } catch(err) { console.warn('분신 실패:', err); }
+    };
+
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
       const data = snap.val() || {};
       const uids = Object.keys(data);
@@ -3273,9 +3577,16 @@ function startFirebaseSync(room) {
           sp.scale.set(1.5, 0.4, 1);
           sp.position.y = 2.2;
           grp.add(sp);
+          // 따봉 스프라이트 (닉네임 위에)
+          const likeTex = makeLikeTexture(0);
+          const likeSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: likeTex, transparent: true }));
+          likeSp.scale.set(0.6, 0.6, 1);
+          likeSp.position.y = 2.9;
+          grp.add(likeSp);
           scene.add(grp);
-          otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand' };
+          otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', likeSprite: likeSp, likeCount: 0 };
           subscribePaintForUid(uid); // uid별 페인트 리스너 등록
+          subscribeLikesForUid(uid); // 좋아요 리스너 등록
           // 이 플레이어가 술래면 총 부착
           if (_cachedRoom?.seekerUid === uid) attachGunToOther(uid);
         }
@@ -3313,6 +3624,7 @@ function startFirebaseSync(room) {
         if (!data[uid]) {
           scene.remove(otherPlayers[uid].group);
           unsubPaintForUid(uid); // 페인트 리스너 해제
+          unsubLikesForUid(uid); // 좋아요 리스너 해제
           delete otherPlayers[uid];
         }
       });
