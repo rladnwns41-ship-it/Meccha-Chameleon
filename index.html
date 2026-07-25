@@ -52,7 +52,7 @@
   .voteMap:hover { border-color:#4dd07a; transform:translateY(-4px); }
   .voteMap.voted { border-color:#4dd07a; background:rgba(77,208,122,0.2); }
   .voteMap .mapName { font-size:20px; font-weight:800; margin:8px 0; }
-  .voteMap .voteCount { color:#4dd07a; font-size:14px; margin-top:8px; }
+  .voteMap .voteCount { color:#4dd07a; font-size:18px; font-weight:800; margin-top:8px; }
   #voteTimer { color:#ffca28; font-weight:700; }
 
   /* 뽑기 애니메이션 */
@@ -911,12 +911,11 @@ function processGlb(gltf, poseName) {
       const colors = new Float32Array(posCount * 3);
       for (let i = 0; i < posCount; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
       o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      // vertex color 재질
-      o.material = new THREE.MeshStandardMaterial({
-        color: 0xffffff, vertexColors: true, roughness: 0.55, metalness: 0.0
+      // Lambert 재질 - 조명 있으면서 vertex color 확실히 반영
+      o.material = new THREE.MeshLambertMaterial({
+        color: 0xffffff, vertexColors: true
       });
       o.material.needsUpdate = true;
-      // 프러스텀 컬링 끄기 (안 보이는 문제 방지)
       o.frustumCulled = false;
     }
   });
@@ -1440,7 +1439,13 @@ async function startGame(room) {
   const clickHandler = () => {
     clickOverlay.style.display = 'none';
     clickOverlay.classList.remove('show');
-    renderer.domElement.requestPointerLock();
+    // 캔버스에 포커스 주고 잠금 (다음 프레임에)
+    renderer.domElement.tabIndex = 0;
+    renderer.domElement.focus();
+    setTimeout(() => {
+      try { renderer.domElement.requestPointerLock(); }
+      catch(err) { console.warn('포인터락 실패:', err.message); }
+    }, 50);
     clickOverlay.removeEventListener('click', clickHandler);
   };
   clickOverlay.addEventListener('click', clickHandler);
@@ -1583,6 +1588,67 @@ function bucketFill() {
   console.log('🪣 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
 }
 
+// 스포이드 - 모든 씬 오브젝트에서 색 뽑기 (벽, 맵, 캐릭터 다)
+function pickColor(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mv = new THREE.Vector2(
+    ((clientX - rect.left)/rect.width)*2 - 1,
+    -((clientY - rect.top)/rect.height)*2 + 1
+  );
+  paintRc.setFromCamera(mv, camera);
+  // 씬의 모든 mesh 대상 (캐릭터 포함)
+  const allMeshes = [];
+  scene.traverse(o => {
+    if (o.isMesh && o.visible) allMeshes.push(o);
+  });
+  const hits = paintRc.intersectObjects(allMeshes, false);
+  if (!hits.length) { console.log('🎯 스포이드 - 아무것도 안 맞음'); return; }
+  const hit = hits[0];
+  const mesh = hit.object;
+  let hex = null;
+  
+  // 1) vertex color 있으면 그거 사용 (캐릭터)
+  const colors = mesh.geometry.attributes.color;
+  if (colors && mesh.material.vertexColors) {
+    _tmpMat.copy(mesh.matrixWorld).invert();
+    const localPoint = hit.point.clone().applyMatrix4(_tmpMat);
+    const positions = mesh.geometry.attributes.position;
+    let bestI = 0, bestDist = Infinity;
+    for (let i = 0; i < positions.count; i++) {
+      const dx = positions.getX(i) - localPoint.x;
+      const dy = positions.getY(i) - localPoint.y;
+      const dz = positions.getZ(i) - localPoint.z;
+      const d = dx*dx + dy*dy + dz*dz;
+      if (d < bestDist) { bestDist = d; bestI = i; }
+    }
+    const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
+    hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+  }
+  // 2) 텍스처가 있으면 UV 좌표에서 픽셀 뽑기
+  else if (hit.uv && mesh.material.map && mesh.material.map.image) {
+    const img = mesh.material.map.image;
+    const cv = document.createElement('canvas');
+    cv.width = img.width; cv.height = img.height;
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const px = Math.floor(hit.uv.x * img.width);
+    const py = Math.floor((1 - hit.uv.y) * img.height);
+    const d = cx.getImageData(px, py, 1, 1).data;
+    hex = '#' + [d[0],d[1],d[2]].map(v => v.toString(16).padStart(2,'0')).join('');
+  }
+  // 3) 그것도 없으면 material color 자체
+  else if (mesh.material.color) {
+    hex = '#' + mesh.material.color.getHexString();
+  }
+  
+  if (!hex) { console.log('🎯 색 못뽑음'); return; }
+  currentColor = hex;
+  document.getElementById('preview').style.background = hex;
+  document.getElementById('hexInput').value = hex;
+  console.log('🎯 스포이드 색:', hex);
+  setTool('brush'); // 자동으로 브러시 모드
+}
+
 function paint(clientX, clientY) {
   if (!characterMeshes.length) { return; }
   const rect = renderer.domElement.getBoundingClientRect();
@@ -1597,32 +1663,8 @@ function paint(clientX, clientY) {
   const mesh = hit.object;
   const worldPoint = hit.point.clone();
   
-  // 스포이드: 그 지점 색 훔쳐서 currentColor로 세팅
-  if (currentTool === 'picker') {
-    const positions = mesh.geometry.attributes.position;
-    const colors = mesh.geometry.attributes.color;
-    if (!colors) return;
-    _tmpMat.copy(mesh.matrixWorld).invert();
-    const localPoint = worldPoint.clone().applyMatrix4(_tmpMat);
-    // 가장 가까운 정점 찾기
-    let bestI = 0, bestDist = Infinity;
-    for (let i = 0; i < positions.count; i++) {
-      const dx = positions.getX(i) - localPoint.x;
-      const dy = positions.getY(i) - localPoint.y;
-      const dz = positions.getZ(i) - localPoint.z;
-      const d = dx*dx + dy*dy + dz*dz;
-      if (d < bestDist) { bestDist = d; bestI = i; }
-    }
-    const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
-    const hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
-    currentColor = hex;
-    document.getElementById('preview').style.background = hex;
-    document.getElementById('hexInput').value = hex;
-    console.log('🎯 스포이드:', hex);
-    // 자동으로 브러시 모드로
-    setTool('brush');
-    return;
-  }
+  // 스포이드는 paint() 밖에서 처리하므로 여기선 스킵
+  if (currentTool === 'picker') return;
   
   // 월드 좌표 → mesh 로컬 좌표
   _tmpMat.copy(mesh.matrixWorld).invert();
@@ -1660,9 +1702,10 @@ function paint(clientX, clientY) {
 let isPainting = false;
 renderer.domElement.addEventListener('mousedown', e => {
   if (!paintMode || e.button !== 0) return;
+  // 스포이드는 mousedown 에 즉시 실행
+  if (currentTool === 'picker') { pickColor(e.clientX, e.clientY); return; }
   isPainting = true;
   paint(e.clientX, e.clientY);
-  // 페인트통은 한 번만
   if (currentTool === 'bucket') isPainting = false;
 });
 addEventListener('mouseup', () => isPainting = false);
@@ -1802,7 +1845,7 @@ function startFirebaseSync(room) {
         role: myRole,
         t: Date.now()
       });
-    }, 150);
+    }, 250);
 
     // 방 안 다른 플레이어 listen
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
