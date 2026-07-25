@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>🦎 웹챠 카멜레온</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://w.soundcloud.com/player/api.js"></script>
 <style>
   /* ===== 디자인 토큰 ===== */
   :root {
@@ -853,6 +854,13 @@
 </style>
 </head>
 <body>
+
+<!-- 배경음악 (숨김) - 로비/투표/뽑기 화면에서만 재생 -->
+<iframe id="scPlayer" 
+  src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/djsukemaru/chmoy-dj-sukemaru-remix&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false&buying=false&sharing=false&download=false&show_playcount=false&single_active=false" 
+  width="0" height="0" scrolling="no" frameborder="no" allow="autoplay"
+  style="position:fixed;top:-1000px;left:-1000px;width:1px;height:1px;visibility:hidden;pointer-events:none;">
+</iframe>
 
 <div id="loading" class="hidden">
   <div class="loading-logo">
@@ -1762,6 +1770,8 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
   }
   currentScreen = 'lobby';
   showScreen('lobby');
+  // 로비 돌아왔으니 BGM 다시 재생
+  bgmPlay();
 });
 
 
@@ -2034,6 +2044,51 @@ let roomListUnsub = null;
 let roomUnsub = null;
 // voteTimerInterval 제거 - Firebase 로 대체
 
+// ================ 배경음악 시스템 ================
+let scWidget = null;
+let scReady = false;
+let scFadeInterval = null;
+const BGM_VOLUME = 55; // 기본 볼륨 (0-100)
+
+function initBGM() {
+  if (!window.SC) { setTimeout(initBGM, 200); return; }
+  const iframe = document.getElementById('scPlayer');
+  if (!iframe) return;
+  scWidget = SC.Widget(iframe);
+  scWidget.bind(SC.Widget.Events.READY, () => {
+    scReady = true;
+    scWidget.setVolume(BGM_VOLUME);
+    console.log('🎵 SoundCloud 위젯 준비 완료');
+  });
+}
+initBGM();
+
+function bgmPlay() {
+  if (!scReady || !scWidget) return;
+  if (scFadeInterval) { clearInterval(scFadeInterval); scFadeInterval = null; }
+  scWidget.setVolume(BGM_VOLUME);
+  scWidget.play();
+}
+
+function bgmFadeOut(durationMs = 2500) {
+  if (!scReady || !scWidget) return;
+  if (scFadeInterval) clearInterval(scFadeInterval);
+  const startVol = BGM_VOLUME;
+  const steps = 25;
+  const stepTime = durationMs / steps;
+  let i = 0;
+  scFadeInterval = setInterval(() => {
+    i++;
+    const v = Math.max(0, startVol * (1 - i / steps));
+    scWidget.setVolume(v);
+    if (i >= steps) {
+      clearInterval(scFadeInterval);
+      scFadeInterval = null;
+      scWidget.pause();
+    }
+  }, stepTime);
+}
+
 function showScreen(name) {
   currentScreen = name;
   // CSS specificity 우회: inline style 로 직접 강제
@@ -2054,6 +2109,8 @@ document.getElementById('nickNext').addEventListener('click', () => {
   myNick = nick || '익명' + Math.floor(Math.random()*100);
   showScreen('rooms');
   subscribeRoomList();
+  // 유저 인터랙션 발생 → BGM 시작 (브라우저 autoplay 정책 통과)
+  bgmPlay();
 });
 document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('nickNext').click();
@@ -2365,6 +2422,8 @@ function startDrawingUI(room) {
 // ============ 게임 시작 ============
 async function startGame(room) {
   currentScreen = 'game';
+  // BGM 자연스럽게 페이드아웃 (2.5초)
+  bgmFadeOut(2500);
   // 모든 스크린 확실히 숨김 (특히 scr-nick 이 뜨는 버그 방지)
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.add('hidden');
