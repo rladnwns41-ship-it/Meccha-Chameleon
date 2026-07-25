@@ -1048,8 +1048,9 @@
 </div>
 
 <div id="glitchOverlay"></div>
+<div id="endFadeOverlay" style="position:fixed;inset:0;z-index:180;background:#000;opacity:0;pointer-events:none;transition:opacity 3s ease-in;"></div>
 
-<div id="chatBox" style="position:fixed;left:12px;bottom:88px;width:280px;
+<div id="chatBox" style="position:fixed;right:14px;bottom:20px;width:280px;
      background:rgba(0,0,0,0.5);border-radius:10px;padding:8px;font-size:13px;
      color:#fff;font-family:'Nunito',sans-serif;z-index:50;display:none;
      pointer-events:auto;">
@@ -2642,6 +2643,31 @@ function subscribeRoom(roomId) {
       startDrawingUI(room);
     } else if (room.state === 'playing' && currentScreen !== 'game') {
       startGame(room);
+    } else if (room.state === 'ended' && currentScreen === 'game' && !window._endSeqStarted) {
+      // ★ 라운드 종료 시퀀스: 15초 빨간 깜빡임 유지 → 3초 페이드 → 스코어보드
+      window._endSeqStarted = true;
+      console.log('🏁 라운드 종료 → 15초 감상 후 페이드');
+      // 15초 대기 (빨간 깜빡임은 이미 animate 루프에서 알아서 진행됨)
+      setTimeout(() => {
+        // 페이드 인 (3초 검은색)
+        const fade = document.getElementById('endFadeOverlay');
+        if (fade) {
+          fade.style.opacity = '1';
+        }
+        // 페이드 완료 후 스코어보드 → 페이드 리셋
+        setTimeout(() => {
+          showScoreboard();
+          if (fade) {
+            fade.style.transition = 'none';
+            fade.style.opacity = '0';
+            // 다음 라운드용 flag 리셋
+            setTimeout(() => {
+              fade.style.transition = 'opacity 3s ease-in';
+              window._endSeqStarted = false;
+            }, 100);
+          }
+        }, 3000);
+      }, 15000);
     }
     
     updateCountdownDisplay(room);
