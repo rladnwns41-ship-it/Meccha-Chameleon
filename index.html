@@ -1009,6 +1009,18 @@
   </div>
 </div>
 
+<div id="chatBox" style="position:fixed;left:12px;bottom:88px;width:280px;
+     background:rgba(0,0,0,0.5);border-radius:10px;padding:8px;font-size:13px;
+     color:#fff;font-family:'Nunito',sans-serif;z-index:50;display:none;
+     pointer-events:auto;">
+  <div id="chatMsgs" style="max-height:140px;overflow-y:auto;margin-bottom:6px;
+       line-height:1.5;word-break:break-word;"></div>
+  <input id="chatInput" type="text" maxlength="80" placeholder="Enter로 채팅 (ESC로 닫기)"
+    style="width:100%;box-sizing:border-box;padding:6px 8px;border:none;
+    border-radius:6px;background:rgba(255,255,255,0.15);color:#fff;outline:none;
+    font-family:inherit;font-size:13px;">
+</div>
+
 <div id="hidePhaseOverlay" class="hidden">
   <div class="msg"></div>
   <div class="timer"></div>
@@ -1295,21 +1307,29 @@ gltfLoader.load('./gun.glb', gltf => {
 let attachedGun = null;
 function attachGunToPlayer() {
   if (!seekerGunModel || attachedGun) return;
-  attachedGun = seekerGunModel.clone(true);
+  const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
-  attachedGun.scale.setScalar(s);
-  attachedGun.traverse(o => {
+  cloned.scale.setScalar(s);
+  // ★ pivot 중앙 정렬 - gun.glb 원점이 중심이 아닐 때 대비
+  const box = new THREE.Box3().setFromObject(cloned);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  cloned.position.sub(center);
+  cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
       o.frustumCulled = false;
-      o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
+      // Basic 재질로 라이트 무관하게 항상 보이게
+      o.material = new THREE.MeshBasicMaterial({ color: 0x333333 });
     }
   });
-  // 플레이어 오른쪽 어깨 위치 (-Z = 카메라 쪽, 즉 잘 보이는 방향)
+  // 래퍼로 감싸서 어깨 위치에 배치
+  attachedGun = new THREE.Group();
+  attachedGun.add(cloned);
   attachedGun.position.set(0.45, 1.2, -0.3);
-  attachedGun.rotation.set(0, 0, 0);
   player.add(attachedGun);
-  console.log('🔫 총 부착 완료, scale:', s.toFixed(3));
+  const fBox = new THREE.Box3().setFromObject(attachedGun);
+  const fSize = new THREE.Vector3(); fBox.getSize(fSize);
+  console.log('🔫 총 부착 완료, scale:', s.toFixed(3), '최종 크기:', fSize.x.toFixed(2), fSize.y.toFixed(2), fSize.z.toFixed(2));
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1319,20 +1339,24 @@ function detachGunFromPlayer() {
 function attachGunToOther(uid) {
   const ot = otherPlayers[uid];
   if (!ot || !seekerGunModel || ot.gun) return;
-  const g = seekerGunModel.clone(true);
+  const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
-  g.scale.setScalar(s);
-  g.traverse(o => {
+  cloned.scale.setScalar(s);
+  const box = new THREE.Box3().setFromObject(cloned);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  cloned.position.sub(center);
+  cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
       o.frustumCulled = false;
-      o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
+      o.material = new THREE.MeshBasicMaterial({ color: 0x333333 });
     }
   });
-  g.position.set(0.45, 1.2, -0.3);
-  g.rotation.set(0, 0, 0);
-  ot.group.add(g);
-  ot.gun = g;
+  const wrap = new THREE.Group();
+  wrap.add(cloned);
+  wrap.position.set(0.45, 1.2, -0.3);
+  ot.group.add(wrap);
+  ot.gun = wrap;
 }
 function detachGunFromOther(uid) {
   const ot = otherPlayers[uid];
@@ -1395,6 +1419,66 @@ function updatePlayerListHUD() {
   el.innerHTML = html;
   el.classList.add('on');
 }
+
+// ============ 채팅 ============
+let _chatUnsub = null;
+window._chatTyping = false;
+function initChat() {
+  if (!myRoomId) return;
+  const box = document.getElementById('chatBox');
+  const msgs = document.getElementById('chatMsgs');
+  const input = document.getElementById('chatInput');
+  if (!box || !msgs || !input) return;
+  box.style.display = 'block';
+  msgs.innerHTML = '';
+  // 이전 구독 해제
+  if (_chatUnsub) { _chatUnsub(); _chatUnsub = null; }
+  const chatRef = query(ref(fbDb, `rooms/${myRoomId}/chat`), limitToLast(30));
+  _chatUnsub = onValue(chatRef, snap => {
+    const all = snap.val() || {};
+    const arr = Object.values(all).sort((a,b) => (a.t||0) - (b.t||0));
+    msgs.innerHTML = arr.map(m => {
+      const mine = m.uid === myUid;
+      const nick = String(m.nick || '???').replace(/</g,'&lt;');
+      const txt  = String(m.text || '').replace(/</g,'&lt;');
+      const color = mine ? '#ffe066' : '#8ecfff';
+      return `<div><span style="color:${color};font-weight:700">${nick}:</span> ${txt}</div>`;
+    }).join('');
+    msgs.scrollTop = msgs.scrollHeight;
+  });
+  input.onkeydown = async (e) => {
+    if (e.key === 'Escape') { input.blur(); e.stopPropagation(); return; }
+    if (e.key !== 'Enter') return;
+    e.stopPropagation();
+    const text = input.value.trim();
+    input.value = '';
+    if (!text || !myRoomId) { input.blur(); return; }
+    try {
+      await push(ref(fbDb, `rooms/${myRoomId}/chat`), {
+        uid: myUid, nick: myNick, text, t: Date.now()
+      });
+    } catch (err) { console.warn('채팅 전송 실패:', err); }
+    input.blur();
+  };
+  input.onfocus = () => { window._chatTyping = true; };
+  input.onblur  = () => { window._chatTyping = false; };
+}
+function closeChat() {
+  if (_chatUnsub) { _chatUnsub(); _chatUnsub = null; }
+  const box = document.getElementById('chatBox');
+  if (box) box.style.display = 'none';
+  window._chatTyping = false;
+}
+// Enter 키로 채팅 포커스
+window.addEventListener('keydown', (e) => {
+  if (window._chatTyping) return;
+  if (e.key !== 'Enter') return;
+  const input = document.getElementById('chatInput');
+  if (input && input.offsetParent !== null) {
+    e.preventDefault();
+    input.focus();
+  }
+}, true);
 
 // 역할 전환 - 총만 붙였다 뗐다 (모델은 동일)
 function setRole(role) {
@@ -2225,6 +2309,7 @@ function enterRoom(roomId) {
   if (roomListUnsub) { roomListUnsub(); roomListUnsub = null; }
   showScreen('lobby');
   subscribeRoom(roomId);
+  initChat();
 }
 
 // ============ 로비 (방 안) ============
@@ -2356,6 +2441,7 @@ async function leaveToRooms() {
   myRoomId = null;
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  closeChat();
   _leavingRoom = false;
   showScreen('rooms');
   subscribeRoomList();
