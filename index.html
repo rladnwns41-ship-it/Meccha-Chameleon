@@ -38,25 +38,17 @@
   #loading {
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center;
-    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e, #1a1a2e, #16213e);
-    background-size:400% 400%;
-    animation:gradientShift 6s ease infinite;
+    background: #0d1220;
     z-index:200; gap:18px;
   }
   #loading.hidden { display:none; }
 
-  @keyframes logoGlow {
-    0%,100% { box-shadow:0 8px 0 rgba(0,0,0,0.3), 0 0 20px rgba(62,207,108,0.2); }
-    50%      { box-shadow:0 8px 0 rgba(0,0,0,0.3), 0 0 40px rgba(62,207,108,0.5); }
-  }
   .loading-logo {
     width:88px; height:88px; border-radius:24px;
     background:var(--panel); border:3px solid var(--green);
     display:flex; align-items:center; justify-content:center;
     font-size:44px;
-    animation:float 2s ease-in-out infinite, logoGlow 2s ease-in-out infinite;
   }
-  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 
   .loading-title {
     font-family:'Nunito', sans-serif;
@@ -97,18 +89,11 @@
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center;
     z-index:150; gap:14px; padding:20px;
-    background: linear-gradient(
-      135deg,
-      #0f0c29, #302b63, #24243e,
-      #1a1a2e, #16213e, #0f3460,
-      #1b1b2f, #2d1b69, #11998e
-    );
-    background-size: 400% 400%;
-    animation: gradientShift 8s ease infinite, screenFadeIn .4s ease;
-    will-change: background-position;
+    background: #0d1220;
+    animation: screenFadeIn .3s ease;
   }
-  /* 닉네임 화면은 자체 배경 사용 */
-  #scr-nick.screen { animation: screenFadeIn .4s ease; }
+  /* 닉네임 화면 자체 배경 */
+  #scr-nick.screen { animation: screenFadeIn .3s ease; }
   .screen.hidden { display:none; }
   .screen .ui-card {
     animation: cardSlideUp .45s cubic-bezier(0.34,1.26,0.64,1) both;
@@ -116,29 +101,15 @@
   #scr-nick .ui-card { animation: nickFadeIn .6s cubic-bezier(0.34,1.26,0.64,1) .1s both; }
 
   /* 패널 카드 */
-  @keyframes cardShine {
-    0%   { background-position: -200% center; }
-    100% { background-position: 200% center; }
-  }
   .ui-card {
-    background: rgba(37,45,63,0.85);
-    border:2px solid rgba(255,255,255,0.12);
+    background: #1e2840;
+    border:2px solid rgba(255,255,255,0.10);
     border-radius:var(--radius);
-    box-shadow:0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
     padding:24px 28px;
     width:min(480px, 92vw);
-    backdrop-filter:blur(20px);
     position:relative;
     overflow:hidden;
-  }
-  .ui-card::before {
-    content:'';
-    position:absolute; inset:0;
-    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.06) 50%, transparent 60%);
-    background-size:200% 100%;
-    animation: cardShine 4s linear infinite;
-    pointer-events:none;
-    border-radius:inherit;
   }
 
   /* 타이틀 */
@@ -148,13 +119,7 @@
     letter-spacing:-1px;
     margin:0 0 4px;
     text-align:center;
-    background: linear-gradient(90deg, #ffffff, #3ecf6c, #4a9fff, #ffffff);
-    background-size:300% 100%;
-    -webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;
-    background-clip:text;
-    animation:titleGlow 5s ease infinite;
-    filter:drop-shadow(0 2px 12px rgba(62,207,108,0.3));
+    color: var(--text);
   }
   .screen-sub {
     font-size:13px; color:var(--text-dim);
@@ -184,12 +149,6 @@
   }
   .btn:hover::after { opacity:1; }
   .btn:active { transform:translateY(3px) scale(0.97) !important; box-shadow:none !important; }
-  .btn-green { animation: btnGlow 2.5s ease-in-out infinite; }
-  @keyframes btnGlow {
-    0%,100% { filter:brightness(1); }
-    50%      { filter:brightness(1.12); }
-  }
-
   .btn-green {
     background:var(--green); color:#fff;
     box-shadow:var(--green-sh);
@@ -273,21 +232,8 @@
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:0;
     z-index:150; padding:20px;
-    background: radial-gradient(ellipse at 30% 20%, rgba(62,207,108,0.08) 0%, transparent 60%),
-                radial-gradient(ellipse at 70% 80%, rgba(74,159,255,0.07) 0%, transparent 60%),
-                linear-gradient(160deg, #080c14 0%, #0d1220 40%, #091018 100%);
+    background: #080c14;
     overflow:hidden;
-  }
-
-  /* 배경 그리드 라인 */
-  #scr-nick::before {
-    content:'';
-    position:absolute; inset:0; pointer-events:none;
-    background-image:
-      linear-gradient(rgba(62,207,108,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(62,207,108,0.03) 1px, transparent 1px);
-    background-size:60px 60px;
-    mask-image:radial-gradient(ellipse at center, black 30%, transparent 80%);
   }
 
   #scr-nick .logo-wrap {
@@ -302,12 +248,11 @@
     margin-bottom:20px;
   }
   .icon-ring {
-    position:absolute; border-radius:50%; border:1.5px solid rgba(62,207,108,0.3);
-    animation:ringPulse 2.4s ease-out infinite;
+    position:absolute; border-radius:50%; border:1.5px solid rgba(62,207,108,0.2);
   }
-  .icon-ring:nth-child(1) { width:110px; height:110px; animation-delay:0s; }
-  .icon-ring:nth-child(2) { width:130px; height:130px; animation-delay:0.6s; border-color:rgba(74,159,255,0.2); }
-  .icon-ring:nth-child(3) { width:155px; height:155px; animation-delay:1.2s; border-color:rgba(155,109,255,0.15); }
+  .icon-ring:nth-child(1) { width:110px; height:110px; }
+  .icon-ring:nth-child(2) { width:130px; height:130px; border-color:rgba(74,159,255,0.15); }
+  .icon-ring:nth-child(3) { width:155px; height:155px; border-color:rgba(155,109,255,0.10); }
 
   #scr-nick .game-icon {
     width:88px; height:88px; border-radius:22px;
@@ -319,7 +264,6 @@
                inset 0 1px 0 rgba(255,255,255,0.08);
     display:flex; align-items:center; justify-content:center;
     overflow:hidden; position:relative;
-    animation:iconOrbit 5s ease-in-out infinite;
     z-index:2;
   }
   #scr-nick .game-icon::after {
@@ -336,20 +280,15 @@
     font-family:'Nunito', sans-serif;
     font-size:44px; font-weight:900; letter-spacing:-2px; line-height:1;
     margin-bottom:8px;
-    background: linear-gradient(90deg,
-      #3ecf6c 0%, #4af09a 20%, #4a9fff 45%, #9b6dff 65%, #3ecf6c 100%);
-    background-size:300% 100%;
+    background: linear-gradient(90deg, #3ecf6c 0%, #4a9fff 50%, #9b6dff 100%);
     -webkit-background-clip:text;
     -webkit-text-fill-color:transparent;
     background-clip:text;
-    animation:titleGlow 5s ease infinite;
-    filter:drop-shadow(0 0 20px rgba(62,207,108,0.3));
   }
 
   #scr-nick .game-tagline {
     font-size:12px; font-weight:700; letter-spacing:3px; text-transform:uppercase;
-    color:rgba(139,146,168,0.8);
-    animation:taglineFlicker 6s ease-in-out infinite;
+    color:rgba(139,146,168,0.7);
     display:flex; align-items:center; gap:8px;
   }
   #scr-nick .game-tagline::before,
@@ -364,16 +303,12 @@
   /* 닉네임 카드 */
   #scr-nick .ui-card {
     width:min(400px, 92vw);
-    background:rgba(13,18,32,0.7);
+    background:#111827;
     border:1px solid rgba(255,255,255,0.08);
-    border-top:1px solid rgba(255,255,255,0.12);
     border-radius:20px;
-    box-shadow:0 24px 60px rgba(0,0,0,0.6),
-               0 0 0 1px rgba(62,207,108,0.05) inset,
-               0 1px 0 rgba(255,255,255,0.04) inset;
+    box-shadow:0 16px 40px rgba(0,0,0,0.6);
     padding:28px 28px 24px;
-    backdrop-filter:blur(30px);
-    animation:nickFadeIn .6s cubic-bezier(0.34,1.26,0.64,1) .1s both;
+    animation:nickFadeIn .4s ease both;
     position:relative; overflow:hidden;
   }
   #scr-nick .ui-card::before {
@@ -904,7 +839,7 @@
 </div>
 
 <!-- 화면들 (배타적) -->
-<div id="scr-nick" class="screen">
+<div id="scr-nick" class="screen hidden">
 
   <div class="logo-wrap">
     <div class="icon-ring-wrap">
@@ -1000,9 +935,7 @@
 </div>
 <div id="deathScreen" class="hidden">
   <div class="deathBox">
-    <div class="death-icon">
-      <span>💀</span>
-    </div>
+    <div class="death-icon"><span>💀</span></div>
     <div class="death-title">잡혔다!</div>
     <div class="death-sub">관전 중 · 다음 라운드 대기</div>
   </div>
@@ -1030,9 +963,7 @@
 <div id="crosshair"></div>
 <div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
   <div class="start-card">
-    <div class="start-icon">
-      <span style="font-size:40px;">🎮</span>
-    </div>
+    <div class="start-icon"><span style="font-size:40px;">🎮</span></div>
     <div class="start-label">화면 클릭해서 시작</div>
     <div class="start-sub">ESC 키로 마우스 풀기</div>
   </div>
@@ -1046,18 +977,10 @@
 </div>
 
 <div id="tools">
-  <button class="tool active" data-tool="brush" title="붓 (B)">
-    <span>🖌️</span>
-  </button>
-  <button class="tool" data-tool="bucket" title="페인트통 (F)">
-    <span>🪣</span>
-  </button>
-  <button class="tool" data-tool="eraser" title="지우개 (E)">
-    <span>🧽</span>
-  </button>
-  <button class="tool" data-tool="picker" title="스포이드 (I)">
-    <span>🎯</span>
-  </button>
+  <button class="tool active" data-tool="brush" title="붓 (B)"><span>🖌️</span></button>
+  <button class="tool" data-tool="bucket" title="페인트통 (F)"><span>🪣</span></button>
+  <button class="tool" data-tool="eraser" title="지우개 (E)"><span>🧽</span></button>
+  <button class="tool" data-tool="picker" title="스포이드 (I)"><span>🎯</span></button>
   <div id="brushSize">
     <div style="margin-bottom:4px">붓 크기: <span id="brushSizeVal">20</span>px</div>
     <input type="range" id="brushRange" min="4" max="80" value="20">
@@ -1115,6 +1038,9 @@ const fbAuth = getAuth(fbApp);
 const fbDb = getDatabase(fbApp);
 
 let myUid = null, myRef = null, myNick = '익명';
+
+// 초기 화면: nick 표시
+document.getElementById('scr-nick').classList.remove('hidden');
 
 // 랜덤 UID 생성기 (폴백용)
 function genRandomUid() {
@@ -1324,10 +1250,12 @@ setInterval(async () => {
     
     // 방 생성 후 10분 경과 시 자동 삭제
     if (room.createdAt && Date.now() - room.createdAt > 10 * 60 * 1000) {
-      console.log('⏰ 방 생성 10분 초과 → 자동 삭제');
+      console.log('⏰ 방 10분 초과 → 자동 삭제');
       await remove(roomRef);
       myRoomId = null;
-      leaveToRooms();
+      if (roomUnsub) { roomUnsub(); roomUnsub = null; }
+      showScreen('rooms');
+      subscribeRoomList();
       return;
     }
 
@@ -1591,7 +1519,7 @@ async function showScoreboard() {
   rows.forEach((r, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === 0 ? ' first' : '');
-    const rankEmojis = ['🥇', '🥈', '🥉'];
+    const rankEmojis = ['🥇','🥈','🥉'];
     const rankHtml = i < 3
       ? `<span class="rank">${rankEmojis[i]}</span>`
       : `<span class="rank">${i+1}</span>`;
@@ -2000,7 +1928,12 @@ function subscribeRoom(roomId) {
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
     _cachedRoom = room; // 방장 tick 캐시
-    if (!room) { leaveToRooms(); return; }
+    // 게임/투표/뽑기 중에는 방 삭제로 튕기지 않음
+    if (!room) {
+      if (['game','vote','draw'].includes(currentScreen)) return;
+      leaveToRooms();
+      return;
+    }
     const players = room.players || {};
     const uids = Object.keys(players);
     const count = uids.length;
@@ -2025,9 +1958,7 @@ function subscribeRoom(roomId) {
       const avatarLetter = (p.nick || '?')[0].toUpperCase();
       row.innerHTML = `
         <div class="p-name">
-          <div class="p-avatar">
-            <span style="font-size:14px;">${avatarLetter}</span>
-          </div>
+          <div class="p-avatar"><span style="font-size:14px;">${avatarLetter}</span></div>
           ${p.nick}${uid === myUid ? ' <span style="color:var(--text-dim);font-size:12px;">(나)</span>' : ''}
         </div>
         ${uid === room.hostUid ? '<span class="host">방장</span>' : ''}
@@ -2126,9 +2057,7 @@ function renderVoteMaps(room) {
     d.className = 'voteMap' + (String(myVote) === String(i) ? ' voted' : '');
     const mapFallback = i === 0 ? '🏙️' : '🏛️';
     d.innerHTML = `
-      <div class="map-icon">
-        <span style="font-size:30px;">${mapFallback}</span>
-      </div>
+      <div class="map-icon"><span style="font-size:30px;">${mapFallback}</span></div>
       <div class="mapName">${m.name}</div>
       <div class="voteCount">${votes[i] || 0} 표</div>
     `;
