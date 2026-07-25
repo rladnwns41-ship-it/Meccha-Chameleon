@@ -933,7 +933,7 @@
   </div>
 </div>
 
-<div id="scoreboard" class="screen hidden">
+<div id="scr-scoreboard" class="screen hidden">
   <div class="ui-card" style="width:min(500px,94vw);">
     <div class="lobby-header">
       <h2 class="lobby-title">라운드 결과</h2>
@@ -1030,8 +1030,7 @@ const fbAuth = getAuth(fbApp);
 const fbDb = getDatabase(fbApp);
 
 let myUid = null, myRef = null, myNick = '익명';
-// 초기 화면 표시 (HTML은 모두 hidden으로 시작)
-document.getElementById('scr-nick').classList.remove('hidden');
+document.getElementById('scr-nick').classList.remove('hidden'); // 초기 화면
 
 // 랜덤 UID 생성기 (폴백용)
 function genRandomUid() {
@@ -1232,7 +1231,7 @@ let _lastPlayerCount = 0;
 
 let _hostTickRunning = false;
 setInterval(async () => {
-  if (_hostTickRunning) return; // 이전 tick이 아직 실행 중이면 스킵
+  if (_hostTickRunning) return;
   if (!myRoomId || !myUid || !_cachedRoom) return;
   const room = _cachedRoom;
   if (room.hostUid !== myUid) return;
@@ -1247,13 +1246,12 @@ setInterval(async () => {
       return;
     }
 
-    // 방 생성 후 10분 경과 시 자동 삭제
     if (room.createdAt && Date.now() - room.createdAt > 10 * 60 * 1000) {
-      console.log('⏰ 방 10분 초과 → 자동 삭제');
+      console.log('⏰ 10분 초과 자동 삭제');
       await remove(roomRef);
       return;
     }
-
+    
     if (state === 'lobby') {
       if (count < 2) {
         if (room.countdown != null) await update(roomRef, { countdown: null });
@@ -1918,9 +1916,8 @@ function subscribeRoom(roomId) {
   if (roomUnsub) roomUnsub();
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
-    _cachedRoom = room; // 방장 tick 캐시
+    _cachedRoom = room;
     if (!room) {
-      // 리스너 먼저 해제해야 leaveToRooms 재진입 방지
       if (roomUnsub) { roomUnsub(); roomUnsub = null; }
       leaveToRooms();
       return;
@@ -1932,8 +1929,8 @@ function subscribeRoom(roomId) {
     document.getElementById('lobbyName').textContent = room.name;
     document.getElementById('lobbyPlayerCount').textContent = count;
     
-    // playing 아니면 hidePhase 오버레이 숨김
-    if ((room.state || 'lobby') !== 'playing') {
+    // playing 아니면 hidePhase 오버레이 무조건 숨김
+    if (room.state !== 'playing') {
       const ov = document.getElementById('hidePhaseOverlay');
       if (ov) ov.classList.add('hidden');
       inHidePhase = false;
@@ -1958,23 +1955,20 @@ function subscribeRoom(roomId) {
     });
     
     // 상태별 화면 전환
-    const st = room.state || 'lobby';
-    if (st === 'lobby') {
-      // 투표/뽑기에서 lobby로 돌아온 경우 (ex. 방장이 리셋)
-      if (currentScreen === 'vote' || currentScreen === 'draw') showScreen('lobby');
-      updateCountdownDisplay(room);
-    } else if (st === 'voting') {
+    if (room.state === 'voting') {
       if (currentScreen !== 'vote') startVotingUI(room);
-      else renderVoteMaps(room);
+      else renderVoteMaps(room);  // 다른 사람 투표하면 실시간 갱신
       const timerEl = document.getElementById('voteTimer');
       if (timerEl) timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
-    } else if (st === 'drawing') {
-      if (currentScreen !== 'draw') startDrawingUI(room);
-    } else if (st === 'playing') {
-      if (currentScreen !== 'game') startGame(room);
-      updateHidePhase(room);
-      updateRoundTimer(room);
-    } else if (st === 'ended') {
+    } else if (room.state === 'drawing' && currentScreen !== 'draw') {
+      startDrawingUI(room);
+    } else if (room.state === 'playing' && currentScreen !== 'game') {
+      startGame(room);
+    }
+    
+    updateCountdownDisplay(room);
+    // 게임 중일 때 roundCountdown 타이머 표시
+    if (room.state === 'playing' || room.state === 'ended') {
       updateRoundTimer(room);
     }
   });
@@ -2013,7 +2007,6 @@ document.getElementById('leaveRoomBtn').addEventListener('click', leaveToRooms);
 async function leaveToRooms() {
   if (_leavingRoom) return;
   _leavingRoom = true;
-  // 리스너 즉시 해제 (await 도중 재발동 방지)
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   _cachedRoom = null;
   if (myRoomId && myUid) {
