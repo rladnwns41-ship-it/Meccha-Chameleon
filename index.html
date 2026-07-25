@@ -1036,6 +1036,7 @@
   <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
   &nbsp; <span style="color:#ffe066;">👍 <span id="myLikeCount">0</span></span>
+  &nbsp; <span style="color:#ff8b8b;">🔍 <span id="myCatchCount">0</span></span>
 </div>
 
 <div id="roundBar">
@@ -1449,7 +1450,12 @@ function updatePlayerListHUD() {
     el.innerHTML = '<div class="plh-title">플레이어</div><div class="plh-rows"></div>';
     rowsBox = el.querySelector('.plh-rows');
   }
-  const items = uids.map(uid => ({ uid, p: players[uid], isDead: alive[uid] === false, isSeeker: uid === seekerUid }));
+  const items = uids.map(uid => ({
+    uid, p: players[uid],
+    isDead: alive[uid] === false,
+    isSeeker: uid === seekerUid,
+    catches: (room.catches?.[uid]) || 0
+  }));
   diffRender(
     rowsBox,
     items,
@@ -1470,7 +1476,8 @@ function updatePlayerListHUD() {
       const nick = row.querySelector('.plh-nick');
       const role = row.querySelector('.plh-role');
       const nickTxt = (it.p.nick || '?') + (it.uid === myUid ? ' (나)' : '');
-      const roleTxt = it.isSeeker ? '🎯' : '🦎';
+      // 잡은 수가 있으면 옆에 🔍N 붙임
+      const roleTxt = (it.isSeeker ? '🎯' : '🦎') + (it.catches > 0 ? ` 🔍${it.catches}` : '');
       if (nick.textContent !== nickTxt) nick.textContent = nickTxt;
       if (role.textContent !== roleTxt) role.textContent = roleTxt;
     }
@@ -1960,6 +1967,10 @@ async function killPlayer(uid) {
     [`alive/${uid}`]: false,
     scores: scores
   });
+  // 잡은 수 파이어베이스에 저장 (모든 클라이언트가 봄)
+  const catches = Object.assign({}, _cachedRoom?.catches || {});
+  catches[myUid] = (catches[myUid] || 0) + 1;
+  await update(ref(fbDb, `rooms/${myRoomId}`), { catches });
 }
 
 // ============ 사망 먼지 애니메이션 (모두가 봄) ============
@@ -2536,6 +2547,9 @@ function subscribeRoom(roomId) {
       return;
     }
     _nullHits = 0;
+    // 내 잡은 수 HUD 갱신
+    const myCatchEl = document.getElementById('myCatchCount');
+    if (myCatchEl) myCatchEl.textContent = (room.catches?.[myUid]) || 0;
     const players = room.players || {};
     const uids = Object.keys(players);
     const count = uids.length;
@@ -2668,6 +2682,8 @@ async function leaveToRooms() {
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
   closeChat();
+  const catchEl = document.getElementById('myCatchCount');
+  if (catchEl) catchEl.textContent = 0;
   _leavingRoom = false;
   showScreen('rooms');
   subscribeRoomList();
