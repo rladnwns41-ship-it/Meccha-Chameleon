@@ -1417,7 +1417,7 @@ setInterval(async () => {
       } else {
         await update(roomRef, {
           state: 'playing',
-          hidePhaseCountdown: 15,
+          hidePhaseCountdown: 60,
           roundCountdown: 60,
           drawCountdown: null,
           round: {
@@ -1485,9 +1485,10 @@ function updateHidePhase(room) {
   inHidePhase = isHiding;
   const overlay = document.getElementById('hidePhaseOverlay');
   if (!overlay) return;
-  if (isHiding) {
+  // 오버레이는 술래한테만 (도망자는 자유롭게 페인트 하고 도망감)
+  if (isHiding && myRole === 'seeker') {
     overlay.classList.remove('hidden');
-    overlay.querySelector('.msg').textContent = myRole === 'seeker' ? '🙈 눈 감고 기다리는 중...' : '🏃 숨어라!';
+    overlay.querySelector('.msg').textContent = '🙈 눈 감고 기다리는 중...';
     overlay.querySelector('.timer').textContent = room.hidePhaseCountdown + '초';
   } else {
     overlay.classList.add('hidden');
@@ -1497,6 +1498,16 @@ function updateHidePhase(room) {
 // 라운드 타이머 UI - Firebase roundCountdown 값 표시
 function updateRoundTimer(room) {
   const el = document.getElementById('roundTimer');
+  // 숨는 시간 동안엔 그 카운트다운 표시 (도망자한테 유용)
+  if (room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0) {
+    const h = room.hidePhaseCountdown;
+    const mm = String(Math.floor(h/60)).padStart(2,'0');
+    const ss = String(h%60).padStart(2,'0');
+    el.textContent = '숨기 ' + mm + ':' + ss;
+    el.style.color = '#4dd07a';
+    return;
+  }
+  el.style.color = '';
   const s = room.roundCountdown != null ? room.roundCountdown : 60;
   const mm = String(Math.floor(s/60)).padStart(2,'0');
   const ss = String(s%60).padStart(2,'0');
