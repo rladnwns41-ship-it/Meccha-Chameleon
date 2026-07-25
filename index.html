@@ -2335,6 +2335,9 @@ gltfLoader.load(
       scene.add(indoorLight);
     }
 
+    // 백룸 맵 여부 (지붕 위 스폰 방지용 특별 처리)
+    const isBackrooms = selectedMap.name === '백룸';
+
     // 스폰 찾기
     const spawnCandidates = [];
     const R = Math.min(halfX, halfZ) * 0.6;
@@ -2347,39 +2350,35 @@ gltfLoader.load(
       const hits = sray.intersectObjects(collidableMeshes, false);
       if (!hits.length) continue;
 
-      // 실내 맵은 지붕 무시 - "위에 천장이 있는" hit만 바닥 후보로 인정
-      let candY = null, candClear = null;
-      if (selectedMap.hasWalls) {
-        // 각 hit에 대해 그 위로 30m 안에 다른 geometry가 있으면 (=천장) 실내 바닥
+      let topY, clear;
+      if (isBackrooms) {
+        // 백룸만: 위에 천장 있는 hit(=실내 바닥) 찾기, 지붕 위 스폰 방지
+        let found = false;
         for (let i = 0; i < hits.length; i++) {
-          const topY = hits[i].point.y;
+          const y = hits[i].point.y;
           const upray = new THREE.Raycaster();
-          upray.set(new THREE.Vector3(sx, topY+0.5, sz), new THREE.Vector3(0,1,0));
+          upray.set(new THREE.Vector3(sx, y+0.5, sz), new THREE.Vector3(0,1,0));
           upray.far = 30;
           const uphits = upray.intersectObjects(collidableMeshes, false);
-          const clear = uphits.length ? uphits[0].distance : 999;
-          // 머리 공간 1.8m ~ 20m = 실내 방
-          if (clear >= 1.8 && clear <= 20) {
-            candY = topY; candClear = clear;
-            break; // 가장 위쪽 바닥부터 선택 (여러 층이면 상층)
+          const c = uphits.length ? uphits[0].distance : 999;
+          if (c >= 1.8 && c <= 20) {
+            topY = y; clear = c; found = true; break;
           }
         }
-        // 실내 바닥 후보 없으면 이 위치 스킵 (지붕 위 스폰 방지)
-        if (candY === null) continue;
+        if (!found) continue; // 실내 바닥 못 찾음 = 이 위치 스킵
       } else {
-        // 야외 맵: 기존 로직 - 첫 hit 위에 3m 이상 여유
-        const topY = hits[0].point.y;
+        // Sponza / 도쿄 등 기존 로직 그대로
+        topY = hits[0].point.y;
         const upray = new THREE.Raycaster();
         upray.set(new THREE.Vector3(sx, topY+0.5, sz), new THREE.Vector3(0,1,0));
         upray.far = 30;
         const uphits = upray.intersectObjects(collidableMeshes, false);
-        const clear = uphits.length ? uphits[0].distance : 999;
+        clear = uphits.length ? uphits[0].distance : 999;
         if (clear < 3) continue;
-        candY = topY; candClear = clear;
       }
 
-      const score = -candY + candClear * 0.1;
-      if (score > bestScore) { bestScore = score; best = {x:sx, y:candY+0.05, z:sz}; }
+      const score = -topY + clear * 0.1;
+      if (score > bestScore) { bestScore = score; best = {x:sx, y:topY+0.05, z:sz}; }
     }
     if (best) player.position.set(best.x, best.y, best.z);
     else player.position.set(center.x, 20, center.z);
