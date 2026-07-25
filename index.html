@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>🦎 멧챠 카멜레온 도쿄</title>
+<title>🦎 웹챠 카멜레온</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@600;700&display=swap" rel="stylesheet">
 <style>
   /* ===== 디자인 토큰 ===== */
@@ -38,16 +38,23 @@
   #loading {
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center;
-    background:var(--bg); z-index:200; gap:18px;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e, #1a1a2e, #16213e);
+    background-size:400% 400%;
+    animation:gradientShift 6s ease infinite;
+    z-index:200; gap:18px;
   }
   #loading.hidden { display:none; }
 
+  @keyframes logoGlow {
+    0%,100% { box-shadow:0 8px 0 rgba(0,0,0,0.3), 0 0 20px rgba(62,207,108,0.2); }
+    50%      { box-shadow:0 8px 0 rgba(0,0,0,0.3), 0 0 40px rgba(62,207,108,0.5); }
+  }
   .loading-logo {
     width:88px; height:88px; border-radius:24px;
-    background:var(--panel); border:3px solid var(--border);
+    background:var(--panel); border:3px solid var(--green);
     display:flex; align-items:center; justify-content:center;
-    font-size:44px; box-shadow:0 8px 0 rgba(0,0,0,0.3);
-    animation:float 2s ease-in-out infinite;
+    font-size:44px;
+    animation:float 2s ease-in-out infinite, logoGlow 2s ease-in-out infinite;
   }
   @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 
@@ -73,32 +80,80 @@
   #loadStat { font-size:11px; color:var(--text-dim); font-family:monospace; }
 
   /* ===== 오버레이 공통 ===== */
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  @keyframes screenFadeIn {
+    from { opacity:0; }
+    to   { opacity:1; }
+  }
+  @keyframes cardSlideUp {
+    from { opacity:0; transform:translateY(32px) scale(0.96); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
   .screen {
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center;
     z-index:150; gap:14px; padding:20px;
-    background:rgba(18,22,34,0.82);
-    backdrop-filter:blur(10px);
+    background: linear-gradient(
+      135deg,
+      #0f0c29, #302b63, #24243e,
+      #1a1a2e, #16213e, #0f3460,
+      #1b1b2f, #2d1b69, #11998e
+    );
+    background-size: 400% 400%;
+    animation: gradientShift 8s ease infinite, screenFadeIn .4s ease;
   }
+  /* 닉네임 화면은 자체 배경 사용 */
+  #scr-nick.screen { animation: screenFadeIn .4s ease; }
   .screen.hidden { display:none; }
+  .screen .ui-card {
+    animation: cardSlideUp .45s cubic-bezier(0.34,1.26,0.64,1) both;
+  }
+  #scr-nick .ui-card { animation: nickFadeIn .6s cubic-bezier(0.34,1.26,0.64,1) .1s both; }
 
   /* 패널 카드 */
+  @keyframes cardShine {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
   .ui-card {
-    background:var(--panel);
-    border:3px solid var(--border);
+    background: rgba(37,45,63,0.85);
+    border:2px solid rgba(255,255,255,0.12);
     border-radius:var(--radius);
-    box-shadow:0 8px 0 rgba(0,0,0,0.35);
+    box-shadow:0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
     padding:24px 28px;
     width:min(480px, 92vw);
+    backdrop-filter:blur(20px);
+    position:relative;
+    overflow:hidden;
+  }
+  .ui-card::before {
+    content:'';
+    position:absolute; inset:0;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.06) 50%, transparent 60%);
+    background-size:200% 100%;
+    animation: cardShine 4s linear infinite;
+    pointer-events:none;
+    border-radius:inherit;
   }
 
   /* 타이틀 */
   .screen-title {
     font-family:'Nunito', sans-serif;
     font-size:32px; font-weight:900;
-    color:var(--text); letter-spacing:-1px;
+    letter-spacing:-1px;
     margin:0 0 4px;
     text-align:center;
+    background: linear-gradient(90deg, #ffffff, #3ecf6c, #4a9fff, #ffffff);
+    background-size:300% 100%;
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+    animation:titleGlow 5s ease infinite;
+    filter:drop-shadow(0 2px 12px rgba(62,207,108,0.3));
   }
   .screen-sub {
     font-size:13px; color:var(--text-dim);
@@ -106,16 +161,33 @@
   }
 
   /* ===== 버튼들 ===== */
+  @keyframes btnPulse {
+    0%,100% { box-shadow: var(--green-sh), 0 0 0 0 rgba(62,207,108,0); }
+    50%      { box-shadow: var(--green-sh), 0 0 0 8px rgba(62,207,108,0); }
+  }
   .btn {
     display:inline-flex; align-items:center; justify-content:center; gap:8px;
     padding:12px 24px; border-radius:var(--radius-sm);
     font-family:'Nunito', sans-serif;
     font-size:15px; font-weight:800;
     border:none; cursor:pointer;
-    transition:transform .1s, box-shadow .1s;
-    white-space:nowrap;
+    transition:transform .15s cubic-bezier(0.34,1.56,0.64,1), box-shadow .15s, filter .15s;
+    white-space:nowrap; position:relative; overflow:hidden;
   }
-  .btn:active { transform:translateY(3px) !important; box-shadow:none !important; }
+  .btn::after {
+    content:'';
+    position:absolute; inset:0;
+    background:linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+    opacity:0; transition:opacity .2s;
+    border-radius:inherit;
+  }
+  .btn:hover::after { opacity:1; }
+  .btn:active { transform:translateY(3px) scale(0.97) !important; box-shadow:none !important; }
+  .btn-green { animation: btnGlow 2.5s ease-in-out infinite; }
+  @keyframes btnGlow {
+    0%,100% { filter:brightness(1); }
+    50%      { filter:brightness(1.12); }
+  }
 
   .btn-green {
     background:var(--green); color:#fff;
@@ -169,27 +241,199 @@
   .ui-input:focus { border-color:var(--green); }
   .ui-input::placeholder { color:var(--text-dim); }
 
-  /* ===== 닉네임 화면 ===== */
-  #scr-nick .logo-wrap {
-    display:flex; flex-direction:column; align-items:center; gap:10px; margin-bottom:20px;
+  /* ===== 닉네임 화면 완전 리디자인 ===== */
+  @keyframes titleGlow {
+    0%,100% { background-position:0% 50%; }
+    50%      { background-position:100% 50%; }
   }
-  #scr-nick .game-icon {
-    width:96px; height:96px; border-radius:24px;
-    background:var(--panel); border:3px solid var(--border);
-    box-shadow:0 8px 0 rgba(0,0,0,0.35);
-    display:flex; align-items:center; justify-content:center;
+  @keyframes iconOrbit {
+    0%   { transform:translateY(0px) rotate(0deg); }
+    25%  { transform:translateY(-10px) rotate(3deg); }
+    75%  { transform:translateY(6px) rotate(-3deg); }
+    100% { transform:translateY(0px) rotate(0deg); }
+  }
+  @keyframes ringPulse {
+    0%,100% { transform:scale(1); opacity:0.5; }
+    50%      { transform:scale(1.15); opacity:0; }
+  }
+  @keyframes nickFadeIn {
+    from { opacity:0; transform:translateY(24px) scale(0.95); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
+  @keyframes taglineFlicker {
+    0%,100% { opacity:1; }
+    92%     { opacity:1; }
+    94%     { opacity:0.3; }
+    96%     { opacity:1; }
+    98%     { opacity:0.5; }
+  }
+
+  #scr-nick {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:0;
+    z-index:150; padding:20px;
+    background: radial-gradient(ellipse at 30% 20%, rgba(62,207,108,0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 80%, rgba(74,159,255,0.07) 0%, transparent 60%),
+                linear-gradient(160deg, #080c14 0%, #0d1220 40%, #091018 100%);
     overflow:hidden;
   }
-  #scr-nick .game-icon img {
-    width:100%; height:100%; object-fit:cover;
+
+  /* 배경 그리드 라인 */
+  #scr-nick::before {
+    content:'';
+    position:absolute; inset:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(62,207,108,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(62,207,108,0.03) 1px, transparent 1px);
+    background-size:60px 60px;
+    mask-image:radial-gradient(ellipse at center, black 30%, transparent 80%);
   }
-  #scr-nick .game-icon .icon-fallback { font-size:48px; }
+
+  #scr-nick .logo-wrap {
+    display:flex; flex-direction:column; align-items:center; gap:0;
+    margin-bottom:32px; position:relative;
+  }
+
+  /* 아이콘 링들 */
+  .icon-ring-wrap {
+    position:relative; width:130px; height:130px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:20px;
+  }
+  .icon-ring {
+    position:absolute; border-radius:50%; border:1.5px solid rgba(62,207,108,0.3);
+    animation:ringPulse 2.4s ease-out infinite;
+  }
+  .icon-ring:nth-child(1) { width:110px; height:110px; animation-delay:0s; }
+  .icon-ring:nth-child(2) { width:130px; height:130px; animation-delay:0.6s; border-color:rgba(74,159,255,0.2); }
+  .icon-ring:nth-child(3) { width:155px; height:155px; animation-delay:1.2s; border-color:rgba(155,109,255,0.15); }
+
+  #scr-nick .game-icon {
+    width:88px; height:88px; border-radius:22px;
+    background:linear-gradient(145deg, #1a2540, #111827);
+    border:2px solid rgba(62,207,108,0.4);
+    box-shadow:0 0 0 1px rgba(62,207,108,0.1),
+               0 0 30px rgba(62,207,108,0.2),
+               0 0 60px rgba(62,207,108,0.08),
+               inset 0 1px 0 rgba(255,255,255,0.08);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden; position:relative;
+    animation:iconOrbit 5s ease-in-out infinite;
+    z-index:2;
+  }
+  #scr-nick .game-icon::after {
+    content:'';
+    position:absolute; inset:0; border-radius:inherit;
+    background:linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%);
+    pointer-events:none;
+  }
+  #scr-nick .game-icon img { width:100%; height:100%; object-fit:cover; }
+  #scr-nick .game-icon .icon-fallback { font-size:44px; }
+
+  /* 타이틀 */
   #scr-nick .game-name {
     font-family:'Nunito', sans-serif;
-    font-size:30px; font-weight:900; letter-spacing:-1px;
+    font-size:44px; font-weight:900; letter-spacing:-2px; line-height:1;
+    margin-bottom:8px;
+    background: linear-gradient(90deg,
+      #3ecf6c 0%, #4af09a 20%, #4a9fff 45%, #9b6dff 65%, #3ecf6c 100%);
+    background-size:300% 100%;
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+    animation:titleGlow 5s ease infinite;
+    filter:drop-shadow(0 0 20px rgba(62,207,108,0.3));
   }
+
   #scr-nick .game-tagline {
-    font-size:13px; color:var(--text-dim); font-weight:700;
+    font-size:12px; font-weight:700; letter-spacing:3px; text-transform:uppercase;
+    color:rgba(139,146,168,0.8);
+    animation:taglineFlicker 6s ease-in-out infinite;
+    display:flex; align-items:center; gap:8px;
+  }
+  #scr-nick .game-tagline::before,
+  #scr-nick .game-tagline::after {
+    content:''; display:block; width:24px; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(62,207,108,0.5));
+  }
+  #scr-nick .game-tagline::after {
+    background:linear-gradient(90deg, rgba(62,207,108,0.5), transparent);
+  }
+
+  /* 닉네임 카드 */
+  #scr-nick .ui-card {
+    width:min(400px, 92vw);
+    background:rgba(13,18,32,0.7);
+    border:1px solid rgba(255,255,255,0.08);
+    border-top:1px solid rgba(255,255,255,0.12);
+    border-radius:20px;
+    box-shadow:0 24px 60px rgba(0,0,0,0.6),
+               0 0 0 1px rgba(62,207,108,0.05) inset,
+               0 1px 0 rgba(255,255,255,0.04) inset;
+    padding:28px 28px 24px;
+    backdrop-filter:blur(30px);
+    animation:nickFadeIn .6s cubic-bezier(0.34,1.26,0.64,1) .1s both;
+    position:relative; overflow:hidden;
+  }
+  #scr-nick .ui-card::before {
+    content:'';
+    position:absolute; top:0; left:20%; right:20%; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(62,207,108,0.6), transparent);
+  }
+
+  /* 닉네임 라벨 */
+  #scr-nick .screen-sub {
+    font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+    color:rgba(139,146,168,0.7); margin:0 0 12px; text-align:left;
+  }
+
+  /* 인풋 리디자인 */
+  #scr-nick .nick input {
+    flex:1; padding:14px 18px; border-radius:12px;
+    border:1.5px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.04);
+    color:var(--text); font-size:16px; font-family:'Nunito',sans-serif;
+    font-weight:800; outline:none;
+    transition:border-color .2s, background .2s, box-shadow .2s;
+    width:100%; display:block;
+  }
+  #scr-nick .nick input:focus {
+    border-color:rgba(62,207,108,0.5);
+    background:rgba(62,207,108,0.05);
+    box-shadow:0 0 0 3px rgba(62,207,108,0.1), 0 0 20px rgba(62,207,108,0.08);
+  }
+  #scr-nick .nick input::placeholder { color:rgba(139,146,168,0.4); }
+
+  /* 시작 버튼 리디자인 */
+  #nickNext {
+    width:100%; padding:15px !important; font-size:15px !important;
+    border-radius:12px !important;
+    background:linear-gradient(135deg, #3ecf6c, #2aaf56) !important;
+    border:none !important; color:#fff !important; font-weight:900 !important;
+    font-family:'Nunito',sans-serif !important; cursor:pointer;
+    position:relative; overflow:hidden;
+    box-shadow:0 4px 24px rgba(62,207,108,0.35), 0 1px 0 rgba(255,255,255,0.2) inset !important;
+    transition:transform .15s cubic-bezier(0.34,1.56,0.64,1), box-shadow .15s !important;
+    letter-spacing:0.5px;
+  }
+  #nickNext::before {
+    content:'';
+    position:absolute; top:0; left:-100%; width:100%; height:100%;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition:left .4s;
+  }
+  #nickNext:hover {
+    transform:translateY(-2px) !important;
+    box-shadow:0 8px 32px rgba(62,207,108,0.5), 0 1px 0 rgba(255,255,255,0.2) inset !important;
+  }
+  #nickNext:hover::before { left:100%; }
+  #nickNext:active { transform:translateY(1px) scale(0.99) !important; }
+
+  /* 하단 버전 텍스트 */
+  #scr-nick .version-tag {
+    position:absolute; bottom:18px;
+    font-size:10px; font-weight:700; letter-spacing:2px;
+    color:rgba(139,146,168,0.3); text-transform:uppercase;
   }
   .nick {
     display:flex; gap:8px; align-items:center; width:100%;
@@ -206,8 +450,9 @@
   /* ===== 방 목록 ===== */
   #roomListBox {
     width:100%; max-height:42vh; overflow-y:auto;
-    display:flex; flex-direction:column; gap:8px;
+    display:flex; flex-direction:column; gap:14px;
     padding-right:4px;
+    padding:6px 4px 6px 0;
   }
   #roomListBox::-webkit-scrollbar { width:6px; }
   #roomListBox::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
@@ -215,13 +460,19 @@
 
   .room-item {
     display:flex; justify-content:space-between; align-items:center;
-    padding:12px 16px; border-radius:var(--radius-sm);
+    padding:16px 20px; border-radius:var(--radius-sm);
     background:var(--panel2); border:2px solid var(--border);
-    cursor:pointer; transition:all .15s;
+    cursor:pointer; transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
+    animation:roomSlideIn .3s ease both;
+  }
+  @keyframes roomSlideIn {
+    from { opacity:0; transform:translateX(-16px); }
+    to   { opacity:1; transform:translateX(0); }
   }
   .room-item:hover {
-    border-color:var(--green); transform:translateX(4px);
-    background:rgba(62,207,108,0.1);
+    border-color:var(--green); transform:translateX(6px) scale(1.01);
+    background:rgba(62,207,108,0.12);
+    box-shadow:0 4px 20px rgba(62,207,108,0.15), -4px 0 0 var(--green);
   }
   .room-item .info { font-weight:800; font-size:14px; }
   .room-item .meta { display:flex; align-items:center; gap:8px; }
@@ -275,10 +526,14 @@
     width:8px; height:8px; background:var(--green);
     border-radius:50%; animation:pulse 1.5s infinite;
   }
+  @keyframes countdownPop {
+    0%   { transform:scale(1.4); opacity:.6; }
+    100% { transform:scale(1); opacity:1; }
+  }
   #lobbyCountdown {
     font-family:'Nunito', sans-serif;
     font-size:32px; font-weight:900; color:var(--yellow);
-    text-shadow:0 2px 0 var(--yellow-d);
+    text-shadow:0 2px 0 var(--yellow-d), 0 0 20px rgba(255,201,60,0.4);
     text-align:center; min-height:40px;
   }
   .playerList {
@@ -288,8 +543,11 @@
   .player-row {
     display:flex; justify-content:space-between; align-items:center;
     padding:10px 14px; border-radius:var(--radius-sm);
-    background:var(--panel2); border:2px solid var(--border);
+    background:rgba(46,56,82,0.8); border:2px solid rgba(255,255,255,0.1);
+    animation:roomSlideIn .35s ease both;
+    transition:all .2s;
   }
+  .player-row:hover { border-color:rgba(62,207,108,0.3); transform:translateX(4px); }
   .player-row .p-name { font-weight:800; font-size:14px; display:flex; align-items:center; gap:8px; }
   .player-row .p-avatar {
     width:28px; height:28px; border-radius:8px;
@@ -314,11 +572,19 @@
   .voteBox { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
   .voteMap {
     width:200px; padding:20px 16px;
-    background:var(--panel2); border:3px solid var(--border);
+    background:rgba(46,56,82,0.8); border:2px solid rgba(255,255,255,0.1);
     border-radius:var(--radius); cursor:pointer; text-align:center;
-    transition:all .15s; box-shadow:0 6px 0 rgba(0,0,0,0.3);
+    transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+    backdrop-filter:blur(10px);
+    animation:cardSlideUp .5s cubic-bezier(0.34,1.26,0.64,1) both;
   }
-  .voteMap:hover { border-color:var(--green); transform:translateY(-4px); box-shadow:0 10px 0 rgba(0,0,0,0.3); }
+  .voteMap:nth-child(2) { animation-delay:.08s; }
+  .voteMap:nth-child(3) { animation-delay:.16s; }
+  .voteMap:hover {
+    border-color:var(--green); transform:translateY(-8px) scale(1.03);
+    box-shadow:0 16px 0 rgba(0,0,0,0.25), 0 0 30px rgba(62,207,108,0.2);
+  }
   .voteMap.voted { border-color:var(--green); background:rgba(62,207,108,0.12); }
   .voteMap .map-icon {
     width:64px; height:64px; margin:0 auto 10px;
@@ -342,13 +608,17 @@
   #voteTimer { color:var(--yellow); font-weight:800; }
 
   /* ===== 뽑기 스피너 ===== */
+  @keyframes spinnerGlow {
+    0%,100% { box-shadow:0 0 0 4px rgba(62,207,108,0.15), 0 6px 0 rgba(0,0,0,0.3), 0 0 30px rgba(62,207,108,0.2); }
+    50%      { box-shadow:0 0 0 4px rgba(62,207,108,0.3),  0 6px 0 rgba(0,0,0,0.3), 0 0 60px rgba(62,207,108,0.4); }
+  }
   .drawSpin {
     display:flex; overflow:hidden;
     width:min(400px,90vw); height:80px;
     background:var(--bg); border-radius:var(--radius);
     border:3px solid var(--green);
     position:relative;
-    box-shadow:0 0 0 4px rgba(62,207,108,0.15), 0 6px 0 rgba(0,0,0,0.3);
+    animation:spinnerGlow 2s ease-in-out infinite;
   }
   .drawSpin .item {
     min-width:180px; height:100%;
@@ -365,14 +635,19 @@
   .drawStrip { display:flex; transition:transform 4s cubic-bezier(0.15, 0.85, 0.35, 1); }
 
   /* ===== 라운드 바 (인게임 HUD 상단 중앙) ===== */
+  @keyframes hudEntrance {
+    from { opacity:0; transform:translateX(-50%) translateY(-20px); }
+    to   { opacity:1; transform:translateX(-50%) translateY(0); }
+  }
   #roundBar {
     position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:20;
-    background:var(--panel); backdrop-filter:blur(10px);
+    background:rgba(37,45,63,0.9); backdrop-filter:blur(14px);
     padding:8px 18px; border-radius:var(--radius);
     display:flex; gap:18px; align-items:center;
-    border:2px solid var(--border);
-    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+    border:2px solid rgba(255,255,255,0.12);
+    box-shadow:0 6px 24px rgba(0,0,0,0.4);
     font-weight:800;
+    animation:hudEntrance .5s cubic-bezier(0.34,1.26,0.64,1) both;
   }
   #roundTimer {
     font-family:'Nunito', sans-serif;
@@ -618,34 +893,40 @@
 
 <div id="loading" class="hidden">
   <div class="loading-logo">
-    <img src="./img/icon-logo.png" alt="로고" style="width:100%;height:100%;object-fit:cover;border-radius:21px;" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-    <span style="display:none;font-size:44px;">🦎</span>
+    <span style="font-size:44px;">🦎</span>
   </div>
-  <div class="loading-title">멧챠 카멜레온</div>
+  <div class="loading-title">웹챠 카멜레온</div>
   <div id="bar"><div id="barFill"></div></div>
   <div id="pct">0%</div>
-  <div id="loadStat">캐릭터: 0% / 0% · 도쿄: 0%</div>
+  <div id="loadStat">캐릭터: 0% / 0% · 맵: 0%</div>
 </div>
 
 <!-- 화면들 (배타적) -->
 <div id="scr-nick" class="screen">
+
   <div class="logo-wrap">
-    <div class="game-icon">
-      <img src="./img/icon-logo.png" alt="게임 로고" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-      <span class="icon-fallback" style="display:none;">🦎</span>
+    <div class="icon-ring-wrap">
+      <div class="icon-ring"></div>
+      <div class="icon-ring"></div>
+      <div class="icon-ring"></div>
+      <div class="game-icon">
+        <span class="icon-fallback">🦎</span>
+      </div>
     </div>
-    <div class="game-name">멧챠 카멜레온</div>
-    <div class="game-tagline">도쿄 뒷골목에서 숨어라</div>
+    <div class="game-name">웹챠 카멜레온</div>
+    <div class="game-tagline">숨어라</div>
   </div>
+
   <div class="ui-card">
-    <div class="screen-sub">닉네임을 입력하세요</div>
+    <div class="screen-sub">닉네임</div>
     <div class="nick">
-      <input id="nickInput" class="ui-input" placeholder="시그마보이" maxlength="16" style="text-align:center;">
+      <input id="nickInput" placeholder="시그마보이" maxlength="16" autocomplete="off" spellcheck="false">
     </div>
-    <div style="margin-top:14px;display:flex;justify-content:center;">
-      <button class="btn btn-green" id="nickNext" style="padding:13px 36px;font-size:16px;">게임 시작</button>
+    <div style="margin-top:14px;">
+      <button id="nickNext">🎮 &nbsp;게임 시작</button>
     </div>
   </div>
+  <div class="version-tag">WEBCHA CHAMELEON · v1.0</div>
 </div>
 
 <div id="scr-rooms" class="screen hidden">
@@ -794,6 +1075,7 @@
     <input id="hexInput" value="#ffffff" spellcheck="false">
   </div>
 </div>
+
 
 
 
@@ -1432,7 +1714,7 @@ function switchPose(poseName) {
 const loadProgress = { stand: 0, crouch: 0, tokyo: 0 };
 function updateLoadingText() {
   const t = document.getElementById('loadStat');
-  if (t) t.textContent = `캐릭터: ${loadProgress.stand}% / ${loadProgress.crouch}% · 도쿄: ${loadProgress.tokyo}%`;
+  if (t) t.textContent = `캐릭터: ${loadProgress.stand}% / ${loadProgress.crouch}% · 맵: ${loadProgress.tokyo}%`;
 }
 
 gltfLoader.load('./stand.glb', gltf => {
@@ -1493,7 +1775,7 @@ function loadSelectedMap(mapIdx) {
   console.log('🗺️ 맵 로딩:', selectedMap.name);
   document.getElementById('mapName').textContent = selectedMap.name;
   document.getElementById('loading').classList.remove('hidden');
-  document.getElementById('loading').querySelector('div').textContent = '🏙️ ' + selectedMap.name + ' 불러오는 중...';
+  document.getElementById('loading').querySelector('.loading-title').textContent = selectedMap.name + ' 불러오는 중...';
 
 gltfLoader.load(
   selectedMap.url,
@@ -1580,14 +1862,27 @@ gltfLoader.load(
     else player.position.set(center.x, 20, center.z);
     velocityY = 0; isGrounded = true;
 
-    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('barFill').style.width = '100%';
+    document.getElementById('pct').textContent = '100%';
+    const t = document.getElementById('loadStat');
+    if (t) t.textContent = '로드 완료!';
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 300);
   },
   xhr => {
-    if (xhr.total) {
-      const p = Math.round(xhr.loaded/xhr.total*100);
+    if (xhr.total && xhr.total > 0) {
+      const p = Math.min(99, Math.round(xhr.loaded / xhr.total * 100));
       loadProgress.tokyo = p; updateLoadingText();
-      document.getElementById('barFill').style.width = p+'%';
-      document.getElementById('pct').textContent = p+'%';
+      document.getElementById('barFill').style.width = p + '%';
+      document.getElementById('pct').textContent = p + '%';
+    } else {
+      // Content-Length 없는 CDN → 바이트 기반 표시
+      const mb = (xhr.loaded / 1024 / 1024).toFixed(1);
+      const t = document.getElementById('loadStat');
+      if (t) t.textContent = `맵 다운로드 중... ${mb} MB`;
+      // 바가 무한히 차오르는 느낌 (실제 진행률 모름)
+      const fakeP = Math.min(90, (xhr.loaded / (30 * 1024 * 1024)) * 90);
+      document.getElementById('barFill').style.width = fakeP + '%';
+      document.getElementById('pct').textContent = `${mb} MB`;
     }
   },
   err => console.error('Tokyo 로드 실패:', err)
