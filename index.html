@@ -1251,6 +1251,24 @@ function refreshOtherSeekerGuns() {
   });
 }
 
+// 매 프레임 안전망: 술래인데 총 안 붙었으면 붙임
+let _gunWatchdogSpam = 0;
+function ensureGunAttached() {
+  if (!seekerGunModel) return;
+  const room = _cachedRoom;
+  if (!room || !room.seekerUid) return;
+  // 나
+  if (room.seekerUid === myUid && !attachedGun) {
+    attachGunToPlayer();
+  }
+  // 다른 술래
+  Object.keys(otherPlayers).forEach(uid => {
+    const ot = otherPlayers[uid];
+    if (uid === room.seekerUid && !ot.gun) attachGunToOther(uid);
+    if (uid !== room.seekerUid && ot.gun) detachGunFromOther(uid);
+  });
+}
+
 // 플레이어 생존 목록 HUD 갱신
 function updatePlayerListHUD() {
   const el = document.getElementById('playerListHUD');
@@ -2946,7 +2964,7 @@ function startFirebaseSync(room) {
 
 // ================ 도발 휘슬 시스템 (H) ================
 const WHISTLE_URL = 'https://www.myinstants.com/media/sounds/geoje-yaho.mp3';
-const WHISTLE_MAX_DIST = 60; // 이 거리 넘으면 안 들림
+const WHISTLE_MAX_DIST = 200; // 이 거리 넘으면 안 들림 (맵 대부분 커버)
 const WHISTLE_COOLDOWN = 3000; // 로컬 스팸 방지
 let _lastWhistleSent = 0;
 const _lastWhistleSeen = {}; // uid -> last timestamp we played
@@ -2966,7 +2984,7 @@ function playWhistleAt(x, y, z, isMe) {
     const dist = Math.hypot(dx, dy, dz);
     vol = Math.max(0, 1 - dist / WHISTLE_MAX_DIST);
     if (vol <= 0.02) return;
-    vol = vol * vol;
+    vol = Math.sqrt(vol); // 완만한 감쇠 - 멀어도 잘 들리게
   }
   const a = new Audio(WHISTLE_URL);
   a.volume = Math.min(1, vol);
@@ -3029,6 +3047,8 @@ function animate() {
   if (mixer) mixer.update(dt);
   updateDustBursts(dt);
   clampPlayerToBounds();
+  // 총 부착 watchdog (혹시 안 붙었으면 매 프레임 다시 시도)
+  ensureGunAttached();
 
   // 다른 플레이어 lerp
   for (const uid in otherPlayers) {
