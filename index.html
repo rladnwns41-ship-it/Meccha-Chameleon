@@ -1816,9 +1816,16 @@ let roomUnsub = null;
 
 function showScreen(name) {
   currentScreen = name;
-  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  // CSS specificity 우회: inline style 로 직접 강제
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.add('hidden');
+    s.style.display = 'none';
+  });
   const el = document.getElementById('scr-' + name);
-  if (el) el.classList.remove('hidden');
+  if (el) {
+    el.classList.remove('hidden');
+    el.style.display = 'flex';
+  }
 }
 
 // 1단계: 닉네임 입력 완료 → 방 목록으로
@@ -2132,7 +2139,11 @@ function startDrawingUI(room) {
 // ============ 게임 시작 ============
 async function startGame(room) {
   currentScreen = 'game';
-  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  // 모든 스크린 확실히 숨김 (특히 scr-nick 이 뜨는 버그 방지)
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.add('hidden');
+    s.style.display = 'none';
+  });
   
   // 선택된 맵으로 세팅
   const mapIdx = parseInt(room.selectedMap || 0);
