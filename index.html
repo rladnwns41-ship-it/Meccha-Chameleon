@@ -181,6 +181,16 @@
     box-shadow:0 0 8px rgba(0,0,0,0.6); display:none;
   }
   #crosshair.on { display:block; }
+
+  /* 숨는 시간 오버레이 */
+  #hidePhaseOverlay {
+    position:fixed; inset:0; z-index:60;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.7); color:#fff; pointer-events:none;
+  }
+  #hidePhaseOverlay.hidden { display:none !important; }
+  #hidePhaseOverlay .msg { font-size:36px; font-weight:800; margin-bottom:12px; }
+  #hidePhaseOverlay .timer { font-size:64px; color:#ffca28; font-weight:900; font-family:monospace; }
 </style>
 </head>
 <body>
@@ -251,12 +261,10 @@
   </div>
 </div>
 
-<div id="hidePhaseOverlay" class="hidden" style="position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);color:#fff;pointer-events:none">
-  <div class="msg" style="font-size:36px;font-weight:800;margin-bottom:12px"></div>
-  <div class="timer" style="font-size:64px;color:#ffca28;font-weight:900;font-family:monospace"></div>
+<div id="hidePhaseOverlay" class="hidden">
+  <div class="msg"></div>
+  <div class="timer"></div>
 </div>
-<div id="hidePhaseOverlay-style" style="display:none">.hidden{display:none!important}</div>
-
 <div id="deathScreen" class="hidden">
   <div class="deathBox">
     <div style="font-size:56px;margin-bottom:8px">💀</div>
@@ -708,20 +716,14 @@ async function uid_is_host_by_id(roomId) {
 // 숨는 시간 처리 - 술래는 얼음 + 화면 어둡게, 하이더는 자유
 let inHidePhase = false;
 function updateHidePhase(room) {
-  const isHiding = room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0;
+  const isHiding = room.state === 'playing' && room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0;
   inHidePhase = isHiding;
   const overlay = document.getElementById('hidePhaseOverlay');
   if (!overlay) return;
   if (isHiding) {
     overlay.classList.remove('hidden');
-    const t = overlay.querySelector('.timer');
-    if (myRole === 'seeker') {
-      overlay.querySelector('.msg').textContent = '🙈 눈 감고 기다리는 중...';
-      t.textContent = room.hidePhaseCountdown + '초';
-    } else {
-      overlay.querySelector('.msg').textContent = '🏃 숨어라!';
-      t.textContent = room.hidePhaseCountdown + '초';
-    }
+    overlay.querySelector('.msg').textContent = myRole === 'seeker' ? '🙈 눈 감고 기다리는 중...' : '🏃 숨어라!';
+    overlay.querySelector('.timer').textContent = room.hidePhaseCountdown + '초';
   } else {
     overlay.classList.add('hidden');
   }
@@ -1240,6 +1242,13 @@ function subscribeRoom(roomId) {
     
     document.getElementById('lobbyName').textContent = room.name;
     document.getElementById('lobbyPlayerCount').textContent = count;
+    
+    // playing 아니면 hidePhase 오버레이 무조건 숨김
+    if (room.state !== 'playing') {
+      const ov = document.getElementById('hidePhaseOverlay');
+      if (ov) ov.classList.add('hidden');
+      inHidePhase = false;
+    }
     
     // 플레이어 목록
     const box = document.getElementById('lobbyPlayers');
