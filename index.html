@@ -701,7 +701,7 @@
 
   /* ===== 페인트 모드 표시 ===== */
   #paintIndicator {
-    position:fixed; top:60px; left:14px; z-index:20;
+    position:fixed; top:130px; left:14px; z-index:20;
     background:var(--green); color:#fff;
     padding:6px 14px; border-radius:var(--radius-sm);
     font-size:12px; font-weight:800;
@@ -710,6 +710,40 @@
     display:none;
   }
   #paintIndicator.on { display:block; animation:slideIn .2s; }
+
+  /* 플레이어 생존 목록 (게임 중) */
+  #playerListHUD {
+    position:fixed; top:60px; right:14px; z-index:20;
+    background:var(--panel); color:var(--text);
+    padding:8px 12px; border-radius:var(--radius-sm);
+    font-size:12px; min-width:140px;
+    border:2px solid var(--border);
+    box-shadow:0 3px 0 rgba(0,0,0,0.3);
+    display:none;
+  }
+  #playerListHUD.on { display:block; }
+  #playerListHUD .plh-title {
+    font-weight:800; font-size:11px; color:var(--text-dim);
+    margin-bottom:5px; letter-spacing:0.5px;
+  }
+  #playerListHUD .plh-row {
+    display:flex; align-items:center; gap:6px; padding:3px 0;
+    border-top:1px solid rgba(255,255,255,0.05);
+  }
+  #playerListHUD .plh-row:first-of-type { border-top:none; }
+  #playerListHUD .plh-dot {
+    width:8px; height:8px; border-radius:50%;
+    background:var(--green); flex-shrink:0;
+    box-shadow:0 0 6px var(--green);
+  }
+  #playerListHUD .plh-row.dead .plh-dot {
+    background:#555; box-shadow:none;
+  }
+  #playerListHUD .plh-row.dead .plh-nick {
+    color:var(--text-dim); text-decoration:line-through;
+  }
+  #playerListHUD .plh-nick { font-weight:700; flex:1; }
+  #playerListHUD .plh-role { font-size:11px; }
   @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
 
   /* 크로스헤어 */
@@ -952,6 +986,7 @@
 <div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 &nbsp;·&nbsp; <span id="mapName">-</span></div>
 
 <div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; P 로 종료</div>
+<div id="playerListHUD"></div>
 <div id="crosshair"></div>
 <div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
   <div class="start-card">
@@ -1179,6 +1214,10 @@ gltfLoader.load('./gun.glb', gltf => {
   });
   seekerGunModel = glb;
   console.log('✅ 총 모델 로드 완료');
+  // 로딩 늦게 끝났을 때: 이미 술래면 지금 붙임
+  if (myRole === 'seeker' && !attachedGun) attachGunToPlayer();
+  // 다른 술래 플레이어들에게도 소급 부착
+  refreshOtherSeekerGuns();
 }, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
 
 // 총 = player 그룹에 직접 붙임 (모든 포즈에서 오른손 위치에 나타남)
@@ -1195,6 +1234,56 @@ function attachGunToPlayer() {
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
+}
+
+// 다른 플레이어(술래)에게 총 부착/제거
+function attachGunToOther(uid) {
+  const ot = otherPlayers[uid];
+  if (!ot || !seekerGunModel || ot.gun) return;
+  const g = seekerGunModel.clone(true);
+  g.position.set(0.42, 1.0, 0.35);
+  g.rotation.y = -Math.PI / 2;
+  ot.group.add(g);
+  ot.gun = g;
+}
+function detachGunFromOther(uid) {
+  const ot = otherPlayers[uid];
+  if (ot && ot.gun) { ot.group.remove(ot.gun); ot.gun = null; }
+}
+function refreshOtherSeekerGuns() {
+  const seekerUid = _cachedRoom?.seekerUid;
+  if (!seekerUid) return;
+  Object.keys(otherPlayers).forEach(uid => {
+    if (uid === seekerUid) attachGunToOther(uid);
+    else detachGunFromOther(uid);
+  });
+}
+
+// 플레이어 생존 목록 HUD 갱신
+function updatePlayerListHUD() {
+  const el = document.getElementById('playerListHUD');
+  if (!el) return;
+  const room = _cachedRoom;
+  if (!room || currentScreen !== 'game') { el.classList.remove('on'); return; }
+  const players = room.players || {};
+  const alive = roundState?.alive || {};
+  const seekerUid = room.seekerUid;
+  const uids = Object.keys(players);
+  if (!uids.length) { el.classList.remove('on'); return; }
+  let html = '<div class="plh-title">플레이어</div>';
+  uids.forEach(uid => {
+    const p = players[uid];
+    const isDead = alive[uid] === false;
+    const isSeeker = uid === seekerUid;
+    const meTag = uid === myUid ? ' (나)' : '';
+    html += `<div class="plh-row${isDead ? ' dead' : ''}">
+      <div class="plh-dot"></div>
+      <div class="plh-nick">${p.nick}${meTag}</div>
+      <div class="plh-role">${isSeeker ? '🎯' : '🦎'}</div>
+    </div>`;
+  });
+  el.innerHTML = html;
+  el.classList.add('on');
 }
 
 // 역할 전환 - 총만 붙였다 뗐다 (모델은 동일)
@@ -1352,6 +1441,10 @@ function subscribeRoundState() {
     const alive = rs.alive?.[myUid];
     if (alive === false && myAlive) onIDied();
     myAlive = alive !== false;
+    // 모든 플레이어 생존 변화 감지 → 먼지 애니메이션
+    checkAliveTransitions(rs);
+    // 플레이어 목록 UI 갱신
+    updatePlayerListHUD();
   });
 }
 
@@ -1478,6 +1571,93 @@ async function killPlayer(uid) {
     [`alive/${uid}`]: false,
     scores: scores
   });
+}
+
+// ============ 사망 먼지 애니메이션 (모두가 봄) ============
+const _dustBursts = []; // {points, life, maxLife}
+function spawnDustBurst(x, y, z) {
+  const N = 40;
+  const positions = new Float32Array(N * 3);
+  const velocities = [];
+  for (let i = 0; i < N; i++) {
+    positions[i*3] = x + (Math.random()-0.5)*0.3;
+    positions[i*3+1] = y + Math.random()*1.5;
+    positions[i*3+2] = z + (Math.random()-0.5)*0.3;
+    const ang = Math.random() * Math.PI * 2;
+    const spd = 2 + Math.random() * 3;
+    velocities.push({
+      x: Math.cos(ang) * spd,
+      y: 1 + Math.random() * 2.5,
+      z: Math.sin(ang) * spd
+    });
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xd8cbb0, size: 0.35, transparent: true, opacity: 1,
+    depthWrite: false, sizeAttenuation: true
+  });
+  const pts = new THREE.Points(geom, mat);
+  scene.add(pts);
+  _dustBursts.push({ points: pts, velocities, life: 0, maxLife: 1.4, positions });
+  console.log('💨 먼지 애니메이션 재생');
+}
+function updateDustBursts(dt) {
+  for (let i = _dustBursts.length - 1; i >= 0; i--) {
+    const b = _dustBursts[i];
+    b.life += dt;
+    const t = b.life / b.maxLife;
+    const pos = b.positions;
+    for (let j = 0; j < b.velocities.length; j++) {
+      const v = b.velocities[j];
+      pos[j*3]   += v.x * dt;
+      pos[j*3+1] += v.y * dt;
+      pos[j*3+2] += v.z * dt;
+      v.y -= 4 * dt;  // 중력
+      v.x *= 0.94; v.z *= 0.94; // 감속
+    }
+    b.points.geometry.attributes.position.needsUpdate = true;
+    b.points.material.opacity = Math.max(0, 1 - t);
+    b.points.material.size = 0.35 + t * 0.5;
+    if (b.life >= b.maxLife) {
+      scene.remove(b.points);
+      b.points.geometry.dispose();
+      b.points.material.dispose();
+      _dustBursts.splice(i, 1);
+    }
+  }
+}
+
+// 이전 alive 상태 추적 - 변화 시 먼지 애니메이션
+const _prevAlive = {};
+function checkAliveTransitions(rs) {
+  if (!rs || !rs.alive) return;
+  Object.keys(rs.alive).forEach(uid => {
+    const wasAlive = _prevAlive[uid] !== false; // 처음엔 살아있음
+    const nowAlive = rs.alive[uid] !== false;
+    if (wasAlive && !nowAlive) {
+      // 죽음 감지 - 위치 계산
+      let x = 0, y = 1, z = 0;
+      if (uid === myUid) {
+        x = player.position.x; y = player.position.y; z = player.position.z;
+      } else if (otherPlayers[uid]) {
+        x = otherPlayers[uid].group.position.x;
+        y = otherPlayers[uid].group.position.y;
+        z = otherPlayers[uid].group.position.z;
+      }
+      spawnDustBurst(x, y, z);
+    }
+    _prevAlive[uid] = nowAlive;
+  });
+  // 죽은 다른 플레이어 모델 숨김
+  Object.keys(otherPlayers).forEach(uid => {
+    const dead = rs.alive?.[uid] === false;
+    otherPlayers[uid].group.visible = !dead;
+  });
+  // 내가 죽었으면 내 모델도 숨김, 살아났으면 다시 보이게
+  const iAmDead = rs.alive?.[myUid] === false;
+  Object.values(poseModels).forEach(m => { if (m) m.visible = !iAmDead && (m === currentPoseGlb); });
+  if (attachedGun) attachedGun.visible = !iAmDead;
 }
 
 function onIDied() {
@@ -1712,18 +1892,20 @@ gltfLoader.load(
       mixer.clipAction(gltf.animations[0]).play();
     }
 
-    // 벽 재배치 (맵에 벽 없는 경우만)
+    // 경계(맵 밖 방지)는 그대로 track 하되, 눈에 보이는 벽은 만들지 않음
+    // → 밖으로 나가려 하면 tryMove 에서 튕겨내고 허공에 리플 이펙트
     const finalBox = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3(); finalBox.getSize(size);
     const center = new THREE.Vector3(); finalBox.getCenter(center);
     const halfX = size.x/2 + 0.5;
     const halfZ = size.z/2 + 0.5;
     if (!selectedMap.hasWalls) {
-      buildWalls(center, halfX, halfZ);
-      wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
-      // 벽 추가 후 통합 배열 재동기화
-      _groundAndCollidable.length = 0;
-      _groundAndCollidable.push(ground, ...collidableMeshes);
+      // 벽 만들지 않음 - 대신 소프트 경계로 사용
+      worldBounds = { minX: center.x - halfX, maxX: center.x + halfX,
+                      minZ: center.z - halfZ, maxZ: center.z + halfZ };
+      console.log('🔷 소프트 경계 설정', worldBounds);
+    } else {
+      worldBounds = null;
     }
 
     // 바닥 확장 (실내 맵은 자체 바닥 있으니 안 늘림)
@@ -1983,6 +2165,10 @@ function subscribeRoom(roomId) {
     if (room.state === 'playing' || room.state === 'ended') {
       updateRoundTimer(room);
     }
+    // 게임 중 플레이어 목록 갱신
+    updatePlayerListHUD();
+    // 술래 바뀌었을 때 다른 플레이어들 총 상태 재정렬
+    refreshOtherSeekerGuns();
   });
 }
 
@@ -2277,8 +2463,67 @@ function tryMove(dx, dz) {
     if (rc.intersectObjects(collidableMeshes, false).length) return false;
     return true;
   };
-  if (check(dx, 0)) player.position.x += dx;
-  if (check(0, dz)) player.position.z += dz;
+  // X 축 이동
+  if (check(dx, 0)) {
+    const nx = player.position.x + dx;
+    if (worldBounds && (nx < worldBounds.minX || nx > worldBounds.maxX)) {
+      // 경계 부딪힘 - 리플 + 튕김
+      const bx = nx < worldBounds.minX ? worldBounds.minX : worldBounds.maxX;
+      spawnBoundaryRipple(bx, player.position.y + 1.2, player.position.z, dx > 0 ? -1 : 1, 0);
+      player.position.x -= dx * 0.5;  // 뒤로 튕김
+    } else {
+      player.position.x = nx;
+    }
+  }
+  // Z 축 이동
+  if (check(0, dz)) {
+    const nz = player.position.z + dz;
+    if (worldBounds && (nz < worldBounds.minZ || nz > worldBounds.maxZ)) {
+      const bz = nz < worldBounds.minZ ? worldBounds.minZ : worldBounds.maxZ;
+      spawnBoundaryRipple(player.position.x, player.position.y + 1.2, bz, 0, dz > 0 ? -1 : 1);
+      player.position.z -= dz * 0.5;
+    } else {
+      player.position.z = nz;
+    }
+  }
+}
+
+// ============ 경계 리플 이펙트 ============
+let worldBounds = null;
+const _boundaryRipples = [];
+let _lastRippleTime = 0;
+function spawnBoundaryRipple(x, y, z, normalX, normalZ) {
+  // 쿨다운 (스팸 방지)
+  const now = performance.now();
+  if (now - _lastRippleTime < 120) return;
+  _lastRippleTime = now;
+  const ringGeom = new THREE.RingGeometry(0.1, 0.35, 24);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x66ccff, transparent: true, opacity: 0.9,
+    side: THREE.DoubleSide, depthWrite: false
+  });
+  const ring = new THREE.Mesh(ringGeom, ringMat);
+  ring.position.set(x, y, z);
+  // 링을 경계 벽과 평행하게 세움 (normal 방향으로 향함)
+  if (Math.abs(normalX) > 0.5) ring.rotation.y = Math.PI / 2;
+  scene.add(ring);
+  _boundaryRipples.push({ mesh: ring, life: 0, maxLife: 0.55 });
+}
+function updateBoundaryRipples(dt) {
+  for (let i = _boundaryRipples.length - 1; i >= 0; i--) {
+    const r = _boundaryRipples[i];
+    r.life += dt;
+    const t = r.life / r.maxLife;
+    const s = 1 + t * 4;
+    r.mesh.scale.set(s, s, s);
+    r.mesh.material.opacity = Math.max(0, 0.9 - t * 0.9);
+    if (r.life >= r.maxLife) {
+      scene.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      r.mesh.material.dispose();
+      _boundaryRipples.splice(i, 1);
+    }
+  }
 }
 
 // ================ Painting ================
@@ -2694,6 +2939,8 @@ function startFirebaseSync(room) {
           scene.add(grp);
           otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand' };
           subscribePaintForUid(uid); // uid별 페인트 리스너 등록
+          // 이 플레이어가 술래면 총 부착
+          if (_cachedRoom?.seekerUid === uid) attachGunToOther(uid);
         }
         const ot = otherPlayers[uid];
         ot.targetX = p.x; ot.targetY = p.y; ot.targetZ = p.z; ot.targetR = p.r;
@@ -2717,6 +2964,8 @@ function startFirebaseSync(room) {
           ot.group.add(clone);
           ot.charMesh = clone;
           ot.currentPose = p.p;
+          // 포즈 바뀌어도 술래면 총 유지 (기존 gun은 group에 남아있음 - 안 건드림)
+          if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
         }
       });
       // 없어진 유저 제거
@@ -2737,6 +2986,8 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer) mixer.update(dt);
+  updateDustBursts(dt);
+  updateBoundaryRipples(dt);
 
   // 다른 플레이어 lerp
   for (const uid in otherPlayers) {
