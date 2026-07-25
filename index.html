@@ -186,7 +186,7 @@
   #hidePhaseOverlay {
     position:fixed; inset:0; z-index:60;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:rgba(0,0,0,0.7); color:#fff; pointer-events:none;
+    background:rgba(0,0,0,0.55); color:#fff; pointer-events:none;
   }
   #hidePhaseOverlay.hidden { display:none !important; }
   #hidePhaseOverlay .msg { font-size:36px; font-weight:800; margin-bottom:12px; }
@@ -403,8 +403,10 @@ skyU.sunPosition.value.copy(sun);
 scene.fog = new THREE.Fog(0xd6dde3, 80, 260);
 
 // Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-scene.add(new THREE.HemisphereLight(0xcfe8ff, 0xffddaa, 0.75));
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const hemiLight = new THREE.HemisphereLight(0xcfe8ff, 0xffddaa, 0.75);
+scene.add(hemiLight);
 const dir = new THREE.DirectionalLight(0xffffee, 2.2);
 dir.position.set(60, 120, 40);
 dir.castShadow = true;
@@ -682,7 +684,7 @@ function subscribeRoundState() {
     const rs = snap.val();
     if (!rs) return;
     roundState = rs;
-    if (rs.phase === 'playing' && !roundTimerHandle) startRoundTimer();
+    // roundTimer 는 subscribeRoom 이 처리
     if (rs.phase === 'ended' && currentScreen === 'game') showScoreboard();
     // 내 생존 상태
     const alive = rs.alive?.[myUid];
@@ -692,22 +694,7 @@ function subscribeRoundState() {
 }
 
 // 라운드 시작 (방장이 startGame 이후 호출)
-async function initRound() {
-  if (!uid_is_host_by_id(myRoomId)) return;
-  const startAt = Date.now();
-  const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
-  const room = roomSnap.val();
-  const alive = {};
-  Object.keys(room.players || {}).forEach(u => alive[u] = true);
-  await set(ref(fbDb, `rooms/${myRoomId}/round`), {
-    phase: 'playing',
-    startedAt: startAt,
-    endsAt: startAt + ROUND_DURATION_MS,
-    alive: alive,
-    scores: {},
-    seekerUid: room.seekerUid
-  });
-}
+// initRound 제거 - host tick 이 관리
 async function uid_is_host_by_id(roomId) {
   const s = await get(ref(fbDb, `rooms/${roomId}`));
   return s.val()?.hostUid === myUid;
@@ -832,10 +819,7 @@ function onIDied() {
   setTimeout(() => document.getElementById('deathScreen').classList.add('hidden'), 3000);
 }
 
-async function endRound() {
-  if (!await uid_is_host_by_id(myRoomId)) return;
-  await update(ref(fbDb, `rooms/${myRoomId}/round`), { phase: 'ended' });
-}
+// endRound 제거 - host tick 이 관리
 
 async function showScoreboard() {
   currentScreen = 'scoreboard';
@@ -889,6 +873,7 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
     }
   }
+  currentScreen = 'lobby';
   showScreen('lobby');
 });
 
@@ -1074,6 +1059,13 @@ gltfLoader.load(
     } else {
       // 실내 맵은 우리 바닥 안 보이게 확 아래로
       ground.position.y = -50;
+      // 실내라 라이팅 강화
+      ambientLight.intensity = 1.4;
+      hemiLight.intensity = 1.2;
+      // 실내엔 point light 추가
+      const indoorLight = new THREE.PointLight(0xffe0b0, 3, 100);
+      indoorLight.position.set(center.x, 15, center.z);
+      scene.add(indoorLight);
     }
 
     // 스폰 찾기
@@ -1351,10 +1343,12 @@ function renderVoteMaps(room) {
     d.style.pointerEvents = 'auto';
     d.addEventListener('click', async (e) => {
       e.stopPropagation();
-      console.log('🗳 투표:', i, '→', m.name);
+      console.log('🗳 투표 클릭:', i, '→', m.name, 'myUid=', myUid, 'roomId=', myRoomId);
+      if (!myUid || !myRoomId) { console.warn('❌ uid/roomId 없음'); return; }
       try {
-        await set(ref(fbDb, `rooms/${myRoomId}/players/${myUid}/vote`), String(i));
-      } catch(err) { console.error('투표 실패:', err); }
+        await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(i) });
+        console.log('✅ 투표 전송 완료');
+      } catch(err) { console.error('❌ 투표 실패:', err); }
     });
     box.appendChild(d);
   });
@@ -1445,9 +1439,9 @@ async function startGame(room) {
   renderer.domElement.requestPointerLock();
   // 위치 동기화 시작
   startFirebaseSync(room);
-  // 라운드 리스너 + 방장이면 라운드 시작
+  // 라운드 리스너 + 스코어 타이머 시작
   subscribeRoundState();
-  setTimeout(() => initRound(), 500);
+  startRoundTimer();
 }
 
 document.addEventListener('pointerlockchange', () => {
@@ -1547,10 +1541,11 @@ let recentColors = ['#ff4757','#ffdd00','#4dd07a','#1e90ff','#a55eea'];
 function setTool(t) {
   currentTool = t;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  console.log('🛠 툴 변경:', t);
 }
 document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => {
   const t = b.dataset.tool;
-  if (t === 'bucket') { bucketFill(); return; } // 버킷은 툴 선택 즉시 채움
+  if (t === 'bucket') { bucketFill(); return; }
   setTool(t);
 }));
 
