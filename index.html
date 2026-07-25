@@ -2250,6 +2250,12 @@ const MAPS = [
     scale: 3,
     hasWalls: true
   },
+  {
+    name: '백룸',
+    url: './original_backrooms.glb',
+    scale: 1,
+    hasWalls: true
+  },
 ];
 let selectedMap = MAPS[0];
 let mapLoaded = false;
@@ -2710,7 +2716,7 @@ function renderVoteMaps(room) {
     it => {
       const d = document.createElement('div');
       d.className = 'voteMap';
-      const mapFallback = it.i === 0 ? '🏙️' : '🏛️';
+      const mapFallback = it.i === 0 ? '🏙️' : (it.i === 1 ? '🏛️' : '🚪');
       d.innerHTML = `
         <div class="map-icon"><span style="font-size:30px;">${mapFallback}</span></div>
         <div class="mapName"></div>
