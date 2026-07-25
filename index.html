@@ -2254,7 +2254,7 @@ const MAPS = [
   {
     name: '백룸',
     url: './original_backrooms.glb',
-    scale: 1,
+    scale: 4,
     hasWalls: true
   },
 ];
@@ -3424,12 +3424,8 @@ function startFirebaseSync(room) {
     // 다른 플레이어 페인트 스트로크 수신 (uid별 개별 listen - 전체 노드 X)
     const _remoteColor = new THREE.Color();
     const _paintListeners = {}; // uid → unsub
-    function applyRemotePaint(uid, stroke) {
-      const ot = otherPlayers[uid];
-      if (!ot) return;
-      const meshes = [];
-      ot.charMesh.traverse(o => { if (o.isMesh) meshes.push(o); });
-      // 버킷 스트로크: 모든 정점 다 채움
+    // 재사용 가능한 mesh 페인팅 유틸 (다른 플레이어 + 분신 공용)
+    function applyStrokeToMeshes(meshes, stroke) {
       if (stroke.bucket) {
         _remoteColor.set(stroke.c);
         meshes.forEach(mesh => {
@@ -3459,6 +3455,13 @@ function startFirebaseSync(room) {
         }
       }
       colors.needsUpdate = true;
+    }
+    function applyRemotePaint(uid, stroke) {
+      const ot = otherPlayers[uid];
+      if (!ot) return;
+      const meshes = [];
+      ot.charMesh.traverse(o => { if (o.isMesh) meshes.push(o); });
+      applyStrokeToMeshes(meshes, stroke);
     }
     function subscribePaintForUid(uid) {
       if (_paintListeners[uid]) return;
@@ -3530,7 +3533,7 @@ function startFirebaseSync(room) {
     const decoys = {}; // key → { group, ownerUid }
     window._decoys = decoys; // shoot 함수에서 접근용
     const DECOY_COOLDOWN = 8000;
-    const DECOY_LIFE = 20000;
+    const DECOY_LIFE = 30000;
     let _lastDecoyTime = 0;
     function spawnDecoy(key, d) {
       if (decoys[key]) return;
@@ -3539,15 +3542,24 @@ function startFirebaseSync(room) {
       const clone = templatePose.clone(true);
       clone.visible = true;
       const isMine = d.owner === myUid;
+      // 분신도 진짜 플레이어처럼 vertexColors 재질로 초기화 (페인트 반영 가능하게)
       clone.traverse(o => {
         o.visible = true;
         if (o.isMesh) {
-          o.frustumCulled = false;
+          o.geometry = o.geometry.clone();
+          const posCount = o.geometry.attributes.position.count;
+          const ca = new Float32Array(posCount * 3).fill(1);
+          const cAttr = new THREE.BufferAttribute(ca, 3);
+          cAttr.setUsage(THREE.DynamicDrawUsage);
+          o.geometry.setAttribute('color', cAttr);
           o.material = new THREE.MeshLambertMaterial({
             color: 0xffffff,
+            vertexColors: true,
             transparent: isMine,
             opacity: isMine ? 0.55 : 1.0
           });
+          o.castShadow = false;
+          o.frustumCulled = false;
         }
       });
       const grp = new THREE.Group();
@@ -3573,12 +3585,24 @@ function startFirebaseSync(room) {
       likeSp.scale.set(0.6, 0.6, 1);
       likeSp.position.y = 2.9;
       grp.add(likeSp);
-      // owner의 실제 좋아요 수 구독 (분신도 실시간 반영 → 진짜와 구분 불가)
       const likeOff = onValue(ref(fbDb, `rooms/${myRoomId}/likes/${d.owner}`), snap => {
         const count = Object.keys(snap.val() || {}).length;
         if (likeSp.material.map) likeSp.material.map.dispose();
         likeSp.material.map = makeLikeTexture(count);
         likeSp.material.needsUpdate = true;
+      });
+
+      // ★ owner의 페인트 스트로크 전체 재생 → 분신 색상 진짜와 동일
+      const decoyMeshes = [];
+      clone.traverse(o => { if (o.isMesh) decoyMeshes.push(o); });
+      const paintQ = query(ref(fbDb, `rooms/${myRoomId}/paint/${d.owner}/strokes`), limitToLast(200));
+      const _decoySeen = new Set();
+      const paintOff = onChildAdded(paintQ, snap => {
+        const k = snap.key;
+        if (_decoySeen.has(k)) return;
+        _decoySeen.add(k);
+        const stroke = snap.val();
+        if (stroke) applyStrokeToMeshes(decoyMeshes, stroke);
       });
 
       // 주인한테만 "분" 표시 (자기 분신 위치 파악용)
@@ -3598,12 +3622,13 @@ function startFirebaseSync(room) {
         grp.add(sp);
       }
       scene.add(grp);
-      decoys[key] = { group: grp, ownerUid: d.owner, likeOff };
+      decoys[key] = { group: grp, ownerUid: d.owner, likeOff, paintOff };
     }
     function despawnDecoy(key) {
       const d = decoys[key];
       if (!d) return;
-      if (d.likeOff) { try { d.likeOff(); } catch(e){} }
+      if (d.likeOff)  { try { d.likeOff();  } catch(e){} }
+      if (d.paintOff) { try { d.paintOff(); } catch(e){} }
       scene.remove(d.group);
       delete decoys[key];
     }
@@ -3639,7 +3664,7 @@ function startFirebaseSync(room) {
       };
       try {
         await set(dRef, payload);
-        onDisconnect(dRef).remove();
+        // onDisconnect 안 씀 (네트워크 순간 끊김에 오삭제됨) - 수명 타이머만으로 정리
         setTimeout(async () => {
           try { await remove(dRef); } catch(e) {}
         }, DECOY_LIFE);
