@@ -1889,8 +1889,10 @@ gltfLoader.load(
     const finalBox = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3(); finalBox.getSize(size);
     const center = new THREE.Vector3(); finalBox.getCenter(center);
-    const halfX = size.x/2 + 0.5;
-    const halfZ = size.z/2 + 0.5;
+    // 모델 bbox 는 튀어나온 부분까지 포함하므로 실제 걷는 영역보다 큼
+    // → 안쪽으로 20% 조여서 진짜 못 나가게
+    const halfX = (size.x / 2) * 0.8;
+    const halfZ = (size.z / 2) * 0.8;
     if (!selectedMap.hasWalls) {
       // 벽 만들지 않음 - 대신 소프트 경계로 사용
       worldBounds = { minX: center.x - halfX, maxX: center.x + halfX,
@@ -1902,9 +1904,11 @@ gltfLoader.load(
 
     // 바닥 확장 (실내 맵은 자체 바닥 있으니 안 늘림)
     if (!selectedMap.hasWalls) {
-      ground.geometry.dispose();
-      ground.geometry = new THREE.PlaneGeometry(halfX*2+20, halfZ*2+20);
-      ground.position.set(center.x, -0.02, center.z);
+      // 야외 맵은 회색 바닥 완전히 숨기고 raycast 에서도 뺌
+      ground.visible = false;
+      ground.position.y = -1000;
+      _groundAndCollidable.length = 0;
+      _groundAndCollidable.push(...collidableMeshes);
     } else {
       // 실내 맵은 우리 바닥 안 보이게 확 아래로
       ground.position.y = -50;
@@ -2455,67 +2459,32 @@ function tryMove(dx, dz) {
     if (rc.intersectObjects(collidableMeshes, false).length) return false;
     return true;
   };
-  // X 축 이동
+  // X 축 이동 - 벽 검사 통과해도 경계 넘으면 이동 안 함
   if (check(dx, 0)) {
     const nx = player.position.x + dx;
-    if (worldBounds && (nx < worldBounds.minX || nx > worldBounds.maxX)) {
-      // 경계 부딪힘 - 리플 + 튕김
-      const bx = nx < worldBounds.minX ? worldBounds.minX : worldBounds.maxX;
-      spawnBoundaryRipple(bx, player.position.y + 1.2, player.position.z, dx > 0 ? -1 : 1, 0);
-      player.position.x -= dx * 0.5;  // 뒤로 튕김
-    } else {
+    if (!worldBounds || (nx >= worldBounds.minX && nx <= worldBounds.maxX)) {
       player.position.x = nx;
     }
+    // 넘으면 그냥 무시 (움직임 씹힘)
   }
   // Z 축 이동
   if (check(0, dz)) {
     const nz = player.position.z + dz;
-    if (worldBounds && (nz < worldBounds.minZ || nz > worldBounds.maxZ)) {
-      const bz = nz < worldBounds.minZ ? worldBounds.minZ : worldBounds.maxZ;
-      spawnBoundaryRipple(player.position.x, player.position.y + 1.2, bz, 0, dz > 0 ? -1 : 1);
-      player.position.z -= dz * 0.5;
-    } else {
+    if (!worldBounds || (nz >= worldBounds.minZ && nz <= worldBounds.maxZ)) {
       player.position.z = nz;
     }
   }
 }
 
-// ============ 경계 리플 이펙트 ============
+// 경계 관리
 let worldBounds = null;
-const _boundaryRipples = [];
-let _lastRippleTime = 0;
-function spawnBoundaryRipple(x, y, z, normalX, normalZ) {
-  // 쿨다운 (스팸 방지)
-  const now = performance.now();
-  if (now - _lastRippleTime < 120) return;
-  _lastRippleTime = now;
-  const ringGeom = new THREE.RingGeometry(0.1, 0.35, 24);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: 0x66ccff, transparent: true, opacity: 0.9,
-    side: THREE.DoubleSide, depthWrite: false
-  });
-  const ring = new THREE.Mesh(ringGeom, ringMat);
-  ring.position.set(x, y, z);
-  // 링을 경계 벽과 평행하게 세움 (normal 방향으로 향함)
-  if (Math.abs(normalX) > 0.5) ring.rotation.y = Math.PI / 2;
-  scene.add(ring);
-  _boundaryRipples.push({ mesh: ring, life: 0, maxLife: 0.55 });
-}
-function updateBoundaryRipples(dt) {
-  for (let i = _boundaryRipples.length - 1; i >= 0; i--) {
-    const r = _boundaryRipples[i];
-    r.life += dt;
-    const t = r.life / r.maxLife;
-    const s = 1 + t * 4;
-    r.mesh.scale.set(s, s, s);
-    r.mesh.material.opacity = Math.max(0, 0.9 - t * 0.9);
-    if (r.life >= r.maxLife) {
-      scene.remove(r.mesh);
-      r.mesh.geometry.dispose();
-      r.mesh.material.dispose();
-      _boundaryRipples.splice(i, 1);
-    }
-  }
+// 매 프레임 하드 클램프 (혹시 어떻게든 밖으로 나갔으면 강제로 안으로)
+function clampPlayerToBounds() {
+  if (!worldBounds) return;
+  if (player.position.x < worldBounds.minX) player.position.x = worldBounds.minX;
+  else if (player.position.x > worldBounds.maxX) player.position.x = worldBounds.maxX;
+  if (player.position.z < worldBounds.minZ) player.position.z = worldBounds.minZ;
+  else if (player.position.z > worldBounds.maxZ) player.position.z = worldBounds.maxZ;
 }
 
 // ================ Painting ================
@@ -3059,7 +3028,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer) mixer.update(dt);
   updateDustBursts(dt);
-  updateBoundaryRipples(dt);
+  clampPlayerToBounds();
 
   // 다른 플레이어 lerp
   for (const uid in otherPlayers) {
