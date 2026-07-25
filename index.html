@@ -94,7 +94,7 @@
   }
   /* 닉네임 화면은 자체 배경 사용 */
   #scr-nick.screen { animation: screenFadeIn .4s ease; }
-  .screen.hidden { display:none; }
+  .screen.hidden { display:none !important; }
   .screen .ui-card {
     animation: cardSlideUp .45s cubic-bezier(0.34,1.26,0.64,1) both;
   }
@@ -1914,14 +1914,19 @@ function subscribeRoom(roomId) {
   myRoomId = roomId;
   const roomRef = ref(fbDb, `rooms/${roomId}`);
   if (roomUnsub) roomUnsub();
+  let _nullHits = 0;
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
     _cachedRoom = room;
     if (!room) {
+      // 순간적 null (Firebase 쓰기 사이 race) 방어 - 연속 2번이어야 진짜 방 없음
+      _nullHits++;
+      if (_nullHits < 2) return;
       if (roomUnsub) { roomUnsub(); roomUnsub = null; }
       leaveToRooms();
       return;
     }
+    _nullHits = 0;
     const players = room.players || {};
     const uids = Object.keys(players);
     const count = uids.length;
