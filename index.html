@@ -1196,25 +1196,25 @@ let myRole = 'hider';
 // 총 로드 
 gltfLoader.load('./gun.glb', gltf => {
   const glb = gltf.scene;
-  const box = new THREE.Box3().setFromObject(glb);
-  const size = new THREE.Vector3(); box.getSize(size);
-  // 총을 1.2m 정도로 크게 (몸에 파묻히지 않게)
-  const scale = 1.2 / Math.max(size.x, size.y, size.z);
-  glb.scale.setScalar(scale);
+  // 스케일 계산을 위해 임시로 scene에 추가해서 정확한 bbox 계산
+  const tempBox = new THREE.Box3().setFromObject(glb);
+  const size = new THREE.Vector3(); tempBox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const gunScale = maxDim > 0 ? (1.2 / maxDim) : 1;
+  // 원본 모델에는 scale 안 건드리고, 재질만 정리해서 저장
   glb.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
-      o.castShadow = true;
+      o.castShadow = false;
       o.frustumCulled = false;
-      // 재질이 이상하면 강제 교체 (검은 총 방지)
-      if (!o.material || o.material.transparent) {
-        o.material = new THREE.MeshLambertMaterial({ color: 0x333333 });
-      }
+      // 재질 무조건 교체 (투명하거나 검거나 이상한 거 방지)
+      o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
     }
   });
   seekerGunModel = glb;
-  console.log('✅ 총 모델 로드 완료 / 스케일:', scale.toFixed(3));
-  // 술래면 무조건 재부착 (이전 잔재 제거 후 새로 붙임)
+  seekerGunModel.userData.gunScale = gunScale;
+  console.log('✅ 총 모델 로드 완료 / 원본 크기:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2), '→ scale:', gunScale.toFixed(3));
+  // 술래면 무조건 재부착
   if (myRole === 'seeker') { detachGunFromPlayer(); attachGunToPlayer(); }
   refreshOtherSeekerGuns();
 }, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
@@ -1224,15 +1224,20 @@ let attachedGun = null;
 function attachGunToPlayer() {
   if (!seekerGunModel || attachedGun) return;
   attachedGun = seekerGunModel.clone(true);
+  const s = seekerGunModel.userData.gunScale || 1;
+  attachedGun.scale.setScalar(s);
   attachedGun.traverse(o => {
     o.visible = true;
-    if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; }
+    if (o.isMesh) {
+      o.frustumCulled = false;
+      o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    }
   });
-  // 캐릭터 오른쪽 앞으로 잘 보이게 (어깨 높이 · 앞으로 · 오른쪽)
-  attachedGun.position.set(0.5, 1.3, 0.6);
-  attachedGun.rotation.set(0, -Math.PI / 2, 0);
+  // 플레이어 오른쪽 어깨 위치 (-Z = 카메라 쪽, 즉 잘 보이는 방향)
+  attachedGun.position.set(0.45, 1.2, -0.3);
+  attachedGun.rotation.set(0, 0, 0);
   player.add(attachedGun);
-  console.log('🔫 총 부착 완료');
+  console.log('🔫 총 부착 완료, scale:', s.toFixed(3));
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1243,12 +1248,17 @@ function attachGunToOther(uid) {
   const ot = otherPlayers[uid];
   if (!ot || !seekerGunModel || ot.gun) return;
   const g = seekerGunModel.clone(true);
+  const s = seekerGunModel.userData.gunScale || 1;
+  g.scale.setScalar(s);
   g.traverse(o => {
     o.visible = true;
-    if (o.isMesh) { o.frustumCulled = false; }
+    if (o.isMesh) {
+      o.frustumCulled = false;
+      o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    }
   });
-  g.position.set(0.5, 1.3, 0.6);
-  g.rotation.set(0, -Math.PI / 2, 0);
+  g.position.set(0.45, 1.2, -0.3);
+  g.rotation.set(0, 0, 0);
   ot.group.add(g);
   ot.gun = g;
 }
