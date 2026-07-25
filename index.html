@@ -1404,20 +1404,69 @@ function updatePlayerListHUD() {
   const seekerUid = room.seekerUid;
   const uids = Object.keys(players);
   if (!uids.length) { el.classList.remove('on'); return; }
-  let html = '<div class="plh-title">플레이어</div>';
-  uids.forEach(uid => {
-    const p = players[uid];
-    const isDead = alive[uid] === false;
-    const isSeeker = uid === seekerUid;
-    const meTag = uid === myUid ? ' (나)' : '';
-    html += `<div class="plh-row${isDead ? ' dead' : ''}">
-      <div class="plh-dot"></div>
-      <div class="plh-nick">${p.nick}${meTag}</div>
-      <div class="plh-role">${isSeeker ? '🎯' : '🦎'}</div>
-    </div>`;
-  });
-  el.innerHTML = html;
+  // 타이틀 + row 컨테이너 구조 한번만 생성
+  let rowsBox = el.querySelector('.plh-rows');
+  if (!rowsBox) {
+    el.innerHTML = '<div class="plh-title">플레이어</div><div class="plh-rows"></div>';
+    rowsBox = el.querySelector('.plh-rows');
+  }
+  const items = uids.map(uid => ({ uid, p: players[uid], isDead: alive[uid] === false, isSeeker: uid === seekerUid }));
+  diffRender(
+    rowsBox,
+    items,
+    it => it.uid,
+    it => {
+      const row = document.createElement('div');
+      row.className = 'plh-row';
+      row.innerHTML = `
+        <div class="plh-dot"></div>
+        <div class="plh-nick"></div>
+        <div class="plh-role"></div>
+      `;
+      return row;
+    },
+    (row, it) => {
+      const wantDead = it.isDead;
+      if (row.classList.contains('dead') !== wantDead) row.classList.toggle('dead', wantDead);
+      const nick = row.querySelector('.plh-nick');
+      const role = row.querySelector('.plh-role');
+      const nickTxt = (it.p.nick || '?') + (it.uid === myUid ? ' (나)' : '');
+      const roleTxt = it.isSeeker ? '🎯' : '🦎';
+      if (nick.textContent !== nickTxt) nick.textContent = nickTxt;
+      if (role.textContent !== roleTxt) role.textContent = roleTxt;
+    }
+  );
   el.classList.add('on');
+}
+
+// ============ diff 렌더 헬퍼 (깜빡임 방지) ============
+// 컨테이너 안의 자식들을 key 기준으로 재사용/갱신/제거
+function diffRender(container, items, getKey, buildNode, updateNode) {
+  if (!container) return;
+  const existing = new Map();
+  Array.from(container.children).forEach(el => {
+    const k = el.dataset._k;
+    if (k != null) existing.set(k, el);
+  });
+  const seen = new Set();
+  items.forEach((item, i) => {
+    const key = String(getKey(item, i));
+    seen.add(key);
+    let el = existing.get(key);
+    if (!el) {
+      el = buildNode(item, i);
+      el.dataset._k = key;
+      container.appendChild(el);
+      if (updateNode) updateNode(el, item, i);
+    } else {
+      if (updateNode) updateNode(el, item, i);
+    }
+    // 순서 보정
+    const target = container.children[i];
+    if (target !== el) container.insertBefore(el, target || null);
+  });
+  // 없어진 것 제거
+  existing.forEach((el, k) => { if (!seen.has(k)) el.remove(); });
 }
 
 // ============ 채팅 ============
@@ -2243,26 +2292,52 @@ function subscribeRoomList() {
     const list = document.getElementById('roomList');
     const roomEntries = Object.entries(data).filter(([id, r]) => r && r.name);
     if (roomEntries.length === 0) {
-      list.innerHTML = '<div class="empty-rooms">방이 없음. 만들어봐 ↓</div>';
+      if (list.dataset._empty !== '1') {
+        list.innerHTML = '<div class="empty-rooms">방이 없음. 만들어봐 ↓</div>';
+        list.dataset._empty = '1';
+      }
       return;
     }
-    list.innerHTML = '';
-    roomEntries.forEach(([id, room]) => {
-      const players = room.players || {};
-      const count = Object.keys(players).length;
-      const state = room.state || 'lobby';
-      const div = document.createElement('div');
-      div.className = 'room-item';
-      div.innerHTML = `
-        <div>
-          <div class="info">${room.name}</div>
-          <div class="count">👥 ${count}/5</div>
-        </div>
-        <div class="state ${state === 'playing' ? 'playing' : ''}">${state === 'playing' ? '게임 중' : '대기'}</div>
-      `;
-      div.addEventListener('click', () => joinRoom(id));
-      list.appendChild(div);
+    list.dataset._empty = '0';
+    // 이전에 empty 상태로 남은 안내 div 제거
+    Array.from(list.children).forEach(c => {
+      if (!c.dataset._k) c.remove();
     });
+    diffRender(
+      list,
+      roomEntries,
+      ([id]) => id,
+      ([id, room]) => {
+        const div = document.createElement('div');
+        div.className = 'room-item';
+        div.innerHTML = `
+          <div>
+            <div class="info"></div>
+            <div class="count"></div>
+          </div>
+          <div class="state"></div>
+        `;
+        div.addEventListener('click', () => joinRoom(id));
+        return div;
+      },
+      (el, [id, room]) => {
+        const count = Object.keys(room.players || {}).length;
+        const state = room.state || 'lobby';
+        const info = el.querySelector('.info');
+        const cnt = el.querySelector('.count');
+        const st  = el.querySelector('.state');
+        const infoTxt = room.name;
+        const cntTxt  = `👥 ${count}/5`;
+        const stTxt   = state === 'playing' ? '게임 중' : '대기';
+        if (info.textContent !== infoTxt) info.textContent = infoTxt;
+        if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
+        if (st.textContent !== stTxt) st.textContent = stTxt;
+        const wantPlaying = state === 'playing';
+        if (st.classList.contains('playing') !== wantPlaying) {
+          st.classList.toggle('playing', wantPlaying);
+        }
+      }
+    );
   });
 }
 
@@ -2346,21 +2421,41 @@ function subscribeRoom(roomId) {
     
     // 플레이어 목록
     const box = document.getElementById('lobbyPlayers');
-    box.innerHTML = '';
-    uids.forEach(uid => {
-      const p = players[uid];
-      const row = document.createElement('div');
-      row.className = 'player-row';
-      const avatarLetter = (p.nick || '?')[0].toUpperCase();
-      row.innerHTML = `
-        <div class="p-name">
-          <div class="p-avatar"><span style="font-size:14px;">${avatarLetter}</span></div>
-          ${p.nick}${uid === myUid ? ' <span style="color:var(--text-dim);font-size:12px;">(나)</span>' : ''}
-        </div>
-        ${uid === room.hostUid ? '<span class="host">방장</span>' : ''}
-      `;
-      box.appendChild(row);
-    });
+    diffRender(
+      box,
+      uids.map(uid => ({ uid, p: players[uid] })),
+      it => it.uid,
+      it => {
+        const row = document.createElement('div');
+        row.className = 'player-row';
+        row.innerHTML = `
+          <div class="p-name">
+            <div class="p-avatar"><span style="font-size:14px;"></span></div>
+            <span class="_nick"></span><span class="_me"></span>
+          </div>
+          <span class="host" style="display:none;">방장</span>
+        `;
+        return row;
+      },
+      (el, it) => {
+        const p = it.p;
+        const nick = p.nick || '?';
+        const letter = nick[0].toUpperCase();
+        const av = el.querySelector('.p-avatar span');
+        const nk = el.querySelector('._nick');
+        const me = el.querySelector('._me');
+        const hs = el.querySelector('.host');
+        if (av.textContent !== letter) av.textContent = letter;
+        if (nk.textContent !== nick) nk.textContent = nick;
+        const meTxt = it.uid === myUid ? ' (나)' : '';
+        if (me.textContent !== meTxt) {
+          me.textContent = meTxt;
+          me.style.cssText = it.uid === myUid ? 'color:var(--text-dim);font-size:12px;' : '';
+        }
+        const isHost = it.uid === room.hostUid;
+        hs.style.display = isHost ? '' : 'none';
+      }
+    );
     
     // 상태별 화면 전환
     if (room.state === 'voting') {
@@ -2461,32 +2556,46 @@ function renderVoteMaps(room) {
     if (p.vote != null) votes[p.vote] = (votes[p.vote] || 0) + 1;
   });
   const myVote = players[myUid]?.vote;
-  box.innerHTML = '';
-  MAPS.forEach((m, i) => {
-    const d = document.createElement('div');
-    d.className = 'voteMap' + (String(myVote) === String(i) ? ' voted' : '');
-    const mapFallback = i === 0 ? '🏙️' : '🏛️';
-    d.innerHTML = `
-      <div class="map-icon"><span style="font-size:30px;">${mapFallback}</span></div>
-      <div class="mapName">${m.name}</div>
-      <div class="voteCount">${votes[i] || 0} 표</div>
-    `;
-    d.style.pointerEvents = 'auto';
-    d.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      console.log('🗳 투표 클릭:', i, '→', m.name, 'myUid=', myUid, 'roomId=', myRoomId);
-      if (!myUid || !myRoomId) { console.warn('❌ uid/roomId 없음'); return; }
-      try {
-        await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(i) });
-        console.log('✅ 투표 전송 완료');
-      } catch(err) { console.error('❌ 투표 실패:', err); }
-    });
-    box.appendChild(d);
-  });
-  
-  // 타이머 (Firebase 값 그대로 표시)
+  diffRender(
+    box,
+    MAPS.map((m, i) => ({ m, i })),
+    it => String(it.i),
+    it => {
+      const d = document.createElement('div');
+      d.className = 'voteMap';
+      const mapFallback = it.i === 0 ? '🏙️' : '🏛️';
+      d.innerHTML = `
+        <div class="map-icon"><span style="font-size:30px;">${mapFallback}</span></div>
+        <div class="mapName"></div>
+        <div class="voteCount"></div>
+      `;
+      d.style.pointerEvents = 'auto';
+      d.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
+        if (!myUid || !myRoomId) return;
+        try {
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(it.i) });
+        } catch(err) { console.error('❌ 투표 실패:', err); }
+      });
+      return d;
+    },
+    (el, it) => {
+      const name = el.querySelector('.mapName');
+      const cnt = el.querySelector('.voteCount');
+      if (name.textContent !== it.m.name) name.textContent = it.m.name;
+      const cntTxt = (votes[it.i] || 0) + ' 표';
+      if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
+      const voted = String(myVote) === String(it.i);
+      if (el.classList.contains('voted') !== voted) {
+        el.classList.toggle('voted', voted);
+      }
+    }
+  );
+  // 타이머
   const timerEl = document.getElementById('voteTimer');
-  timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
+  const t = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
+  if (timerEl.textContent !== t) timerEl.textContent = t;
 }
 
 // finishVoting 제거 - 방장 tick 이 함
@@ -2648,6 +2757,26 @@ function checkNearWall() {
     wallRc.set(_wallOrigin, d);
     wallRc.far = WALL_DETECT_DIST;
     if (wallRc.intersectObjects(collidableMeshes, false).length > 0) return true;
+  }
+  return false;
+}
+
+// 벽에 몸이 파묻힌 상태 판정 (2방향 이상 초근접 → 벽 안에 박힘)
+const _stuckDirs = [
+  new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+];
+const _stuckRc = new THREE.Raycaster();
+const _stuckOrigin = new THREE.Vector3();
+function isStuckInWall() {
+  if (!collidableMeshes || !collidableMeshes.length) return false;
+  _stuckOrigin.set(player.position.x, player.position.y + 0.9, player.position.z);
+  let hitCount = 0;
+  for (const d of _stuckDirs) {
+    _stuckRc.set(_stuckOrigin, d);
+    _stuckRc.far = 0.35; // 매우 짧게 - 벽 안에 파묻힘
+    if (_stuckRc.intersectObjects(collidableMeshes, false).length > 0) hitCount++;
+    if (hitCount >= 2) return true;
   }
   return false;
 }
@@ -3016,26 +3145,31 @@ function startFirebaseSync(room) {
     myRef = ref(fbDb, `rooms/${myRoomId}/game/${myUid}`);
 
     // 250ms마다 내 상태 업데이트 (변화 없으면 스킵)
-    let _lastSyncX = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null;
+    let _lastSyncX = null, _lastSyncY = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null, _lastSyncStuck = null;
     setInterval(() => {
       if (!myRef) return;
       const px = +player.position.x.toFixed(2);
+      const py = +player.position.y.toFixed(2);
       const pz = +player.position.z.toFixed(2);
       const pr = +player.rotation.y.toFixed(2);
+      const stuck = isStuckInWall() ? 1 : 0;
       if (_lastSyncX !== null &&
           Math.abs(px - _lastSyncX) < 0.05 &&
+          Math.abs(py - _lastSyncY) < 0.05 &&
           Math.abs(pz - _lastSyncZ) < 0.05 &&
           Math.abs(pr - _lastSyncR) < 0.05 &&
-          currentPose === _lastSyncPose) return;
-      _lastSyncX = px; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr;
+          currentPose === _lastSyncPose &&
+          stuck === _lastSyncStuck) return;
+      _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck;
       set(myRef, {
         x: px,
-        y: +player.position.y.toFixed(2),
+        y: py,
         z: pz,
         r: pr,
         n: myNick,
         p: currentPose,
         role: myRole,
+        stuck,
         t: Date.now()
       });
     }, 250);
@@ -3147,6 +3281,7 @@ function startFirebaseSync(room) {
         }
         const ot = otherPlayers[uid];
         ot.targetX = p.x; ot.targetY = p.y; ot.targetZ = p.z; ot.targetR = p.r;
+        ot.stuck = p.stuck ? 1 : 0;
         // 포즈 바뀌었으면 mesh 교체
         if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
           ot.group.remove(ot.charMesh);
@@ -3409,7 +3544,11 @@ function animate() {
   // 총 부착 watchdog (혹시 안 붙었으면 매 프레임 다시 시도)
   ensureGunAttached();
 
-  // 다른 플레이어 lerp
+  // 다른 플레이어 lerp + 빨간 깜빡임 처리
+  const roomNow = _cachedRoom;
+  const isEnded = roomNow && roomNow.state === 'ended';
+  const aliveMap = roundState?.alive || {};
+  const blinkPhase = (Math.sin(Date.now() * 0.012) + 1) * 0.5; // 0..1 삼각파
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
@@ -3420,6 +3559,37 @@ function animate() {
       let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
       ot.group.rotation.y += nd * 0.15;
     }
+    // 빨간 깜빡임: 벽에 파묻힘 or 라운드 종료 후 생존자
+    const aliveAtEnd = isEnded && aliveMap[uid] !== false;
+    const shouldBlink = ot.stuck === 1 || aliveAtEnd;
+    if (ot.charMesh) {
+      ot.charMesh.traverse(o => {
+        if (o.isMesh && o.material) {
+          if (!o.material.emissive) return;
+          if (shouldBlink) {
+            o.material.emissive.setRGB(blinkPhase * 0.9, 0, 0);
+          } else if (ot._wasBlinking) {
+            o.material.emissive.setRGB(0, 0, 0);
+          }
+        }
+      });
+    }
+    ot._wasBlinking = shouldBlink;
+  }
+  // 내 캐릭터도 파묻힘/생존 시 깜빡 (본인 뷰에서도 인식되게)
+  {
+    const myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
+    const myAliveAtEnd = isEnded && aliveMap[myUid] !== false;
+    const shouldBlinkMe = myStuck || myAliveAtEnd;
+    if (currentPoseGlb) {
+      currentPoseGlb.traverse(o => {
+        if (o.isMesh && o.material && o.material.emissive) {
+          if (shouldBlinkMe) o.material.emissive.setRGB(blinkPhase * 0.9, 0, 0);
+          else if (player._wasBlinking) o.material.emissive.setRGB(0, 0, 0);
+        }
+      });
+    }
+    player._wasBlinking = shouldBlinkMe;
   }
 
   // 입력 - 숨는 시간에 술래는 움직임 금지
