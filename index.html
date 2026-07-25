@@ -1214,7 +1214,8 @@ gltfLoader.load('./gun.glb', gltf => {
   });
   seekerGunModel = glb;
   console.log('✅ 총 모델 로드 완료 / 스케일:', scale.toFixed(3));
-  if (myRole === 'seeker' && !attachedGun) attachGunToPlayer();
+  // 술래면 무조건 재부착 (이전 잔재 제거 후 새로 붙임)
+  if (myRole === 'seeker') { detachGunFromPlayer(); attachGunToPlayer(); }
   refreshOtherSeekerGuns();
 }, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
 
@@ -1268,9 +1269,13 @@ function refreshOtherSeekerGuns() {
 let _gunWatchdogSpam = 0;
 function ensureGunAttached() {
   if (!seekerGunModel) return;
+  // myRole 기반으로도 체크 (seekerUid 매칭 실패 대비)
+  if (myRole === 'seeker' && !attachedGun) {
+    attachGunToPlayer();
+  }
   const room = _cachedRoom;
   if (!room || !room.seekerUid) return;
-  // 나
+  // seekerUid 기반 이중 체크
   if (room.seekerUid === myUid && !attachedGun) {
     attachGunToPlayer();
   }
@@ -1316,9 +1321,9 @@ function setRole(role) {
   // 크로스헤어/조준점 표시
   const ch = document.getElementById('gameCrosshair');
   if (ch) ch.style.display = role === 'seeker' ? 'block' : 'none';
-  // 술래면 총 부착, 아니면 뗌
+  // 항상 먼저 뗀 뒤 다시 붙임 (이전 라운드 잔재 방지)
+  detachGunFromPlayer();
   if (role === 'seeker') attachGunToPlayer();
-  else detachGunFromPlayer();
   switchPose(currentPose);
 }
 
