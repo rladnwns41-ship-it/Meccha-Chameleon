@@ -850,6 +850,68 @@
   #gameStartClick .start-sub {
     font-size:13px; color:var(--text-dim); font-weight:700;
   }
+
+  /* ===== 채팅 ===== */
+  @keyframes chatMsgIn {
+    from { opacity:0; transform:translateY(6px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  #chatBox {
+    position:fixed; bottom:80px; left:14px;
+    width:280px; z-index:25;
+    display:none; flex-direction:column; gap:0;
+    pointer-events:none;
+  }
+  #chatBox.visible { display:flex; }
+  #chatMessages {
+    display:flex; flex-direction:column; gap:4px;
+    max-height:180px; overflow:hidden;
+    justify-content:flex-end;
+  }
+  .chat-msg {
+    background:rgba(14,18,30,0.78);
+    border-radius:8px;
+    padding:5px 9px;
+    font-size:13px; font-weight:600;
+    color:var(--text);
+    max-width:100%;
+    word-break:break-all;
+    animation:chatMsgIn .2s ease both;
+    pointer-events:none;
+    line-height:1.35;
+  }
+  .chat-msg .chat-nick { color:var(--green); font-weight:800; margin-right:4px; }
+  .chat-msg.system .chat-nick { color:var(--text-dim); }
+  #chatInputWrap {
+    display:none; align-items:center; gap:6px;
+    margin-top:6px; pointer-events:all;
+  }
+  #chatInputWrap.active { display:flex; }
+  #chatInput {
+    flex:1;
+    background:rgba(14,18,30,0.92);
+    border:2px solid var(--border);
+    border-radius:8px;
+    color:var(--text);
+    font-family:'Nunito Sans', sans-serif;
+    font-size:13px; font-weight:700;
+    padding:6px 10px;
+    outline:none;
+    transition:border-color .15s;
+  }
+  #chatInput:focus { border-color:var(--green); }
+  #chatSendBtn {
+    background:var(--green); border:none; border-radius:8px;
+    color:#fff; font-weight:800; font-size:13px;
+    padding:6px 12px; cursor:pointer;
+    font-family:'Nunito', sans-serif;
+  }
+  #chatSendBtn:active { filter:brightness(0.85); }
+  #chatHint {
+    font-size:11px; color:rgba(139,146,168,0.7);
+    margin-top:3px; pointer-events:none;
+  }
+
 </style>
 </head>
 <body>
@@ -935,7 +997,7 @@
 
 <div id="hud">
   <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
 </div>
 
@@ -979,6 +1041,16 @@
 
 <div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; P 로 종료</div>
 <div id="playerListHUD"></div>
+
+<div id="chatBox">
+  <div id="chatMessages"></div>
+  <div id="chatInputWrap">
+    <input id="chatInput" maxlength="60" placeholder="메시지 입력..." autocomplete="off" spellcheck="false">
+    <button id="chatSendBtn">전송</button>
+  </div>
+  <div id="chatHint">Enter = 채팅 열기</div>
+</div>
+
 <div id="crosshair"></div>
 <div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
   <div class="start-card">
@@ -2262,6 +2334,7 @@ function updateCountdownDisplay(room) {
 let _leavingRoom = false;
 document.getElementById('leaveRoomBtn').addEventListener('click', leaveToRooms);
 async function leaveToRooms() {
+  unsubscribeChat();
   if (_leavingRoom) return;
   _leavingRoom = true;
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
@@ -3025,6 +3098,7 @@ function startFirebaseSync(room) {
     });
     // ========== 도발 휘슬 시스템 ==========
     subscribeWhistles();
+    subscribeChat(myRoomId);
   };
   tryReg();
 }
@@ -3104,6 +3178,138 @@ function subscribeWhistles() {
 addEventListener('keydown', e => {
   if (e.code === 'KeyH' && !paintMode && currentScreen === 'game') {
     sendWhistle();
+  }
+});
+
+
+// ================ 채팅 시스템 ================
+let chatUnsub = null;
+let chatInputOpen = false;
+let _chatMsgTimers = [];
+
+const chatBox      = document.getElementById('chatBox');
+const chatMessages = document.getElementById('chatMessages');
+const chatInputWrap= document.getElementById('chatInputWrap');
+const chatInput    = document.getElementById('chatInput');
+const chatSendBtn  = document.getElementById('chatSendBtn');
+const chatHint     = document.getElementById('chatHint');
+
+// 메시지 UI 추가
+function addChatMsg(nick, text, isSystem) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg' + (isSystem ? ' system' : '');
+  div.innerHTML = '<span class="chat-nick">' + (nick || '?') + '</span>' + escHtml(text);
+  chatMessages.appendChild(div);
+  // 최대 30개 유지
+  while (chatMessages.children.length > 30) chatMessages.children[0].remove();
+  // 7초 후 페이드아웃 (인풋 닫혀있을 때만)
+  const timer = setTimeout(() => {
+    if (!chatInputOpen) div.style.transition = 'opacity 1s';
+    if (!chatInputOpen) div.style.opacity = '0';
+    setTimeout(() => div.remove(), 1000);
+  }, 7000);
+  _chatMsgTimers.push(timer);
+  // 채팅창 잠깐 보이기
+  showChatBox();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+let _chatBoxTimer = null;
+function showChatBox() {
+  chatBox.classList.add('visible');
+  clearTimeout(_chatBoxTimer);
+  if (!chatInputOpen) {
+    _chatBoxTimer = setTimeout(() => {
+      if (!chatInputOpen) chatBox.classList.remove('visible');
+    }, 8000);
+  }
+}
+
+// 채팅 입력창 열기/닫기
+function openChatInput() {
+  if (!myRoomId || currentScreen !== 'game') return;
+  chatInputOpen = true;
+  chatBox.classList.add('visible');
+  chatInputWrap.classList.add('active');
+  chatHint.style.display = 'none';
+  chatInput.value = '';
+  setTimeout(() => chatInput.focus(), 50);
+  // 메시지 모두 불투명하게 (fade 취소)
+  chatMessages.querySelectorAll('.chat-msg').forEach(m => { m.style.opacity='1'; m.style.transition=''; });
+}
+
+function closeChatInput() {
+  chatInputOpen = false;
+  chatInputWrap.classList.remove('active');
+  chatHint.style.display = '';
+  chatInput.blur();
+  // 인풋 닫으면 타이머 재시작
+  _chatBoxTimer = setTimeout(() => chatBox.classList.remove('visible'), 5000);
+}
+
+// 메시지 전송
+async function sendChatMsg() {
+  const text = chatInput.value.trim();
+  if (!text || !myRoomId || !myUid) return;
+  chatInput.value = '';
+  try {
+    const chatRef = ref(fbDb, 'rooms/' + myRoomId + '/chat');
+    await push(chatRef, {
+      uid: myUid,
+      nick: myNick || '익명',
+      text: text,
+      at: Date.now()
+    });
+  } catch(e) { console.warn('채팅 전송 실패:', e); }
+}
+
+// Firebase 채팅 구독
+function subscribeChat(roomId) {
+  if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  const chatRef = query(ref(fbDb, 'rooms/' + roomId + '/chat'), limitToLast(50));
+  let firstLoad = true;
+  chatUnsub = onChildAdded(chatRef, snap => {
+    const d = snap.val();
+    if (!d) return;
+    if (firstLoad) { firstLoad = false; return; } // 첫 로드 기존 메시지 스킵
+    const isMine = d.uid === myUid;
+    addChatMsg(isMine ? '나' : (d.nick || '?'), d.text, false);
+  });
+}
+
+// 채팅 구독 해제
+function unsubscribeChat() {
+  if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  chatMessages.innerHTML = '';
+  chatBox.classList.remove('visible');
+  chatInputOpen = false;
+  chatInputWrap.classList.remove('active');
+}
+
+// 버튼 이벤트
+chatSendBtn.addEventListener('click', () => {
+  sendChatMsg();
+  chatInput.focus();
+});
+chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); sendChatMsg(); }
+  if (e.key === 'Escape') { closeChatInput(); }
+  e.stopPropagation(); // 게임 키 입력 막기
+});
+chatInput.addEventListener('keyup', e => e.stopPropagation());
+chatInput.addEventListener('keypress', e => e.stopPropagation());
+
+// Enter 키로 채팅 열기 (게임 중 + 인풋 닫혀있을 때)
+addEventListener('keydown', e => {
+  if (e.key === 'Enter' && currentScreen === 'game' && !chatInputOpen && !paintMode) {
+    e.preventDefault();
+    openChatInput();
+  }
+  if (e.key === 'Escape' && chatInputOpen) {
+    closeChatInput();
   }
 });
 
