@@ -3,255 +3,704 @@
 <head>
 <meta charset="utf-8">
 <title>🦎 멧챠 카멜레온 도쿄</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@600;700&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; overflow:hidden; background:#000; font-family:-apple-system,'Segoe UI',sans-serif; user-select:none; }
+  /* ===== 디자인 토큰 ===== */
+  :root {
+    --green:   #3ecf6c;
+    --green-d: #2aaf56;
+    --green-sh:0 4px 0 #1e8a3e;
+    --yellow:  #ffc93c;
+    --yellow-d:#e6a800;
+    --red:     #ff5c6a;
+    --red-d:   #d93a4a;
+    --blue:    #4a9fff;
+    --purple:  #9b6dff;
+    --bg:      #1e2433;
+    --panel:   #252d3f;
+    --panel2:  #2e3852;
+    --border:  #3a4560;
+    --text:    #e8eaf0;
+    --text-dim:#8b92a8;
+    --radius:  16px;
+    --radius-sm:10px;
+  }
 
-  /* 로딩 */
+  * { box-sizing:border-box; }
+  html, body {
+    margin:0; padding:0; overflow:hidden;
+    background:var(--bg);
+    font-family:'Nunito Sans', 'Segoe UI', sans-serif;
+    user-select:none; color:var(--text);
+  }
+
+  /* ===== 로딩 ===== */
   #loading {
-    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:linear-gradient(180deg,#1a1a2e 0%,#0f0f1e 100%); color:#fff; z-index:200; gap:14px; font-size:16px;
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    background:var(--bg); z-index:200; gap:18px;
   }
   #loading.hidden { display:none; }
-  #bar { width:280px; height:6px; background:#333; border-radius:3px; overflow:hidden; }
-  #barFill { height:100%; width:0%; background:linear-gradient(90deg,#4dd07a,#ffca28); transition:width .2s; }
 
-  /* 화면들 공통 */
+  .loading-logo {
+    width:88px; height:88px; border-radius:24px;
+    background:var(--panel); border:3px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:44px; box-shadow:0 8px 0 rgba(0,0,0,0.3);
+    animation:float 2s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+
+  .loading-title {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900;
+    color:var(--text); letter-spacing:-0.5px;
+  }
+  #bar {
+    width:260px; height:14px;
+    background:var(--panel2);
+    border-radius:999px;
+    overflow:hidden;
+    border:2px solid var(--border);
+  }
+  #barFill {
+    height:100%; width:0%;
+    background:linear-gradient(90deg, var(--green), var(--yellow));
+    border-radius:999px;
+    transition:width .25s ease;
+  }
+  #pct { font-size:13px; color:var(--text-dim); font-weight:700; }
+  #loadStat { font-size:11px; color:var(--text-dim); font-family:monospace; }
+
+  /* ===== 오버레이 공통 ===== */
   .screen {
-    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    z-index:150; background:rgba(0,0,0,0.55); backdrop-filter:blur(8px); gap:16px; color:#fff; padding:20px;
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    z-index:150; gap:14px; padding:20px;
+    background:rgba(18,22,34,0.82);
+    backdrop-filter:blur(10px);
   }
   .screen.hidden { display:none; }
-  .screen h1 { font-size:38px; margin:0; font-weight:800; letter-spacing:-1px; }
-  .cta { background:#4dd07a; color:#000; padding:12px 28px; border-radius:12px; font-weight:700; font-size:16px; cursor:pointer; border:none; transition:transform 0.1s; }
-  .cta:hover { transform:translateY(-2px); }
-  .cta.secondary { background:rgba(255,255,255,0.15); color:#fff; }
-  .nick { display:flex; gap:8px; align-items:center; }
-  .nick input { padding:8px 14px; border-radius:8px; border:2px solid #444; background:rgba(0,0,0,0.4); color:#fff; font-size:14px; width:180px; text-align:center; }
-  
-  /* 방 목록 */
-  #roomListBox { width:min(500px,90vw); max-height:50vh; overflow-y:auto; background:rgba(0,0,0,0.35); border-radius:14px; padding:10px; border:1px solid rgba(255,255,255,0.08); }
-  .room-item { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-radius:10px; background:rgba(255,255,255,0.05); margin:6px 0; cursor:pointer; transition:all 0.15s; }
-  .room-item:hover { background:rgba(77,208,122,0.15); transform:translateX(4px); }
-  .room-item .info { font-weight:600; }
-  .room-item .count { color:#4dd07a; font-size:13px; }
-  .room-item .state { font-size:11px; padding:3px 8px; border-radius:6px; background:rgba(255,255,255,0.1); }
-  .room-item .state.playing { background:#ff4757; color:#fff; }
-  .empty-rooms { text-align:center; padding:40px; opacity:0.5; }
 
-  /* 로비 */
-  .lobbyInfo { display:flex; gap:24px; font-size:16px; align-items:center; }
-  #lobbyCountdown { font-size:28px; color:#ffca28; font-weight:800; }
-  .playerList { display:flex; flex-direction:column; gap:8px; width:min(400px,90vw); background:rgba(0,0,0,0.35); border-radius:14px; padding:12px; }
-  .player-row { display:flex; justify-content:space-between; padding:10px 14px; background:rgba(255,255,255,0.06); border-radius:8px; }
-  .player-row .host { color:#ffca28; font-size:11px; }
+  /* 패널 카드 */
+  .ui-card {
+    background:var(--panel);
+    border:3px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:0 8px 0 rgba(0,0,0,0.35);
+    padding:24px 28px;
+    width:min(480px, 92vw);
+  }
 
-  /* 투표 */
-  .voteBox { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
-  .voteMap { width:220px; padding:20px; background:rgba(0,0,0,0.4); border-radius:14px; border:2px solid rgba(255,255,255,0.1); cursor:pointer; text-align:center; transition:all 0.15s; }
-  .voteMap:hover { border-color:#4dd07a; transform:translateY(-4px); }
-  .voteMap.voted { border-color:#4dd07a; background:rgba(77,208,122,0.2); }
-  .voteMap .mapName { font-size:20px; font-weight:800; margin:8px 0; }
-  .voteMap .voteCount { color:#4dd07a; font-size:18px; font-weight:800; margin-top:8px; }
-  #voteTimer { color:#ffca28; font-weight:700; }
+  /* 타이틀 */
+  .screen-title {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900;
+    color:var(--text); letter-spacing:-1px;
+    margin:0 0 4px;
+    text-align:center;
+  }
+  .screen-sub {
+    font-size:13px; color:var(--text-dim);
+    font-weight:700; text-align:center; margin:0 0 16px;
+  }
 
-  /* 뽑기 애니메이션 */
-  .drawSpin { display:flex; overflow:hidden; width:min(400px,90vw); height:80px; background:rgba(0,0,0,0.4); border-radius:14px; border:2px solid #4dd07a; position:relative; }
-  .drawSpin .item { min-width:180px; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800; border-right:1px solid rgba(255,255,255,0.1); }
-  .drawSpin .indicator { position:absolute; top:0; bottom:0; left:50%; width:3px; background:#ffca28; box-shadow:0 0 12px #ffca28; }
+  /* ===== 버튼들 ===== */
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 24px; border-radius:var(--radius-sm);
+    font-family:'Nunito', sans-serif;
+    font-size:15px; font-weight:800;
+    border:none; cursor:pointer;
+    transition:transform .1s, box-shadow .1s;
+    white-space:nowrap;
+  }
+  .btn:active { transform:translateY(3px) !important; box-shadow:none !important; }
+
+  .btn-green {
+    background:var(--green); color:#fff;
+    box-shadow:var(--green-sh);
+  }
+  .btn-green:hover { transform:translateY(-2px); box-shadow:0 6px 0 #1e8a3e; }
+
+  .btn-yellow {
+    background:var(--yellow); color:#2a1a00;
+    box-shadow:0 4px 0 var(--yellow-d);
+  }
+  .btn-yellow:hover { transform:translateY(-2px); box-shadow:0 6px 0 var(--yellow-d); }
+
+  .btn-red {
+    background:var(--red); color:#fff;
+    box-shadow:0 4px 0 var(--red-d);
+  }
+  .btn-red:hover { transform:translateY(-2px); box-shadow:0 6px 0 var(--red-d); }
+
+  .btn-ghost {
+    background:var(--panel2); color:var(--text);
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+  }
+  .btn-ghost:hover { transform:translateY(-2px); background:var(--border); }
+
+  /* 이전 .cta 호환 */
+  .cta { display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 24px; border-radius:var(--radius-sm);
+    font-family:'Nunito', sans-serif; font-size:15px; font-weight:800;
+    border:none; cursor:pointer; transition:transform .1s, box-shadow .1s;
+    background:var(--green); color:#fff; box-shadow:var(--green-sh); }
+  .cta:hover { transform:translateY(-2px); box-shadow:0 6px 0 #1e8a3e; }
+  .cta:active { transform:translateY(3px); box-shadow:none; }
+  .cta.secondary { background:var(--panel2); color:var(--text); border:2px solid var(--border); box-shadow:0 4px 0 rgba(0,0,0,0.3); }
+  .cta.secondary:hover { background:var(--border); box-shadow:0 6px 0 rgba(0,0,0,0.3); }
+
+  /* ===== 인풋 ===== */
+  .ui-input {
+    background:var(--bg);
+    border:3px solid var(--border);
+    border-radius:var(--radius-sm);
+    color:var(--text);
+    font-family:'Nunito', sans-serif;
+    font-size:15px; font-weight:700;
+    padding:10px 14px;
+    outline:none;
+    transition:border-color .15s;
+    width:100%;
+  }
+  .ui-input:focus { border-color:var(--green); }
+  .ui-input::placeholder { color:var(--text-dim); }
+
+  /* ===== 닉네임 화면 ===== */
+  #scr-nick .logo-wrap {
+    display:flex; flex-direction:column; align-items:center; gap:10px; margin-bottom:20px;
+  }
+  #scr-nick .game-icon {
+    width:96px; height:96px; border-radius:24px;
+    background:var(--panel); border:3px solid var(--border);
+    box-shadow:0 8px 0 rgba(0,0,0,0.35);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  #scr-nick .game-icon img {
+    width:100%; height:100%; object-fit:cover;
+  }
+  #scr-nick .game-icon .icon-fallback { font-size:48px; }
+  #scr-nick .game-name {
+    font-family:'Nunito', sans-serif;
+    font-size:30px; font-weight:900; letter-spacing:-1px;
+  }
+  #scr-nick .game-tagline {
+    font-size:13px; color:var(--text-dim); font-weight:700;
+  }
+  .nick {
+    display:flex; gap:8px; align-items:center; width:100%;
+  }
+  .nick input {
+    flex:1; padding:10px 14px; border-radius:var(--radius-sm);
+    border:3px solid var(--border); background:var(--bg);
+    color:var(--text); font-size:15px; font-family:'Nunito',sans-serif;
+    font-weight:700; outline:none; transition:border-color .15s;
+  }
+  .nick input:focus { border-color:var(--green); }
+  .nick input::placeholder { color:var(--text-dim); }
+
+  /* ===== 방 목록 ===== */
+  #roomListBox {
+    width:100%; max-height:42vh; overflow-y:auto;
+    display:flex; flex-direction:column; gap:8px;
+    padding-right:4px;
+  }
+  #roomListBox::-webkit-scrollbar { width:6px; }
+  #roomListBox::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  #roomListBox::-webkit-scrollbar-track { background:transparent; }
+
+  .room-item {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 16px; border-radius:var(--radius-sm);
+    background:var(--panel2); border:2px solid var(--border);
+    cursor:pointer; transition:all .15s;
+  }
+  .room-item:hover {
+    border-color:var(--green); transform:translateX(4px);
+    background:rgba(62,207,108,0.1);
+  }
+  .room-item .info { font-weight:800; font-size:14px; }
+  .room-item .meta { display:flex; align-items:center; gap:8px; }
+  .room-item .count {
+    background:var(--panel); border:2px solid var(--border);
+    color:var(--text); font-size:12px; font-weight:800;
+    padding:2px 8px; border-radius:999px;
+  }
+  .room-item .state {
+    font-size:11px; font-weight:800; padding:3px 8px;
+    border-radius:999px; background:var(--panel); color:var(--text-dim);
+    border:2px solid var(--border);
+  }
+  .room-item .state.playing {
+    background:var(--red); color:#fff; border-color:var(--red-d);
+  }
+  .empty-rooms {
+    text-align:center; padding:40px 20px;
+    color:var(--text-dim); font-weight:700; font-size:14px;
+  }
+
+  /* 방 만들기 줄 */
+  .room-create-row {
+    display:flex; gap:8px; width:100%; margin-top:4px;
+  }
+  .room-create-row input {
+    flex:1; padding:10px 14px; border-radius:var(--radius-sm);
+    border:3px solid var(--border); background:var(--bg);
+    color:var(--text); font-size:14px; font-family:'Nunito',sans-serif;
+    font-weight:700; outline:none; transition:border-color .15s;
+  }
+  .room-create-row input:focus { border-color:var(--green); }
+  .room-create-row input::placeholder { color:var(--text-dim); }
+
+  /* ===== 로비 ===== */
+  .lobby-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .lobby-title {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900; margin:0;
+  }
+  .lobby-badge {
+    display:flex; align-items:center; gap:6px;
+    background:var(--panel2); border:2px solid var(--border);
+    border-radius:999px; padding:4px 12px;
+    font-size:13px; font-weight:800;
+  }
+  .lobby-badge .dot-green {
+    width:8px; height:8px; background:var(--green);
+    border-radius:50%; animation:pulse 1.5s infinite;
+  }
+  #lobbyCountdown {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900; color:var(--yellow);
+    text-shadow:0 2px 0 var(--yellow-d);
+    text-align:center; min-height:40px;
+  }
+  .playerList {
+    display:flex; flex-direction:column; gap:6px;
+    width:min(440px,92vw);
+  }
+  .player-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 14px; border-radius:var(--radius-sm);
+    background:var(--panel2); border:2px solid var(--border);
+  }
+  .player-row .p-name { font-weight:800; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .player-row .p-avatar {
+    width:28px; height:28px; border-radius:8px;
+    background:var(--panel); border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:14px;
+    overflow:hidden;
+  }
+  .player-row .p-avatar img { width:100%; height:100%; object-fit:cover; }
+  .player-row .host {
+    font-size:11px; font-weight:800;
+    background:var(--yellow); color:#2a1a00;
+    padding:2px 8px; border-radius:999px;
+  }
+
+  /* ===== 투표 ===== */
+  .vote-timer-pill {
+    background:var(--panel2); border:2px solid var(--border);
+    border-radius:999px; padding:6px 18px;
+    font-family:'Nunito', sans-serif;
+    font-weight:800; font-size:15px; color:var(--yellow);
+  }
+  .voteBox { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .voteMap {
+    width:200px; padding:20px 16px;
+    background:var(--panel2); border:3px solid var(--border);
+    border-radius:var(--radius); cursor:pointer; text-align:center;
+    transition:all .15s; box-shadow:0 6px 0 rgba(0,0,0,0.3);
+  }
+  .voteMap:hover { border-color:var(--green); transform:translateY(-4px); box-shadow:0 10px 0 rgba(0,0,0,0.3); }
+  .voteMap.voted { border-color:var(--green); background:rgba(62,207,108,0.12); }
+  .voteMap .map-icon {
+    width:64px; height:64px; margin:0 auto 10px;
+    border-radius:14px; background:var(--panel);
+    border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:30px;
+    overflow:hidden;
+  }
+  .voteMap .map-icon img { width:100%; height:100%; object-fit:cover; }
+  .voteMap .mapName {
+    font-family:'Nunito', sans-serif;
+    font-size:17px; font-weight:900; margin:0 0 6px;
+  }
+  .voteMap .voteCount {
+    display:inline-flex; align-items:center; gap:4px;
+    background:var(--green); color:#fff;
+    font-size:13px; font-weight:800;
+    padding:3px 10px; border-radius:999px;
+    box-shadow:0 3px 0 #1e8a3e;
+  }
+  #voteTimer { color:var(--yellow); font-weight:800; }
+
+  /* ===== 뽑기 스피너 ===== */
+  .drawSpin {
+    display:flex; overflow:hidden;
+    width:min(400px,90vw); height:80px;
+    background:var(--bg); border-radius:var(--radius);
+    border:3px solid var(--green);
+    position:relative;
+    box-shadow:0 0 0 4px rgba(62,207,108,0.15), 0 6px 0 rgba(0,0,0,0.3);
+  }
+  .drawSpin .item {
+    min-width:180px; height:100%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Nunito', sans-serif;
+    font-size:20px; font-weight:900;
+    border-right:2px solid var(--border); color:var(--text);
+  }
+  .drawSpin .indicator {
+    position:absolute; top:0; bottom:0; left:50%; width:3px;
+    background:var(--yellow);
+    box-shadow:0 0 14px var(--yellow);
+  }
   .drawStrip { display:flex; transition:transform 4s cubic-bezier(0.15, 0.85, 0.35, 1); }
 
-  /* 라운드 바 */
+  /* ===== 라운드 바 (인게임 HUD 상단 중앙) ===== */
   #roundBar {
     position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:20;
-    background:rgba(15,15,20,0.75); backdrop-filter:blur(10px); color:#fff;
-    padding:10px 20px; border-radius:14px; display:flex; gap:20px; align-items:center;
-    border:1px solid rgba(255,255,255,0.1); font-weight:700;
+    background:var(--panel); backdrop-filter:blur(10px);
+    padding:8px 18px; border-radius:var(--radius);
+    display:flex; gap:18px; align-items:center;
+    border:2px solid var(--border);
+    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+    font-weight:800;
   }
-  #roundTimer { font-size:26px; color:#ffca28; font-family:monospace; }
-  #roundInfo { display:flex; gap:16px; font-size:14px; align-items:center; }
-  #roleTag { padding:4px 10px; border-radius:8px; background:rgba(77,208,122,0.25); }
-  #roleTag.seeker { background:rgba(255,71,87,0.3); }
-  
-  /* 죽음 화면 */
-  #deathScreen {
-    position:fixed; inset:0; background:rgba(255,0,0,0.15); backdrop-filter:blur(4px);
-    display:flex; align-items:center; justify-content:center; z-index:50; pointer-events:none;
+  #roundTimer {
+    font-family:'Nunito', sans-serif;
+    font-size:28px; font-weight:900;
+    color:var(--yellow);
+    text-shadow:0 2px 0 var(--yellow-d);
+    font-variant-numeric:tabular-nums;
   }
-  #deathScreen.hidden { display:none; }
-  .deathBox {
-    background:rgba(0,0,0,0.8); padding:40px 60px; border-radius:20px; text-align:center; color:#fff;
-    border:3px solid #ff4757;
+  #roundInfo { display:flex; gap:12px; font-size:14px; align-items:center; }
+  #roleTag {
+    padding:4px 12px; border-radius:999px;
+    background:rgba(62,207,108,0.2);
+    border:2px solid var(--green);
+    color:var(--green); font-weight:800; font-size:12px;
   }
-  
-  /* 점수판 */
-  #scoreList .player-row { justify-content:space-between; padding:14px 18px; }
-  #scoreList .player-row.first { background:linear-gradient(90deg, rgba(255,202,40,0.3), transparent); border:1px solid #ffca28; }
-  #scoreList .player-row .score-val { color:#4dd07a; font-weight:800; font-size:20px; }
-  #scoreList .player-row .rank { font-weight:800; margin-right:12px; opacity:0.7; }
-  
-  /* HUD */
-  /* HUD */
+  #roleTag.seeker {
+    background:rgba(255,92,106,0.2);
+    border-color:var(--red); color:var(--red);
+  }
+
+  /* ===== HUD (왼쪽) ===== */
   #hud {
     position:fixed; top:14px; left:14px; z-index:20;
-    background:rgba(15,15,20,0.65); backdrop-filter:blur(10px);
-    color:#fff; padding:10px 14px; border-radius:12px; font-size:12px; line-height:1.7;
-    border:1px solid rgba(255,255,255,0.08); pointer-events:none;
+    background:var(--panel); color:var(--text);
+    padding:10px 14px; border-radius:var(--radius-sm);
+    font-size:12px; line-height:1.85;
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    pointer-events:none;
   }
-  #hud b { color:#4dd07a; }
+  #hud b { color:var(--yellow); }
 
-  /* 온라인 카운터 */
+  /* ===== 온라인 카운터 ===== */
   #online {
     position:fixed; top:14px; right:14px; z-index:20;
-    background:rgba(15,15,20,0.65); backdrop-filter:blur(10px);
-    color:#fff; padding:8px 14px; border-radius:12px; font-size:13px;
-    border:1px solid rgba(255,255,255,0.08); font-weight:600;
+    background:var(--panel);
+    padding:8px 14px; border-radius:var(--radius-sm);
+    font-size:13px; font-weight:800;
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    display:flex; align-items:center; gap:6px;
   }
-  #online .dot { display:inline-block; width:8px; height:8px; background:#4dd07a; border-radius:50%; margin-right:6px; animation:pulse 1.5s infinite; }
+  #online .dot {
+    width:8px; height:8px; background:var(--green);
+    border-radius:50%; animation:pulse 1.5s infinite;
+  }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-  /* 도구 도크 (왼쪽 하단) */
+  /* ===== 도구 도크 ===== */
   #tools {
-    position:fixed; bottom:24px; left:24px; z-index:30;
-    background:rgba(15,15,20,0.75); backdrop-filter:blur(12px);
-    padding:10px; border-radius:16px; display:flex; flex-direction:column; gap:8px;
-    border:1px solid rgba(255,255,255,0.1); box-shadow:0 8px 32px rgba(0,0,0,0.4);
+    position:fixed; bottom:24px; left:18px; z-index:30;
+    background:var(--panel);
+    padding:10px; border-radius:var(--radius);
+    display:flex; flex-direction:column; gap:6px;
+    border:2px solid var(--border);
+    box-shadow:0 6px 0 rgba(0,0,0,0.35);
   }
   .tool {
-    width:52px; height:52px; border-radius:12px; border:none;
-    background:rgba(255,255,255,0.06); color:#fff; font-size:24px; cursor:pointer;
-    transition:all 0.15s; display:flex; align-items:center; justify-content:center;
+    width:50px; height:50px; border-radius:var(--radius-sm);
+    border:2px solid transparent;
+    background:var(--panel2); color:var(--text);
+    font-size:22px; cursor:pointer;
+    transition:all .12s;
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
   }
-  .tool:hover { background:rgba(255,255,255,0.14); transform:translateY(-2px); }
-  .tool.active { background:#4dd07a; color:#000; box-shadow:0 4px 16px rgba(77,208,122,0.4); }
-  .tool-label { font-size:9px; color:#888; text-align:center; margin-top:-4px; }
+  .tool img, .tool .tool-ico {
+    width:28px; height:28px; object-fit:contain;
+    pointer-events:none;
+  }
+  .tool:hover { background:var(--border); border-color:var(--border); transform:translateY(-2px); }
+  .tool.active {
+    background:var(--green); border-color:var(--green-d);
+    box-shadow:0 4px 0 #1e8a3e; color:#fff;
+  }
+  .tool-label { font-size:9px; color:var(--text-dim); text-align:center; margin-top:-2px; font-weight:700; }
 
   /* 브러시 크기 */
   #brushSize {
-    background:rgba(15,15,20,0.75); backdrop-filter:blur(12px);
-    padding:10px 14px; border-radius:12px; margin-top:8px;
-    border:1px solid rgba(255,255,255,0.1); color:#fff; font-size:11px;
+    background:var(--panel2);
+    padding:8px 12px; border-radius:var(--radius-sm);
+    border:2px solid var(--border); color:var(--text); font-size:11px; font-weight:700;
+    margin-top:2px;
   }
-  #brushSize input { width:100%; accent-color:#4dd07a; }
+  #brushSize input { width:100%; accent-color:var(--green); cursor:pointer; }
 
-  /* 색 선택기 (하단 중앙) */
+  /* ===== 색 선택기 ===== */
   #picker {
     position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:30;
-    background:rgba(15,15,20,0.75); backdrop-filter:blur(12px);
-    padding:14px; border-radius:16px; display:flex; align-items:center; gap:12px;
-    border:1px solid rgba(255,255,255,0.1); box-shadow:0 8px 32px rgba(0,0,0,0.4);
+    background:var(--panel);
+    padding:14px; border-radius:var(--radius);
+    display:flex; align-items:center; gap:12px;
+    border:2px solid var(--border);
+    box-shadow:0 6px 0 rgba(0,0,0,0.35);
   }
-  #hueCanvas { width:280px; height:20px; border-radius:10px; cursor:crosshair; display:block; }
-  #satCanvas { width:180px; height:120px; border-radius:8px; cursor:crosshair; display:block; margin-top:8px; }
+  #hueCanvas { width:280px; height:20px; border-radius:10px; cursor:crosshair; display:block; border:2px solid var(--border); }
+  #satCanvas { width:180px; height:120px; border-radius:var(--radius-sm); cursor:crosshair; display:block; margin-top:8px; border:2px solid var(--border); }
   .picker-col { display:flex; flex-direction:column; }
   #preview {
-    width:56px; height:56px; border-radius:14px; background:#ffffff;
-    border:3px solid rgba(255,255,255,0.3); box-shadow:0 4px 12px rgba(0,0,0,0.4);
+    width:56px; height:56px; border-radius:var(--radius-sm); background:#fff;
+    border:3px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
   }
   #hexInput {
-    width:82px; text-align:center; padding:4px; border-radius:6px;
-    background:rgba(0,0,0,0.4); color:#fff; border:1px solid #555; margin-top:6px;
-    font-family:monospace; font-size:12px;
+    width:82px; text-align:center; padding:5px;
+    border-radius:var(--radius-sm);
+    background:var(--bg); color:var(--text);
+    border:2px solid var(--border);
+    margin-top:6px; font-family:monospace; font-size:12px; font-weight:700;
+    outline:none;
   }
+  #hexInput:focus { border-color:var(--green); }
   #preview-col { display:flex; flex-direction:column; align-items:center; gap:2px; }
 
   /* 최근 색 팔레트 */
-  #recent {
-    display:flex; gap:4px; margin-top:6px; align-items:center;
-  }
+  #recent { display:flex; gap:4px; margin-top:8px; align-items:center; }
   .recent-color {
     width:22px; height:22px; border-radius:6px; cursor:pointer;
-    border:2px solid rgba(255,255,255,0.2); transition:transform 0.1s;
+    border:2px solid var(--border); transition:transform .1s;
   }
-  .recent-color:hover { transform:scale(1.15); border-color:#fff; }
+  .recent-color:hover { transform:scale(1.2); border-color:var(--text); }
 
-  /* 페인트 모드 표시 */
+  /* ===== 페인트 모드 표시 ===== */
   #paintIndicator {
     position:fixed; top:60px; left:14px; z-index:20;
-    background:#4dd07a; color:#000; padding:6px 12px; border-radius:8px;
-    font-size:12px; font-weight:700; display:none;
+    background:var(--green); color:#fff;
+    padding:6px 14px; border-radius:var(--radius-sm);
+    font-size:12px; font-weight:800;
+    border:2px solid var(--green-d);
+    box-shadow:0 3px 0 var(--green-d);
+    display:none;
   }
-  #paintIndicator.on { display:block; animation:slideIn 0.2s; }
+  #paintIndicator.on { display:block; animation:slideIn .2s; }
   @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
 
-  /* 크로스헤어 (페인트 모드) */
+  /* 크로스헤어 */
   #crosshair {
-    position:fixed; left:50%; top:50%; width:16px; height:16px; margin:-8px 0 0 -8px;
-    border:2px solid #fff; border-radius:50%; pointer-events:none; z-index:15;
+    position:fixed; left:50%; top:50%;
+    width:16px; height:16px; margin:-8px 0 0 -8px;
+    border:2px solid #fff; border-radius:50%;
+    pointer-events:none; z-index:15;
     box-shadow:0 0 8px rgba(0,0,0,0.6); display:none;
   }
   #crosshair.on { display:block; }
 
-  /* 숨는 시간 오버레이 */
+  /* ===== 숨는 시간 오버레이 ===== */
   #hidePhaseOverlay {
     position:fixed; inset:0; z-index:60;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:rgba(0,0,0,0.55); color:#fff; pointer-events:none;
+    background:rgba(18,22,34,0.7); backdrop-filter:blur(4px);
+    color:var(--text); pointer-events:none;
   }
   #hidePhaseOverlay.hidden { display:none !important; }
   #gameStartClick.show { display:flex !important; }
-  #hidePhaseOverlay .msg { font-size:36px; font-weight:800; margin-bottom:12px; }
-  #hidePhaseOverlay .timer { font-size:64px; color:#ffca28; font-weight:900; font-family:monospace; }
+  #hidePhaseOverlay .msg {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900; margin-bottom:12px;
+  }
+  #hidePhaseOverlay .timer {
+    font-family:'Nunito', sans-serif;
+    font-size:80px; font-weight:900; color:var(--yellow);
+    text-shadow:0 4px 0 var(--yellow-d);
+    line-height:1;
+  }
+
+  /* ===== 죽음 화면 ===== */
+  #deathScreen {
+    position:fixed; inset:0; background:rgba(255,0,0,0.1);
+    backdrop-filter:blur(4px);
+    display:flex; align-items:center; justify-content:center;
+    z-index:50; pointer-events:none;
+  }
+  #deathScreen.hidden { display:none; }
+  .deathBox {
+    background:var(--panel); padding:40px 60px;
+    border-radius:var(--radius); text-align:center;
+    border:3px solid var(--red);
+    box-shadow:0 8px 0 var(--red-d);
+  }
+  .deathBox .death-icon {
+    width:72px; height:72px; border-radius:18px;
+    margin:0 auto 12px;
+    background:rgba(255,92,106,0.15);
+    border:3px solid var(--red);
+    display:flex; align-items:center; justify-content:center; font-size:36px;
+    overflow:hidden;
+  }
+  .deathBox .death-icon img { width:100%; height:100%; object-fit:contain; }
+  .deathBox .death-title {
+    font-family:'Nunito', sans-serif;
+    font-size:26px; font-weight:900; color:var(--red);
+  }
+  .deathBox .death-sub {
+    color:var(--text-dim); font-size:13px; font-weight:700; margin-top:4px;
+  }
+
+  /* ===== 점수판 ===== */
+  #scoreList .player-row { justify-content:space-between; padding:12px 16px; }
+  #scoreList .player-row.first {
+    background:rgba(255,201,60,0.12);
+    border-color:var(--yellow);
+  }
+  #scoreList .player-row .score-val {
+    color:var(--green); font-weight:900;
+    font-family:'Nunito', sans-serif; font-size:20px;
+  }
+  #scoreList .player-row .rank {
+    font-weight:900; margin-right:10px;
+    font-family:'Nunito', sans-serif; font-size:16px;
+    color:var(--text-dim);
+  }
+  #scoreList .player-row.first .rank { color:var(--yellow); }
+
+  /* ===== 게임 시작 화면 ===== */
+  #gameStartClick {
+    background:rgba(18,22,34,0.75) !important;
+    backdrop-filter:blur(8px);
+  }
+  #gameStartClick .start-card {
+    background:var(--panel); border:3px solid var(--border);
+    border-radius:var(--radius); padding:36px 48px;
+    text-align:center; box-shadow:0 10px 0 rgba(0,0,0,0.35);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  #gameStartClick .start-icon {
+    width:80px; height:80px; border-radius:20px;
+    background:var(--panel2); border:3px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:40px; overflow:hidden;
+    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+  }
+  #gameStartClick .start-icon img { width:100%; height:100%; object-fit:cover; }
+  #gameStartClick .start-label {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900;
+  }
+  #gameStartClick .start-sub {
+    font-size:13px; color:var(--text-dim); font-weight:700;
+  }
 </style>
 </head>
 <body>
 
 <div id="loading" class="hidden">
-  <div>🏙️ 도쿄 불러오는 중...</div>
+  <div class="loading-logo">
+    <img src="./img/icon-logo.png" alt="로고" style="width:100%;height:100%;object-fit:cover;border-radius:21px;" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+    <span style="display:none;font-size:44px;">🦎</span>
+  </div>
+  <div class="loading-title">멧챠 카멜레온</div>
   <div id="bar"><div id="barFill"></div></div>
-  <div id="pct" style="font-size:12px;opacity:0.6">0%</div>
-  <div id="loadStat" style="font-size:11px;opacity:0.5;font-family:monospace">캐릭터: 0% / 0% · 도쿄: 0%</div>
+  <div id="pct">0%</div>
+  <div id="loadStat">캐릭터: 0% / 0% · 도쿄: 0%</div>
 </div>
 
 <!-- 화면들 (배타적) -->
 <div id="scr-nick" class="screen">
-  <h1>🦎 멧챠 카멜레온</h1>
-  <div style="opacity:0.7;font-size:14px">도쿄 뒷골목에서 숨어라</div>
-  <div class="nick">
-    <span>닉네임</span>
-    <input id="nickInput" placeholder="시그마보이" maxlength="16">
+  <div class="logo-wrap">
+    <div class="game-icon">
+      <img src="./img/icon-logo.png" alt="게임 로고" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <span class="icon-fallback" style="display:none;">🦎</span>
+    </div>
+    <div class="game-name">멧챠 카멜레온</div>
+    <div class="game-tagline">도쿄 뒷골목에서 숨어라</div>
   </div>
-  <div class="cta" id="nickNext">▶ 다음</div>
+  <div class="ui-card">
+    <div class="screen-sub">닉네임을 입력하세요</div>
+    <div class="nick">
+      <input id="nickInput" class="ui-input" placeholder="시그마보이" maxlength="16" style="text-align:center;">
+    </div>
+    <div style="margin-top:14px;display:flex;justify-content:center;">
+      <button class="btn btn-green" id="nickNext" style="padding:13px 36px;font-size:16px;">게임 시작</button>
+    </div>
+  </div>
 </div>
 
 <div id="scr-rooms" class="screen hidden">
-  <h1 style="margin-bottom:6px">방 목록</h1>
-  <div style="opacity:0.6;font-size:13px">방에 들어가거나 새로 만들기</div>
-  <div id="roomListBox">
-    <div id="roomList"></div>
-  </div>
-  <div style="display:flex;gap:12px">
-    <input id="newRoomName" placeholder="방 이름..." maxlength="20" style="flex:1;padding:10px 14px;border-radius:10px;border:2px solid #444;background:rgba(0,0,0,0.4);color:#fff">
-    <button class="cta" id="createRoomBtn">+ 방 만들기</button>
+  <div class="ui-card" style="width:min(520px,94vw);">
+    <div class="lobby-header">
+      <h2 class="lobby-title">방 목록</h2>
+      <div class="lobby-badge">
+        <span class="dot-green"></span>
+        <span>게임 선택</span>
+      </div>
+    </div>
+    <div id="roomListBox">
+      <div id="roomList"></div>
+    </div>
+    <div class="room-create-row" style="margin-top:12px;">
+      <input id="newRoomName" placeholder="새 방 이름..." maxlength="20">
+      <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
+    </div>
   </div>
 </div>
 
 <div id="scr-lobby" class="screen hidden">
-  <h1 id="lobbyName">방 대기실</h1>
-  <div class="lobbyInfo">
-    <div>👥 <span id="lobbyPlayerCount">1</span>/5 명</div>
+  <div class="ui-card" style="width:min(460px,94vw);">
+    <div class="lobby-header">
+      <h2 id="lobbyName" class="lobby-title">대기실</h2>
+      <div class="lobby-badge">
+        <span class="dot-green"></span>
+        <span id="lobbyPlayerCount">1</span>/5명
+      </div>
+    </div>
     <div id="lobbyCountdown"></div>
+    <div id="lobbyPlayers" class="playerList" style="margin-top:12px;width:100%;"></div>
+    <div style="margin-top:14px;display:flex;justify-content:center;">
+      <button class="btn btn-ghost" id="leaveRoomBtn">← 나가기</button>
+    </div>
   </div>
-  <div id="lobbyPlayers" class="playerList"></div>
-  <button class="cta secondary" id="leaveRoomBtn">← 나가기</button>
 </div>
 
 <div id="scr-vote" class="screen hidden">
-  <h1>🗺️ 맵 투표</h1>
-  <div style="opacity:0.7;font-size:13px" id="voteTimer">남은 시간: 15초</div>
+  <div class="screen-title">맵 투표</div>
+  <div class="vote-timer-pill" id="voteTimer">남은 시간: 15초</div>
   <div id="voteMaps" class="voteBox"></div>
 </div>
 
 <div id="scr-draw" class="screen hidden">
-  <h1>🎯 술래 뽑기</h1>
+  <div class="screen-title">술래 뽑기</div>
+  <div class="screen-sub">이번 라운드의 술래는...</div>
   <div id="drawSpinner" class="drawSpin"></div>
-  <div id="drawResult" style="font-size:22px;margin-top:12px;min-height:30px"></div>
+  <div id="drawResult" style="font-family:'Nunito',sans-serif;font-size:22px;font-weight:900;margin-top:14px;min-height:32px;color:var(--yellow);text-shadow:0 2px 0 var(--yellow-d);"></div>
 </div>
 
 <div id="hud">
-  <b>WASD</b> 이동 · <b>Shift</b> 달리기 · <b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 · <b>P</b> 페인트 · <b>R</b> 포즈 · <b>ESC</b> 시점 풀기<br>
-  <span id="hudShootHint" style="display:none;color:#ff4757"><b>좌클릭 = 발사!</b></span>
+  <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
+  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
 </div>
 
 <div id="roundBar">
@@ -268,26 +717,44 @@
 </div>
 <div id="deathScreen" class="hidden">
   <div class="deathBox">
-    <div style="font-size:56px;margin-bottom:8px">💀</div>
-    <div style="font-size:28px;font-weight:800">잡혔다!</div>
-    <div style="opacity:0.6;font-size:14px;margin-top:6px">관전 중 · 다음 라운드 대기</div>
+    <div class="death-icon">
+      <img src="./img/icon-death.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <span style="display:none;">💀</span>
+    </div>
+    <div class="death-title">잡혔다!</div>
+    <div class="death-sub">관전 중 · 다음 라운드 대기</div>
   </div>
 </div>
 
 <div id="scoreboard" class="screen hidden">
-  <h1>🏆 라운드 결과</h1>
-  <div id="scoreList" class="playerList" style="width:min(500px,90vw)"></div>
-  <button class="cta" id="backToLobbyBtn">← 방으로 돌아가기</button>
+  <div class="ui-card" style="width:min(500px,94vw);">
+    <div class="lobby-header">
+      <h2 class="lobby-title">라운드 결과</h2>
+      <div class="lobby-badge">
+        <img src="./img/icon-trophy.png" style="width:18px;height:18px;object-fit:contain;" onerror="this.style.display='none'">
+        <span>순위</span>
+      </div>
+    </div>
+    <div id="scoreList" class="playerList" style="width:100%;"></div>
+    <div style="margin-top:14px;display:flex;justify-content:center;">
+      <button class="btn btn-green" id="backToLobbyBtn">방으로 돌아가기</button>
+    </div>
+  </div>
 </div>
 
-<div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 · 🗺️ <span id="mapName">-</span></div>
+<div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 &nbsp;·&nbsp; <span id="mapName">-</span></div>
 
-<div id="paintIndicator">🎨 페인트 모드 (P로 종료)</div>
+<div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; P 로 종료</div>
 <div id="crosshair"></div>
-<div id="gameStartClick" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:80;align-items:center;justify-content:center;color:#fff;cursor:pointer;font-size:24px;font-weight:700;backdrop-filter:blur(4px);flex-direction:column;gap:12px">
-  <div style="font-size:48px">🎮</div>
-  <div>화면 클릭해서 시작</div>
-  <div style="font-size:14px;opacity:0.6">ESC 키로 마우스 풀기</div>
+<div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
+  <div class="start-card">
+    <div class="start-icon">
+      <img src="./img/icon-logo.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <span style="display:none;font-size:40px;">🎮</span>
+    </div>
+    <div class="start-label">화면 클릭해서 시작</div>
+    <div class="start-sub">ESC 키로 마우스 풀기</div>
+  </div>
 </div>
 <div id="gameCrosshair" style="display:none;position:fixed;left:50%;top:50%;width:24px;height:24px;margin:-12px 0 0 -12px;pointer-events:none;z-index:15">
   <div style="position:absolute;left:11px;top:0;width:2px;height:8px;background:#ff4757"></div>
@@ -298,10 +765,18 @@
 </div>
 
 <div id="tools">
-  <button class="tool active" data-tool="brush" title="붓 (B)">🖌️</button>
-  <button class="tool" data-tool="bucket" title="페인트통 (F)">🪣</button>
-  <button class="tool" data-tool="eraser" title="지우개 (E)">🧽</button>
-  <button class="tool" data-tool="picker" title="스포이드 (I)">🎯</button>
+  <button class="tool active" data-tool="brush" title="붓 (B)">
+    <img src="./img/tool-brush.png" alt="붓" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🖌️</span>
+  </button>
+  <button class="tool" data-tool="bucket" title="페인트통 (F)">
+    <img src="./img/tool-bucket.png" alt="페인트통" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🪣</span>
+  </button>
+  <button class="tool" data-tool="eraser" title="지우개 (E)">
+    <img src="./img/tool-eraser.png" alt="지우개" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🧽</span>
+  </button>
+  <button class="tool" data-tool="picker" title="스포이드 (I)">
+    <img src="./img/tool-picker.png" alt="스포이드" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🎯</span>
+  </button>
   <div id="brushSize">
     <div style="margin-bottom:4px">붓 크기: <span id="brushSizeVal">20</span>px</div>
     <input type="range" id="brushRange" min="4" max="80" value="20">
@@ -844,9 +1319,16 @@ async function showScoreboard() {
   rows.forEach((r, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === 0 ? ' first' : '');
-    const medal = i === 0 ? '🥇' : (i === 1 ? '🥈' : (i === 2 ? '🥉' : (i+1)+''));
+    const rankIcons = ['./img/rank-1.png','./img/rank-2.png','./img/rank-3.png'];
+    const medalFallback = i === 0 ? '1' : (i === 1 ? '2' : (i === 2 ? '3' : (i+1)+''));
+    const rankHtml = i < 3
+      ? `<span class="rank"><img src="${rankIcons[i]}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><span style="display:none;">${medalFallback}</span></span>`
+      : `<span class="rank">${i+1}</span>`;
+    const roleTag = r.isSeeker
+      ? `<span style="font-size:11px;background:var(--red);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px;font-weight:800;">술래</span>`
+      : (!r.alive ? `<span style="font-size:11px;background:var(--panel2);color:var(--text-dim);padding:1px 7px;border-radius:999px;margin-left:6px;font-weight:800;">탈락</span>` : '');
     row.innerHTML = `
-      <div><span class="rank">${medal}</span>${r.nick}${r.isSeeker ? ' 🎯' : ''}${!r.alive && !r.isSeeker ? ' 💀' : ''}</div>
+      <div style="display:flex;align-items:center;gap:6px;">${rankHtml}<span style="font-weight:800;">${r.nick}</span>${roleTag}</div>
       <div class="score-val">${r.score}</div>
     `;
     box.appendChild(row);
@@ -1256,7 +1738,17 @@ function subscribeRoom(roomId) {
       const p = players[uid];
       const row = document.createElement('div');
       row.className = 'player-row';
-      row.innerHTML = `<span>${p.nick}${uid === myUid ? ' (나)' : ''}</span>` + (uid === room.hostUid ? '<span class="host">👑 방장</span>' : '');
+      const avatarLetter = (p.nick || '?')[0].toUpperCase();
+      row.innerHTML = `
+        <div class="p-name">
+          <div class="p-avatar">
+            <img src="./img/avatar-default.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+            <span style="display:none;font-size:14px;">${avatarLetter}</span>
+          </div>
+          ${p.nick}${uid === myUid ? ' <span style="color:var(--text-dim);font-size:12px;">(나)</span>' : ''}
+        </div>
+        ${uid === room.hostUid ? '<span class="host">방장</span>' : ''}
+      `;
       box.appendChild(row);
     });
     
@@ -1349,8 +1841,13 @@ function renderVoteMaps(room) {
   MAPS.forEach((m, i) => {
     const d = document.createElement('div');
     d.className = 'voteMap' + (String(myVote) === String(i) ? ' voted' : '');
+    const mapImgSrc = i === 0 ? './img/map-tokyo.png' : './img/map-classic.png';
+    const mapFallback = i === 0 ? '🏙️' : '🏛️';
     d.innerHTML = `
-      <div style="font-size:36px">${i === 0 ? '🏙️' : '🏛️'}</div>
+      <div class="map-icon">
+        <img src="${mapImgSrc}" alt="${m.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <span style="display:none;font-size:30px;">${mapFallback}</span>
+      </div>
       <div class="mapName">${m.name}</div>
       <div class="voteCount">${votes[i] || 0} 표</div>
     `;
