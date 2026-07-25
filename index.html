@@ -251,6 +251,12 @@
   </div>
 </div>
 
+<div id="hidePhaseOverlay" class="hidden" style="position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);color:#fff;pointer-events:none">
+  <div class="msg" style="font-size:36px;font-weight:800;margin-bottom:12px"></div>
+  <div class="timer" style="font-size:64px;color:#ffca28;font-weight:900;font-family:monospace"></div>
+</div>
+<div id="hidePhaseOverlay-style" style="display:none">.hidden{display:none!important}</div>
+
 <div id="deathScreen" class="hidden">
   <div class="deathBox">
     <div style="font-size:56px;margin-bottom:8px">💀</div>
@@ -269,11 +275,19 @@
 
 <div id="paintIndicator">🎨 페인트 모드 (P로 종료)</div>
 <div id="crosshair"></div>
+<div id="gameCrosshair" style="display:none;position:fixed;left:50%;top:50%;width:24px;height:24px;margin:-12px 0 0 -12px;pointer-events:none;z-index:15">
+  <div style="position:absolute;left:11px;top:0;width:2px;height:8px;background:#ff4757"></div>
+  <div style="position:absolute;left:11px;bottom:0;width:2px;height:8px;background:#ff4757"></div>
+  <div style="position:absolute;top:11px;left:0;height:2px;width:8px;background:#ff4757"></div>
+  <div style="position:absolute;top:11px;right:0;height:2px;width:8px;background:#ff4757"></div>
+  <div style="position:absolute;left:10px;top:10px;width:4px;height:4px;border-radius:50%;background:#ff4757"></div>
+</div>
 
 <div id="tools">
   <button class="tool active" data-tool="brush" title="붓 (B)">🖌️</button>
   <button class="tool" data-tool="bucket" title="페인트통 (F)">🪣</button>
   <button class="tool" data-tool="eraser" title="지우개 (E)">🧽</button>
+  <button class="tool" data-tool="picker" title="스포이드 (I)">🎯</button>
   <div id="brushSize">
     <div style="margin-bottom:4px">붓 크기: <span id="brushSizeVal">20</span>px</div>
     <input type="range" id="brushRange" min="4" max="80" value="20">
@@ -427,15 +441,15 @@ function buildWalls(center, halfX, halfZ) {
   makeSide(center.x-halfX, center.z, halfZ*2, Math.PI/2);
   makeSide(center.x+halfX, center.z, halfZ*2, Math.PI/2);
   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => {
-    // 5m 대형 코너 기둥 (보이는 것)
-    const pillar = new THREE.Mesh(new THREE.BoxGeometry(5, wh, 5), cornerMat);
+    // 코너 기둥 - 벽과 같은 색/재질로
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(3, wh, 3), wallMat);
     pillar.position.set(center.x+sx*halfX, wh/2, center.z+sz*halfZ);
     pillar.castShadow = true; pillar.receiveShadow = true;
     wallGroup.add(pillar);
-    const cornerCap = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.5, 5.4), capMat);
+    const cornerCap = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 3.4), capMat);
     cornerCap.position.set(center.x+sx*halfX, wh+0.1, center.z+sz*halfZ);
     wallGroup.add(cornerCap);
-    // 안 보이는 코너 안전벽 (모서리 사각지대 블록)
+    // 코너 사각지대 안전벽 (안 보임)
     const invisMat = new THREE.MeshBasicMaterial({ visible: false });
     const safety = new THREE.Mesh(new THREE.BoxGeometry(10, wh, 10), invisMat);
     safety.position.set(center.x+sx*(halfX+2), wh/2, center.z+sz*(halfZ+2));
@@ -480,24 +494,7 @@ let seekerGunModel = null; // 총 원본
 // 내 역할: 'hider' (숨는 자) or 'seeker' (술래)
 let myRole = 'hider';
 
-// 술래 모델 로드
-gltfLoader.load('./tager.glb', gltf => {
-  const glb = gltf.scene;
-  const box = new THREE.Box3().setFromObject(glb);
-  const size = new THREE.Vector3(); box.getSize(size);
-  // 술래는 카멜레온보다 1.4배 크게 (실제 게임 스펙)
-  const scale = 2.4 / size.y;
-  glb.scale.setScalar(scale);
-  const box2 = new THREE.Box3().setFromObject(glb);
-  glb.position.y = -box2.min.y;
-  const c = new THREE.Vector3(); box2.getCenter(c);
-  glb.position.x = -c.x; glb.position.z = -c.z;
-  glb.traverse(o => {
-    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-  });
-  seekerModel = glb;
-  console.log('✅ 술래 모델 로드 완료');
-}, undefined, err => console.warn('술래 모델 로드 실패 (tager.glb 없음):', err.message));
+// 술래는 hider 모델 그대로 사용 (tager.glb 안 씀)
 
 // 총 로드 
 gltfLoader.load('./gun.glb', gltf => {
@@ -514,58 +511,33 @@ gltfLoader.load('./gun.glb', gltf => {
   console.log('✅ 총 모델 로드 완료');
 }, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
 
-// 술래 캐릭터에 총 붙이기 (오른손 위치)
-function attachGunToSeeker(seekerGlb) {
-  if (!seekerGunModel) return null;
-  const gunClone = seekerGunModel.clone(true);
-  // 오른손 본 찾기 (rigging된 모델이면)
-  let rightHand = null;
-  seekerGlb.traverse(o => {
-    if (o.isBone && !rightHand) {
-      const n = (o.name || '').toLowerCase();
-      if (n.includes('righthand') || n.includes('r_hand') || n.includes('hand.r') || 
-          n.includes('right_hand') || n.includes('handright')) {
-        rightHand = o;
-      }
-    }
-  });
-  if (rightHand) {
-    // 손 본에 직접 부착
-    gunClone.position.set(0, 0, 0);
-    rightHand.add(gunClone);
-    console.log('총을 오른손 본에 부착:', rightHand.name);
-  } else {
-    // 본 없으면 캐릭터 앞쪽 허리 높이에 고정
-    gunClone.position.set(0.35, 1.0, 0.2);
-    gunClone.rotation.y = -Math.PI / 2;
-    seekerGlb.add(gunClone);
-    console.log('본 없음 - 총을 허리 위치에 고정');
-  }
-  return gunClone;
+// 총 = player 그룹에 직접 붙임 (모든 포즈에서 오른손 위치에 나타남)
+let attachedGun = null;
+function attachGunToPlayer() {
+  if (!seekerGunModel || attachedGun) return;
+  attachedGun = seekerGunModel.clone(true);
+  attachedGun.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  // 오른손 앞쪽 (몸 오른쪽, 앞으로 살짝, 배 높이)
+  attachedGun.position.set(0.42, 1.0, 0.35);
+  attachedGun.rotation.y = -Math.PI / 2;
+  player.add(attachedGun);
+  console.log('🔫 총 부착');
+}
+function detachGunFromPlayer() {
+  if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
 }
 
-// 역할 전환 - 술래로 바꾸면 캐릭터 모델도 술래 모델로 교체
+// 역할 전환 - 총만 붙였다 뗐다 (모델은 동일)
 function setRole(role) {
   myRole = role;
   console.log('🎭 내 역할:', role);
-  if (role === 'seeker' && seekerModel) {
-    if (currentPoseGlb) player.remove(currentPoseGlb);
-    const seekerClone = seekerModel.clone(true);
-    seekerClone.traverse(o => {
-      if (o.isMesh) {
-        o.castShadow = true; o.receiveShadow = true;
-      }
-    });
-    attachGunToSeeker(seekerClone);
-    player.add(seekerClone);
-    currentPoseGlb = seekerClone;
-    characterMeshes = [];
-    seekerClone.traverse(o => { if (o.isMesh) characterMeshes.push(o); });
-    poseHeadY.stand = 2.2; // 술래 머리 위치 (더 큼)
-  } else {
-    // 숨는 자 - 원래 캐릭터로
-    switchPose(currentPose);
-  }
+  // 크로스헤어/조준점 표시
+  const ch = document.getElementById('gameCrosshair');
+  if (ch) ch.style.display = role === 'seeker' ? 'block' : 'none';
+  // 술래면 총 부착, 아니면 뗌
+  if (role === 'seeker') attachGunToPlayer();
+  else detachGunFromPlayer();
+  switchPose(currentPose);
 }
 
 // ============================================================
@@ -582,61 +554,118 @@ let scoreTimer = null;
 let roundTimerHandle = null;
 
 // 방장 상태 관리 - 매초 체크해서 자동 전환
-let _hostTickLog = 0;
+// 방장 tick - 매초 실행, 모든 타이머/상태 Firebase에 동기화
+let _lastPlayerCount = 0;
 setInterval(async () => {
   if (!myRoomId || !myUid) return;
   try {
     const snap = await get(ref(fbDb, `rooms/${myRoomId}`));
     const room = snap.val();
-    if (!room) return;
-    if (room.hostUid !== myUid) return;
-    const now = Date.now();
+    if (!room || room.hostUid !== myUid) return;
     const count = Object.keys(room.players || {}).length;
+    const state = room.state || 'lobby';
+    const roomRef = ref(fbDb, `rooms/${myRoomId}`);
     
-    // 5초마다 한 번씩 상태 로그
-    if (_hostTickLog++ % 10 === 0) {
-      console.log(`👑 [방장 tick] state=${room.state}, count=${count}, countdownEndAt=${room.countdownEndAt}, now-endAt=${room.countdownEndAt ? (now - room.countdownEndAt) : 'N/A'}`);
+    // 빈 방 자동 삭제
+    if (count === 0) {
+      console.log('🗑 빈 방 삭제:', myRoomId);
+      await remove(roomRef);
+      return;
     }
     
-    // 로비 → 투표 전환
-    if (room.state === 'lobby' && room.countdownEndAt && room.countdownEndAt < now && count >= 2) {
-      await update(ref(fbDb, `rooms/${myRoomId}`), {
-        state: 'voting',
-        voteEndAt: now + 15000,
-        countdownEndAt: null
-      });
-      console.log('▶ 상태전환: lobby → voting');
-    }
-    
-    // 투표 → 뽑기 전환
-    if (room.state === 'voting' && room.voteEndAt && room.voteEndAt < now) {
-      const players = room.players || {};
-      const votes = {};
-      Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
-      let maxV = -1, winners = [];
-      Object.entries(votes).forEach(([k, v]) => {
-        if (v > maxV) { maxV = v; winners = [k]; }
-        else if (v === maxV) winners.push(k);
-      });
-      const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
-      const uids = Object.keys(players);
-      const seekerUid = uids[Math.floor(Math.random() * uids.length)];
-      await update(ref(fbDb, `rooms/${myRoomId}`), {
-        state: 'drawing',
-        selectedMap: chosen,
-        seekerUid: seekerUid,
-        drawEndAt: now + 5000
-      });
-      console.log('▶ 상태전환: voting → drawing');
-    }
-    
-    // 뽑기 → 게임 전환
-    if (room.state === 'drawing' && room.drawEndAt && room.drawEndAt < now) {
-      await update(ref(fbDb, `rooms/${myRoomId}`), { state: 'playing', playStartAt: now });
-      console.log('▶ 상태전환: drawing → playing');
+    if (state === 'lobby') {
+      if (count < 2) {
+        if (room.countdown != null) await update(roomRef, { countdown: null });
+        _lastPlayerCount = count;
+        return;
+      }
+      // 새 플레이어 들어오면 3초로 리셋
+      if (count > _lastPlayerCount && room.countdown != null && room.countdown < 3) {
+        await update(roomRef, { countdown: 3 });
+      } else if (room.countdown == null) {
+        // 최초 시작
+        await update(roomRef, { countdown: 5 });
+      } else if (room.countdown > 0) {
+        await update(roomRef, { countdown: room.countdown - 1 });
+      } else {
+        // 종료 → 투표로
+        await update(roomRef, { state: 'voting', voteCountdown: 15, countdown: null });
+        // 모든 플레이어 vote 리셋
+        const pl = room.players || {};
+        for (const uid of Object.keys(pl)) {
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
+        }
+        console.log('▶ lobby → voting');
+      }
+      _lastPlayerCount = count;
+      
+    } else if (state === 'voting') {
+      if (room.voteCountdown > 0) {
+        await update(roomRef, { voteCountdown: room.voteCountdown - 1 });
+      } else {
+        // 뽑기로
+        const players = room.players || {};
+        const votes = {};
+        Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
+        let maxV = -1, winners = [];
+        Object.entries(votes).forEach(([k, v]) => {
+          if (v > maxV) { maxV = v; winners = [k]; }
+          else if (v === maxV) winners.push(k);
+        });
+        const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
+        const uids = Object.keys(players);
+        const seekerUid = uids[Math.floor(Math.random() * uids.length)];
+        await update(roomRef, {
+          state: 'drawing',
+          selectedMap: chosen,
+          seekerUid: seekerUid,
+          drawCountdown: 5,
+          voteCountdown: null
+        });
+        console.log('▶ voting → drawing, 술래=', seekerUid);
+      }
+      
+    } else if (state === 'drawing') {
+      if (room.drawCountdown > 0) {
+        await update(roomRef, { drawCountdown: room.drawCountdown - 1 });
+      } else {
+        await update(roomRef, {
+          state: 'playing',
+          hidePhaseCountdown: 15,  // 15초 숨는 시간
+          roundCountdown: 60,
+          drawCountdown: null,
+          round: {
+            phase: 'hiding',
+            startedAt: Date.now(),
+            alive: Object.fromEntries(Object.keys(room.players || {}).map(u => [u, true])),
+            scores: {}
+          }
+        });
+        console.log('▶ drawing → playing (숨는 시간 시작)');
+      }
+      
+    } else if (state === 'playing') {
+      // 숨는 시간 (술래 얼음) 카운트
+      if (room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0) {
+        await update(roomRef, { hidePhaseCountdown: room.hidePhaseCountdown - 1 });
+        return;
+      }
+      // 숨는 시간 끝나면 라운드 카운트 시작
+      // 게임 중 인원 1명 이하 → 라운드 강제 종료
+      if (count < 2) {
+        await update(roomRef, { state: 'ended', roundCountdown: null });
+        console.log('▶ 인원 부족 → 라운드 종료');
+        return;
+      }
+      if (room.roundCountdown > 0) {
+        await update(roomRef, { roundCountdown: room.roundCountdown - 1 });
+      } else {
+        await update(roomRef, { state: 'ended', roundCountdown: null });
+        console.log('▶ playing → ended');
+      }
     }
   } catch(e) { console.error('❌ 방장 tick 에러:', e); }
-}, 500);
+}, 1000);
 
 // 라운드 상태 리스너 (방 안 game_state)
 function subscribeRoundState() {
@@ -676,23 +705,37 @@ async function uid_is_host_by_id(roomId) {
   return s.val()?.hostUid === myUid;
 }
 
-// 라운드 타이머 UI
-function startRoundTimer() {
-  const el = document.getElementById('roundTimer');
-  const tick = () => {
-    const remain = Math.max(0, roundState.endsAt - Date.now());
-    const s = Math.ceil(remain / 1000);
-    const mm = String(Math.floor(s/60)).padStart(1,'0');
-    const ss = String(s%60).padStart(2,'0');
-    el.textContent = mm + ':' + ss;
-    if (remain <= 0) {
-      clearInterval(roundTimerHandle);
-      roundTimerHandle = null;
-      endRound();
+// 숨는 시간 처리 - 술래는 얼음 + 화면 어둡게, 하이더는 자유
+let inHidePhase = false;
+function updateHidePhase(room) {
+  const isHiding = room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0;
+  inHidePhase = isHiding;
+  const overlay = document.getElementById('hidePhaseOverlay');
+  if (!overlay) return;
+  if (isHiding) {
+    overlay.classList.remove('hidden');
+    const t = overlay.querySelector('.timer');
+    if (myRole === 'seeker') {
+      overlay.querySelector('.msg').textContent = '🙈 눈 감고 기다리는 중...';
+      t.textContent = room.hidePhaseCountdown + '초';
+    } else {
+      overlay.querySelector('.msg').textContent = '🏃 숨어라!';
+      t.textContent = room.hidePhaseCountdown + '초';
     }
-  };
-  tick();
-  roundTimerHandle = setInterval(tick, 200);
+  } else {
+    overlay.classList.add('hidden');
+  }
+}
+
+// 라운드 타이머 UI - Firebase roundCountdown 값 표시
+function updateRoundTimer(room) {
+  const el = document.getElementById('roundTimer');
+  const s = room.roundCountdown != null ? room.roundCountdown : 60;
+  const mm = String(Math.floor(s/60)).padStart(1,'0');
+  const ss = String(s%60).padStart(2,'0');
+  el.textContent = mm + ':' + ss;
+}
+function startRoundTimer() {
   
   // 점수 적립 (매 1초)
   if (scoreTimer) clearInterval(scoreTimer);
@@ -738,6 +781,7 @@ renderer.domElement.addEventListener('mousedown', e => {
 });
 
 function shootFromCamera() {
+  if (inHidePhase) { console.log('🙈 숨는 시간 - 발사 X'); return; }
   // 카메라 중심에서 앞으로 raycast
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
@@ -828,7 +872,11 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
     await update(ref(fbDb, `rooms/${myRoomId}`), {
       state: 'lobby',
       round: null,
-      countdownEndAt: null,
+      countdown: null,
+      voteCountdown: null,
+      drawCountdown: null,
+      roundCountdown: null,
+      hidePhaseCountdown: null,
       selectedMap: null,
       seekerUid: null
     });
@@ -843,13 +891,21 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
 });
 
 
+// stand 실제 사이즈를 저장해두고 crouch도 그 기준 스케일로
+let _standRefScale = null;
 function processGlb(gltf, poseName) {
   const glb = gltf.scene;
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
-  // 서있는 포즈는 1.7m, 숙인 포즈는 원본 크기 유지 (같은 스케일로)
-  const scale = 1.7 / (poseName === 'stand' ? size.y : size.y * 1.5); // 숙인 건 좀 더 큰 스케일 유지
-  glb.scale.setScalar(poseName === 'stand' ? (1.7 / size.y) : (1.7 / size.y)); // 일단 같은 스케일
+  let scale;
+  if (poseName === 'stand') {
+    scale = 1.9 / size.y;  // 서있는 포즈 1.9m로 큼직하게
+    _standRefScale = scale;
+  } else {
+    // crouch는 stand 스케일 상대적으로 (같은 배율)
+    scale = _standRefScale || (1.9 / size.y);
+  }
+  glb.scale.setScalar(scale);
   const box2 = new THREE.Box3().setFromObject(glb);
   // X/Z 중심 원점 정렬 (뒤틀림 방지)
   glb.position.y = -box2.min.y;
@@ -886,9 +942,23 @@ function switchPose(poseName) {
   currentPose = poseName;
   currentPoseGlb = poseModels[poseName];
   player.add(currentPoseGlb);
-  // 페인트용 mesh 목록 갱신
   characterMeshes = [];
-  currentPoseGlb.traverse(o => { if (o.isMesh) characterMeshes.push(o); });
+  currentPoseGlb.traverse(o => {
+    if (o.isMesh) {
+      // 재질 확실히 vertex color 방식으로 (매번 재확인)
+      if (!o.material.vertexColors) {
+        o.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 });
+      }
+      // color 속성 없으면 흰색으로 초기화
+      if (!o.geometry.attributes.color) {
+        const count = o.geometry.attributes.position.count;
+        const cs = new Float32Array(count * 3).fill(1);
+        o.geometry.setAttribute('color', new THREE.BufferAttribute(cs, 3));
+      }
+      characterMeshes.push(o);
+    }
+  });
+  console.log('👤 포즈 전환:', poseName, '/ mesh 수:', characterMeshes.length);
 }
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -987,8 +1057,8 @@ gltfLoader.load(
     const finalBox = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3(); finalBox.getSize(size);
     const center = new THREE.Vector3(); finalBox.getCenter(center);
-    const halfX = size.x/2 - 1.5;  // 벽을 안쪽으로 밀어서 모델 사이 공간 없앰
-    const halfZ = size.z/2 - 1.5;
+    const halfX = size.x/2 + 0.5;
+    const halfZ = size.z/2 + 0.5;
     if (!selectedMap.hasWalls) {
       buildWalls(center, halfX, halfZ);
       wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
@@ -1060,7 +1130,7 @@ let myRoomId = null;
 let currentScreen = 'nick';
 let roomListUnsub = null;
 let roomUnsub = null;
-let voteTimerInterval = null;
+// voteTimerInterval 제거 - Firebase 로 대체
 
 function showScreen(name) {
   currentScreen = name;
@@ -1191,10 +1261,6 @@ function subscribeRoom(roomId) {
       startGame(room);
     }
     
-    // 카운트다운 로직 (방장만 관리)
-    if (room.state === 'lobby' && uid_is_host(room)) {
-      manageCountdown(roomId, room, count);
-    }
     updateCountdownDisplay(room);
   });
 }
@@ -1202,58 +1268,28 @@ function subscribeRoom(roomId) {
 function uid_is_host(room) { return room.hostUid === myUid; }
 
 let countdownTimer = null;
-function manageCountdown(roomId, room, count) {
-  const now = Date.now();
-  if (count < 2) {
-    if (room.countdownEndAt) {
-      console.log('⏹ 인원 부족 - 카운트다운 취소');
-      update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: null });
-    }
-    return;
-  }
-  if (!room.countdownEndAt || room.countdownEndAt < now) {
-    // 없거나 이미 지났으면 재시작
-    console.log('▶ 카운트다운 시작: 5초 후');
-    update(ref(fbDb, `rooms/${roomId}`), { countdownEndAt: now + 5000 });
-  }
-}
+// manageCountdown - 방장 tick 이 대신 관리
 
 // 새 플레이어 입장 감지 → 카운트다운 3초 추가 (방장만)
 let lastPlayerCount = 0;
 function updateCountdownDisplay(room) {
   const el = document.getElementById('lobbyCountdown');
   const count = Object.keys(room.players || {}).length;
-  if (count !== lastPlayerCount && lastPlayerCount > 0 && count > lastPlayerCount && uid_is_host(room)) {
-    // 인원 늘어남 → 카운트다운 3초 연장
-    if (room.countdownEndAt) {
-      update(ref(fbDb, `rooms/${myRoomId}`), { countdownEndAt: Date.now() + 3000 });
-    }
-  }
-  lastPlayerCount = count;
-  
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-  if (!room.countdownEndAt) {
+  // Firebase 값 그대로 표시 (방장이 매초 감소시킴)
+  if (room.countdown == null) {
     el.textContent = count < 2 ? '최소 2명 필요' : '';
     el.style.fontSize = '20px';
     el.style.color = '#ffca28';
     return;
   }
   el.style.fontSize = '48px';
-  const endAt = room.countdownEndAt;
-  const tick = () => {
-    const remain = endAt - Date.now();
-    if (remain <= 0) {
-      el.textContent = '시작!';
-      el.style.color = '#4dd07a';
-      clearInterval(countdownTimer);
-      countdownTimer = null;
-      return;
-    }
+  if (room.countdown === 0) {
+    el.textContent = '시작!';
+    el.style.color = '#4dd07a';
+  } else {
+    el.textContent = String(room.countdown);
     el.style.color = '#ffca28';
-    el.textContent = Math.ceil(remain/1000) + '';
-  };
-  tick();
-  countdownTimer = setInterval(tick, 200);
+  }
 }
 
 // 방 나가기
@@ -1291,65 +1327,35 @@ function renderVoteMaps(room) {
   const players = room.players || {};
   const votes = {};
   Object.values(players).forEach(p => {
-    if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1;
+    if (p.vote != null) votes[p.vote] = (votes[p.vote] || 0) + 1;
   });
   const myVote = players[myUid]?.vote;
   box.innerHTML = '';
   MAPS.forEach((m, i) => {
     const d = document.createElement('div');
-    d.className = 'voteMap' + (myVote === String(i) ? ' voted' : '');
+    d.className = 'voteMap' + (String(myVote) === String(i) ? ' voted' : '');
     d.innerHTML = `
       <div style="font-size:36px">${i === 0 ? '🏙️' : '🏛️'}</div>
       <div class="mapName">${m.name}</div>
       <div class="voteCount">${votes[i] || 0} 표</div>
     `;
-    d.addEventListener('click', () => {
-      set(ref(fbDb, `rooms/${myRoomId}/players/${myUid}/vote`), String(i));
+    d.style.pointerEvents = 'auto';
+    d.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      console.log('🗳 투표:', i, '→', m.name);
+      try {
+        await set(ref(fbDb, `rooms/${myRoomId}/players/${myUid}/vote`), String(i));
+      } catch(err) { console.error('투표 실패:', err); }
     });
     box.appendChild(d);
   });
   
-  // 타이머
+  // 타이머 (Firebase 값 그대로 표시)
   const timerEl = document.getElementById('voteTimer');
-  if (voteTimerInterval) clearInterval(voteTimerInterval);
-  const updateVoteTimer = () => {
-    if (!room.voteEndAt) return;
-    const remain = Math.max(0, room.voteEndAt - Date.now());
-    timerEl.textContent = '남은 시간: ' + Math.ceil(remain/1000) + '초';
-    if (remain <= 0 && uid_is_host(room)) {
-      // 투표 종료 → 뽑기 단계
-      clearInterval(voteTimerInterval);
-      finishVoting();
-    }
-  };
-  updateVoteTimer();
-  voteTimerInterval = setInterval(updateVoteTimer, 200);
+  timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
 }
 
-async function finishVoting() {
-  const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
-  const room = roomSnap.val();
-  if (!room) return;
-  const players = room.players || {};
-  const votes = {};
-  Object.values(players).forEach(p => {
-    if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1;
-  });
-  // 최다 득표 (동률이면 랜덤)
-  let maxV = -1, winners = [];
-  Object.entries(votes).forEach(([k, v]) => {
-    if (v > maxV) { maxV = v; winners = [k]; }
-    else if (v === maxV) winners.push(k);
-  });
-  const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
-  const seekerUid = Object.keys(players)[Math.floor(Math.random() * Object.keys(players).length)];
-  await update(ref(fbDb, `rooms/${myRoomId}`), {
-    state: 'drawing',
-    selectedMap: chosen,
-    seekerUid: seekerUid,
-    drawEndAt: Date.now() + 5000
-  });
-}
+// finishVoting 제거 - 방장 tick 이 함
 
 // ============ 뽑기 애니메이션 ============
 function startDrawingUI(room) {
@@ -1360,14 +1366,17 @@ function startDrawingUI(room) {
   strip.className = 'drawStrip';
   const players = room.players || {};
   const uids = Object.keys(players);
-  // 스트립: 랜덤 순서 여러 번 반복
+  // 결정론적 순서 (seekerUid 를 시드로 - 모든 클라이언트 동일)
+  const seed = room.seekerUid || '0';
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) & 0xffffffff;
+  const rng = () => { hash = (hash * 1103515245 + 12345) & 0x7fffffff; return hash / 0x7fffffff; };
   const cycles = 6;
   const allNames = [];
   for (let c = 0; c < cycles; c++) {
-    const shuffled = [...uids].sort(() => Math.random() - 0.5);
+    const shuffled = [...uids].sort(() => rng() - 0.5);
     shuffled.forEach(u => allNames.push({ uid: u, nick: players[u].nick }));
   }
-  // 마지막에 술래 배치
   allNames.push({ uid: room.seekerUid, nick: players[room.seekerUid]?.nick || '?' });
   allNames.forEach(({ uid, nick }) => {
     const item = document.createElement('div');
@@ -1394,12 +1403,7 @@ function startDrawingUI(room) {
       `<span style="color:#ff4757">🎯 ${winner?.nick || '?'}</span> 이(가) 술래!`;
   }, 3800);
   
-  // 방장이 게임 시작
-  if (uid_is_host(room)) {
-    setTimeout(() => {
-      update(ref(fbDb, `rooms/${myRoomId}`), { state: 'playing', playStartAt: Date.now() });
-    }, 5000);
-  }
+  // 게임 시작은 방장 tick 이 자동으로 함
 }
 
 // ============ 게임 시작 ============
@@ -1422,6 +1426,9 @@ async function startGame(room) {
   document.getElementById('roleTag').textContent = myRole === 'seeker' ? '🎯 술래' : '🦎 숨는 자';
   document.getElementById('roleTag').classList.toggle('seeker', myRole === 'seeker');
   document.getElementById('hudShootHint').style.display = myRole === 'seeker' ? 'inline' : 'none';
+  // 라운드 시작 시 stand 포즈 강제 (crouch 잔재 없애기)
+  currentPose = 'stand';
+  if (poseModels.stand) switchPose('stand');
   myScore = 0;
   document.getElementById('myScore').textContent = 0;
   
@@ -1459,6 +1466,7 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyB') setTool('brush');
     if (e.code === 'KeyF') bucketFill();
     if (e.code === 'KeyE') setTool('eraser');
+    if (e.code === 'KeyI') setTool('picker');
   }
   // 점프
   if (e.code === 'Space' && isGrounded && !paintMode) {
@@ -1575,6 +1583,33 @@ function paint(clientX, clientY) {
   const hit = hits[0];
   const mesh = hit.object;
   const worldPoint = hit.point.clone();
+  
+  // 스포이드: 그 지점 색 훔쳐서 currentColor로 세팅
+  if (currentTool === 'picker') {
+    const positions = mesh.geometry.attributes.position;
+    const colors = mesh.geometry.attributes.color;
+    if (!colors) return;
+    _tmpMat.copy(mesh.matrixWorld).invert();
+    const localPoint = worldPoint.clone().applyMatrix4(_tmpMat);
+    // 가장 가까운 정점 찾기
+    let bestI = 0, bestDist = Infinity;
+    for (let i = 0; i < positions.count; i++) {
+      const dx = positions.getX(i) - localPoint.x;
+      const dy = positions.getY(i) - localPoint.y;
+      const dz = positions.getZ(i) - localPoint.z;
+      const d = dx*dx + dy*dy + dz*dz;
+      if (d < bestDist) { bestDist = d; bestI = i; }
+    }
+    const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
+    const hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+    currentColor = hex;
+    document.getElementById('preview').style.background = hex;
+    document.getElementById('hexInput').value = hex;
+    console.log('🎯 스포이드:', hex);
+    // 자동으로 브러시 모드로
+    setTool('brush');
+    return;
+  }
   
   // 월드 좌표 → mesh 로컬 좌표
   _tmpMat.copy(mesh.matrixWorld).invert();
@@ -1833,8 +1868,9 @@ function animate() {
     }
   });
 
-  // 입력
-  if (!paintMode) {
+  // 입력 - 숨는 시간에 술래는 움직임 금지
+  const canMove = !paintMode && !(inHidePhase && myRole === 'seeker');
+  if (canMove) {
     const running = keys['ShiftLeft'] || keys['ShiftRight'];
     const speed = (running ? 22 : 10) * dt;
     let mx = 0, mz = 0;
@@ -1856,9 +1892,10 @@ function animate() {
     }
   }
 
-  // 벽 타기 판정 (스페이스 홀드 + 벽 근처)
+  // 벽 타기 판정 (스페이스 홀드 + 벽 근처 + 벽 높이 이하)
+  const MAX_CLIMB_Y = 12;
   const spaceHeld = keys['Space'];
-  const nearWall = spaceHeld && !paintMode ? checkNearWall() : false;
+  const nearWall = spaceHeld && !paintMode && player.position.y < MAX_CLIMB_Y ? checkNearWall() : false;
   if (nearWall && !isGrounded && spaceHeld) {
     isClimbing = true;
   } else {
@@ -1867,7 +1904,7 @@ function animate() {
   
   // 물리
   if (isClimbing) {
-    velocityY = CLIMB_SPEED; // 위로 등반
+    velocityY = CLIMB_SPEED;
   } else {
     velocityY += GRAVITY * dt;
   }
