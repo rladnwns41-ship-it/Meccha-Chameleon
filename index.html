@@ -382,14 +382,14 @@ signInAnonymously(fbAuth)
 
 // ================ Scene ================
 const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+const renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft → PCF (성능 향상, 품질 비슷)
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 400);
@@ -416,7 +416,7 @@ scene.add(hemiLight);
 const dir = new THREE.DirectionalLight(0xffffee, 2.2);
 dir.position.set(60, 120, 40);
 dir.castShadow = true;
-dir.shadow.mapSize.set(1024, 1024);
+dir.shadow.mapSize.set(512, 512);
 const S = 60;
 dir.shadow.camera.left = -S; dir.shadow.camera.right = S;
 dir.shadow.camera.top = S; dir.shadow.camera.bottom = -S;
@@ -906,11 +906,14 @@ function processGlb(gltf, poseName) {
     if (o.isMesh) {
       o.castShadow = true;
       o.receiveShadow = true;
+      // indexed geometry → non-indexed 변환 (vertex color가 face마다 독립적으로 적용되게)
+      if (o.geometry.index) {
+        o.geometry = o.geometry.toNonIndexed();
+      }
       // 정점 컬러 속성 확실히 (흰색 초기화)
       const posCount = o.geometry.attributes.position.count;
-      const colors = new Float32Array(posCount * 3);
-      for (let i = 0; i < posCount; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
-      o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const colorArr = new Float32Array(posCount * 3).fill(1);
+      o.geometry.setAttribute('color', new THREE.BufferAttribute(colorArr, 3));
       // Lambert 재질 - 조명 있으면서 vertex color 확실히 반영
       o.material = new THREE.MeshLambertMaterial({
         color: 0xffffff, vertexColors: true
@@ -1020,6 +1023,7 @@ gltfLoader.load(
       if (o.isMesh) {
         o.castShadow = false;
         o.receiveShadow = true;
+        o.frustumCulled = true; // 맵은 frustum culling 활성 (기본값이지만 명시)
         // 도쿄 mesh에만 BVH 트리 + 이 인스턴스만 accelerated raycast
         if (o.geometry) {
           o.geometry.boundsTree = new MeshBVH(o.geometry);
@@ -1029,6 +1033,9 @@ gltfLoader.load(
       }
     });
     scene.add(model);
+    // _groundAndCollidable 동기화 (getGroundHeight 매 프레임 스프레드 방지)
+    _groundAndCollidable.length = 0;
+    _groundAndCollidable.push(ground, ...collidableMeshes);
     if (gltf.animations.length) {
       mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(gltf.animations[0]).play();
@@ -1043,6 +1050,9 @@ gltfLoader.load(
     if (!selectedMap.hasWalls) {
       buildWalls(center, halfX, halfZ);
       wallGroup.traverse(o => { if (o.isMesh) collidableMeshes.push(o); });
+      // 벽 추가 후 통합 배열 재동기화
+      _groundAndCollidable.length = 0;
+      _groundAndCollidable.push(ground, ...collidableMeshes);
     }
 
     // 바닥 확장 (실내 맵은 자체 바닥 있으니 안 늘림)
@@ -1516,10 +1526,13 @@ function checkNearWall() {
 
 const groundRay = new THREE.Raycaster();
 const downV = new THREE.Vector3(0,-1,0);
+const _groundOrigin = new THREE.Vector3();
+const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
-  groundRay.set(new THREE.Vector3(x, 200, z), downV);
+  _groundOrigin.set(x, 200, z);
+  groundRay.set(_groundOrigin, downV);
   groundRay.far = 400;
-  const hits = groundRay.intersectObjects([ground, ...collidableMeshes], false);
+  const hits = groundRay.intersectObjects(_groundAndCollidable, false);
   if (!hits.length) return 0;
   const maxAllowed = player.position.y + 1.0;
   let best = null;
@@ -1569,6 +1582,7 @@ document.getElementById('brushRange').addEventListener('input', e => {
 // 페인트 실행
 const paintRc = new THREE.Raycaster();
 let lastPaintTime = 0;
+const _paintColor = new THREE.Color(); // 재사용 (매 paint() 호출마다 new 방지)
 
 // 버텍스 컬러 페인트 시스템 (UV 필요없음)
 const _tmpMat = new THREE.Matrix4();
@@ -1672,7 +1686,7 @@ function paint(clientX, clientY) {
   
   const positions = mesh.geometry.attributes.position;
   const colors = mesh.geometry.attributes.color;
-  if (!colors) return;
+  if (!colors) { console.warn('color attribute 없음 - processGlb 확인 필요'); return; }
   
   // 붓 크기를 월드 반경으로 (brushSize 픽셀 → 대략 캐릭터 스케일)
   // 브러시 반경 - 최소 3cm 보장 (정점 하나는 확실히 잡히게)
@@ -1681,7 +1695,7 @@ function paint(clientX, clientY) {
   if (radiusLocal < 0.03) radiusLocal = 0.03;
   const radiusSq = radiusLocal * radiusLocal;
   
-  const paintColor = new THREE.Color(currentTool === 'eraser' ? '#ffffff' : currentColor);
+  const paintColor = _paintColor.set(currentTool === 'eraser' ? '#ffffff' : currentColor);
   
   // 반경 내 모든 정점 색 변경
   let painted = 0;
@@ -1695,6 +1709,7 @@ function paint(clientX, clientY) {
     }
   }
   colors.needsUpdate = true;
+  mesh.geometry.attributes.color.needsUpdate = true;
   addRecentColor(currentColor);
   console.log('🎨 페인트 적용:', painted, '개 정점, 색=', currentColor, '반경=', radiusLocal.toFixed(2));
 }
@@ -1832,13 +1847,22 @@ function startFirebaseSync(room) {
     // 방 안 game/{uid} 경로에 위치 씀
     myRef = ref(fbDb, `rooms/${myRoomId}/game/${myUid}`);
 
-    // 150ms마다 내 상태 업데이트
+    // 250ms마다 내 상태 업데이트 (변화 없으면 스킵)
+    let _lastSyncX = null, _lastSyncZ = null, _lastSyncPose = null;
     setInterval(() => {
       if (!myRef) return;
+      const px = +player.position.x.toFixed(2);
+      const pz = +player.position.z.toFixed(2);
+      // 0.05 이상 움직이거나 포즈 바뀌었을 때만 전송
+      if (_lastSyncX !== null &&
+          Math.abs(px - _lastSyncX) < 0.05 &&
+          Math.abs(pz - _lastSyncZ) < 0.05 &&
+          currentPose === _lastSyncPose) return;
+      _lastSyncX = px; _lastSyncZ = pz; _lastSyncPose = currentPose;
       set(myRef, {
-        x: +player.position.x.toFixed(2),
+        x: px,
         y: +player.position.y.toFixed(2),
-        z: +player.position.z.toFixed(2),
+        z: pz,
         r: +player.rotation.y.toFixed(2),
         n: myNick,
         p: currentPose,
@@ -1919,7 +1943,8 @@ function animate() {
   if (mixer) mixer.update(dt);
 
   // 다른 플레이어 lerp
-  Object.values(otherPlayers).forEach(ot => {
+  for (const uid in otherPlayers) {
+    const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
       ot.group.position.x += (ot.targetX - ot.group.position.x) * 0.15;
       ot.group.position.y += (ot.targetY - ot.group.position.y) * 0.15;
@@ -1928,7 +1953,7 @@ function animate() {
       let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
       ot.group.rotation.y += nd * 0.15;
     }
-  });
+  }
 
   // 입력 - 숨는 시간에 술래는 움직임 금지
   const canMove = !paintMode && !(inHidePhase && myRole === 'seeker');
@@ -1972,7 +1997,7 @@ function animate() {
   }
   player.position.y += velocityY * dt;
   
-  const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
+  const moved = Math.abs(player.position.x - lastGroundX) > 0.5 || Math.abs(player.position.z - lastGroundZ) > 0.5;
   if (!isGrounded || moved || cachedGroundY === null) {
     cachedGroundY = getGroundHeight(player.position.x, player.position.z);
     lastGroundX = player.position.x; lastGroundZ = player.position.z;
