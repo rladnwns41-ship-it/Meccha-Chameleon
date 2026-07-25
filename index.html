@@ -2192,6 +2192,8 @@ function subscribeRoom(roomId) {
     if (room.state === 'playing' || room.state === 'ended') {
       updateRoundTimer(room);
     }
+    // 숨는 시간 오버레이 갱신 (원래 안 불려서 15초 대기가 UI에 안 나타남)
+    updateHidePhase(room);
     // 게임 중 플레이어 목록 갱신
     updatePlayerListHUD();
     // 술래 바뀌었을 때 다른 플레이어들 총 상태 재정렬
@@ -2916,8 +2918,11 @@ function startFirebaseSync(room) {
           const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
           if (!templatePose) return;
           const clone = templatePose.clone(true);
+          // 템플릿이 visible=false 로 시작하므로 강제로 visible 활성화
+          clone.visible = true;
           // vertexColors 재질로 (페인트 색 표시 위해)
           clone.traverse(o => {
+            o.visible = true;
             if (o.isMesh) {
               o.geometry = o.geometry.clone();
               // 흰색 vertex color 초기화
@@ -2957,7 +2962,9 @@ function startFirebaseSync(room) {
         if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
           ot.group.remove(ot.charMesh);
           const clone = poseModels[p.p].clone(true);
+          clone.visible = true; // 템플릿 visible=false 방어
           clone.traverse(o => {
+            o.visible = true;
             if (o.isMesh) {
               o.geometry = o.geometry.clone();
               const posCount = o.geometry.attributes.position.count;
