@@ -569,22 +569,22 @@ let myScore = 0;
 let scoreTimer = null;
 let roundTimerHandle = null;
 
-// 방장 상태 관리 - 매초 체크해서 자동 전환
-// 방장 tick - 매초 실행, 모든 타이머/상태 Firebase에 동기화
+// 방장 상태 관리 - onValue 캐시로 get() 제거
+let _cachedRoom = null;
 let _lastPlayerCount = 0;
+
+// 방 데이터는 subscribeRoom의 onValue에서 _cachedRoom으로 캐시됨
+
 setInterval(async () => {
-  if (!myRoomId || !myUid) return;
+  if (!myRoomId || !myUid || !_cachedRoom) return;
+  const room = _cachedRoom;
+  if (room.hostUid !== myUid) return;
   try {
-    const snap = await get(ref(fbDb, `rooms/${myRoomId}`));
-    const room = snap.val();
-    if (!room || room.hostUid !== myUid) return;
     const count = Object.keys(room.players || {}).length;
     const state = room.state || 'lobby';
     const roomRef = ref(fbDb, `rooms/${myRoomId}`);
     
-    // 빈 방 자동 삭제
     if (count === 0) {
-      console.log('🗑 빈 방 삭제:', myRoomId);
       await remove(roomRef);
       return;
     }
@@ -595,18 +595,14 @@ setInterval(async () => {
         _lastPlayerCount = count;
         return;
       }
-      // 새 플레이어 들어오면 3초로 리셋
       if (count > _lastPlayerCount && room.countdown != null && room.countdown < 3) {
         await update(roomRef, { countdown: 3 });
       } else if (room.countdown == null) {
-        // 최초 시작
         await update(roomRef, { countdown: 5 });
       } else if (room.countdown > 0) {
         await update(roomRef, { countdown: room.countdown - 1 });
       } else {
-        // 종료 → 투표로
         await update(roomRef, { state: 'voting', voteCountdown: 15, countdown: null });
-        // 모든 플레이어 vote 리셋
         const pl = room.players || {};
         for (const uid of Object.keys(pl)) {
           await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
@@ -619,7 +615,6 @@ setInterval(async () => {
       if (room.voteCountdown > 0) {
         await update(roomRef, { voteCountdown: room.voteCountdown - 1 });
       } else {
-        // 뽑기로
         const players = room.players || {};
         const votes = {};
         Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
@@ -647,7 +642,7 @@ setInterval(async () => {
       } else {
         await update(roomRef, {
           state: 'playing',
-          hidePhaseCountdown: 15,  // 15초 숨는 시간
+          hidePhaseCountdown: 15,
           roundCountdown: 60,
           drawCountdown: null,
           round: {
@@ -661,13 +656,10 @@ setInterval(async () => {
       }
       
     } else if (state === 'playing') {
-      // 숨는 시간 (술래 얼음) 카운트
       if (room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0) {
         await update(roomRef, { hidePhaseCountdown: room.hidePhaseCountdown - 1 });
         return;
       }
-      // 숨는 시간 끝나면 라운드 카운트 시작
-      // 게임 중 인원 1명 이하 → 라운드 강제 종료
       if (count < 2) {
         await update(roomRef, { state: 'ended', roundCountdown: null });
         console.log('▶ 인원 부족 → 라운드 종료');
@@ -732,15 +724,22 @@ function updateRoundTimer(room) {
 }
 function startRoundTimer() {
   
-  // 점수 적립 (매 1초)
+  // 점수 적립 (매 5초 배치 전송)
   if (scoreTimer) clearInterval(scoreTimer);
+  let _scoreAccum = 0;
+  let _scoreTick = 0;
   scoreTimer = setInterval(() => {
     if (!myRoomId || !myAlive || myRole !== 'hider') return;
-    // 술래한테 보이면 +5, 아니면 +1
     const bonus = isVisibleToSeeker() ? 5 : 1;
+    _scoreAccum += bonus;
     myScore += bonus;
-    update(ref(fbDb, `rooms/${myRoomId}/round/scores`), { [myUid]: myScore });
     document.getElementById('myScore').textContent = myScore;
+    _scoreTick++;
+    // 5틱(5초)마다 Firebase에 한 번만 씀
+    if (_scoreTick % 5 === 0) {
+      update(ref(fbDb, `rooms/${myRoomId}/round/scores`), { [myUid]: myScore });
+      _scoreAccum = 0;
+    }
   }, 1000);
 }
 
@@ -808,10 +807,8 @@ function shootFromCamera() {
 }
 
 async function killPlayer(uid) {
-  // 사망 마킹 + 술래 점수 +50
-  const scoresRef = ref(fbDb, `rooms/${myRoomId}/round/scores`);
-  const snap = await get(scoresRef);
-  const scores = snap.val() || {};
+  // _cachedRoom에서 현재 점수 읽기 (get() 제거)
+  const scores = Object.assign({}, _cachedRoom?.round?.scores || {});
   scores[myUid] = (scores[myUid] || 0) + 50;
   await update(ref(fbDb, `rooms/${myRoomId}/round`), {
     [`alive/${uid}`]: false,
@@ -1231,10 +1228,12 @@ function enterRoom(roomId) {
 
 // ============ 로비 (방 안) ============
 function subscribeRoom(roomId) {
+  myRoomId = roomId;
   const roomRef = ref(fbDb, `rooms/${roomId}`);
   if (roomUnsub) roomUnsub();
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
+    _cachedRoom = room; // 방장 tick 캐시
     if (!room) { leaveToRooms(); return; }
     const players = room.players || {};
     const uids = Object.keys(players);
@@ -1590,6 +1589,7 @@ document.getElementById('brushRange').addEventListener('input', e => {
 // 페인트 실행
 const paintRc = new THREE.Raycaster();
 let lastPaintTime = 0;
+let _lastPaintSyncTime = 0;
 const _paintColor = new THREE.Color(); // 재사용 (매 paint() 호출마다 new 방지)
 
 // 버텍스 컬러 페인트 시스템 (UV 필요없음)
@@ -1721,6 +1721,22 @@ function paint(clientX, clientY) {
   mesh.geometry.attributes.color.needsUpdate = true;
   addRecentColor(currentColor);
   console.log('🎨 페인트 적용:', painted, '개 정점, 색=', currentColor, '반경=', radiusLocal.toFixed(2));
+
+  // Firebase에 스트로크 동기화 (throttle: 150ms)
+  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 150) {
+    _lastPaintSyncTime = Date.now();
+    const meshIdx = characterMeshes.indexOf(mesh);
+    const strokeRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}`);
+    set(strokeRef, {
+      x: +localPoint.x.toFixed(3),
+      y: +localPoint.y.toFixed(3),
+      z: +localPoint.z.toFixed(3),
+      c: currentTool === 'eraser' ? '#ffffff' : currentColor,
+      r: +radiusLocal.toFixed(4),
+      m: meshIdx,
+      t: Date.now()
+    });
+  }
 }
 
 let isPainting = false;
@@ -1857,22 +1873,23 @@ function startFirebaseSync(room) {
     myRef = ref(fbDb, `rooms/${myRoomId}/game/${myUid}`);
 
     // 250ms마다 내 상태 업데이트 (변화 없으면 스킵)
-    let _lastSyncX = null, _lastSyncZ = null, _lastSyncPose = null;
+    let _lastSyncX = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null;
     setInterval(() => {
       if (!myRef) return;
       const px = +player.position.x.toFixed(2);
       const pz = +player.position.z.toFixed(2);
-      // 0.05 이상 움직이거나 포즈 바뀌었을 때만 전송
+      const pr = +player.rotation.y.toFixed(2);
       if (_lastSyncX !== null &&
           Math.abs(px - _lastSyncX) < 0.05 &&
           Math.abs(pz - _lastSyncZ) < 0.05 &&
+          Math.abs(pr - _lastSyncR) < 0.05 &&
           currentPose === _lastSyncPose) return;
-      _lastSyncX = px; _lastSyncZ = pz; _lastSyncPose = currentPose;
+      _lastSyncX = px; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr;
       set(myRef, {
         x: px,
         y: +player.position.y.toFixed(2),
         z: pz,
-        r: +player.rotation.y.toFixed(2),
+        r: pr,
         n: myNick,
         p: currentPose,
         role: myRole,
@@ -1880,7 +1897,43 @@ function startFirebaseSync(room) {
       });
     }, 250);
 
-    // 방 안 다른 플레이어 listen
+    // 다른 플레이어 페인트 스트로크 수신 (uid별 개별 listen - 전체 노드 X)
+    const _remoteColor = new THREE.Color();
+    const _paintListeners = {}; // uid → unsub
+    function applyRemotePaint(uid, stroke) {
+      const ot = otherPlayers[uid];
+      if (!ot) return;
+      const meshes = [];
+      ot.charMesh.traverse(o => { if (o.isMesh) meshes.push(o); });
+      const mesh = meshes[stroke.m] || meshes[0];
+      if (!mesh) return;
+      const colors = mesh.geometry.attributes.color;
+      const positions = mesh.geometry.attributes.position;
+      if (!colors || !positions) return;
+      _remoteColor.set(stroke.c);
+      const rSq = stroke.r * stroke.r;
+      const lx = stroke.x, ly = stroke.y, lz = stroke.z;
+      for (let i = 0; i < positions.count; i++) {
+        const dx = positions.getX(i) - lx;
+        const dy = positions.getY(i) - ly;
+        const dz = positions.getZ(i) - lz;
+        if (dx*dx + dy*dy + dz*dz < rSq) {
+          colors.setXYZ(i, _remoteColor.r, _remoteColor.g, _remoteColor.b);
+        }
+      }
+      colors.needsUpdate = true;
+    }
+    function subscribePaintForUid(uid) {
+      if (_paintListeners[uid]) return;
+      const unsub = onValue(ref(fbDb, `rooms/${myRoomId}/paint/${uid}`), snap => {
+        const stroke = snap.val();
+        if (stroke) applyRemotePaint(uid, stroke);
+      });
+      _paintListeners[uid] = unsub;
+    }
+    function unsubPaintForUid(uid) {
+      if (_paintListeners[uid]) { _paintListeners[uid](); delete _paintListeners[uid]; }
+    }
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
       const data = snap.val() || {};
       const uids = Object.keys(data);
@@ -1892,11 +1945,19 @@ function startFirebaseSync(room) {
           const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
           if (!templatePose) return;
           const clone = templatePose.clone(true);
-          // 재질도 클론 (색 개별 조정)
+          // vertexColors 재질로 (페인트 색 표시 위해)
           clone.traverse(o => {
             if (o.isMesh) {
-              o.material = new THREE.MeshStandardMaterial({ color:0xd8d5d0, roughness:0.55 });
+              o.geometry = o.geometry.clone();
+              // 흰색 vertex color 초기화
+              const posCount = o.geometry.attributes.position.count;
+              const ca = new Float32Array(posCount * 3).fill(1);
+              const cAttr = new THREE.BufferAttribute(ca, 3);
+              cAttr.setUsage(THREE.DynamicDrawUsage);
+              o.geometry.setAttribute('color', cAttr);
+              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
               o.castShadow = false;
+              o.frustumCulled = false;
             }
           });
           const grp = new THREE.Group();
@@ -1915,6 +1976,7 @@ function startFirebaseSync(room) {
           grp.add(sp);
           scene.add(grp);
           otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand' };
+          subscribePaintForUid(uid); // uid별 페인트 리스너 등록
         }
         const ot = otherPlayers[uid];
         ot.targetX = p.x; ot.targetY = p.y; ot.targetZ = p.z; ot.targetR = p.r;
@@ -1924,8 +1986,15 @@ function startFirebaseSync(room) {
           const clone = poseModels[p.p].clone(true);
           clone.traverse(o => {
             if (o.isMesh) {
-              o.material = new THREE.MeshStandardMaterial({ color: 0xd8d5d0, roughness: 0.55 });
+              o.geometry = o.geometry.clone();
+              const posCount = o.geometry.attributes.position.count;
+              const ca = new Float32Array(posCount * 3).fill(1);
+              const cAttr = new THREE.BufferAttribute(ca, 3);
+              cAttr.setUsage(THREE.DynamicDrawUsage);
+              o.geometry.setAttribute('color', cAttr);
+              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
               o.castShadow = false;
+              o.frustumCulled = false;
             }
           });
           ot.group.add(clone);
@@ -1937,6 +2006,7 @@ function startFirebaseSync(room) {
       Object.keys(otherPlayers).forEach(uid => {
         if (!data[uid]) {
           scene.remove(otherPlayers[uid].group);
+          unsubPaintForUid(uid); // 페인트 리스너 해제
           delete otherPlayers[uid];
         }
       });
