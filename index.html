@@ -726,7 +726,7 @@ function updateHidePhase(room) {
 function updateRoundTimer(room) {
   const el = document.getElementById('roundTimer');
   const s = room.roundCountdown != null ? room.roundCountdown : 60;
-  const mm = String(Math.floor(s/60)).padStart(1,'0');
+  const mm = String(Math.floor(s/60)).padStart(2,'0');
   const ss = String(s%60).padStart(2,'0');
   el.textContent = mm + ':' + ss;
 }
@@ -906,14 +906,18 @@ function processGlb(gltf, poseName) {
     if (o.isMesh) {
       o.castShadow = true;
       o.receiveShadow = true;
-      // indexed geometry → non-indexed 변환 (vertex color가 face마다 독립적으로 적용되게)
+      // geometry 클론 (다른 mesh와 공유 방지 - 색 독립 적용)
+      o.geometry = o.geometry.clone();
+      // indexed geometry → non-indexed 변환 (vertex color 면 단위 독립 적용)
       if (o.geometry.index) {
         o.geometry = o.geometry.toNonIndexed();
       }
       // 정점 컬러 속성 확실히 (흰색 초기화)
       const posCount = o.geometry.attributes.position.count;
       const colorArr = new Float32Array(posCount * 3).fill(1);
-      o.geometry.setAttribute('color', new THREE.BufferAttribute(colorArr, 3));
+      const colorAttr = new THREE.BufferAttribute(colorArr, 3);
+      colorAttr.setUsage(THREE.DynamicDrawUsage); // GPU에 dynamic 힌트
+      o.geometry.setAttribute('color', colorAttr);
       // Lambert 재질 - 조명 있으면서 vertex color 확실히 반영
       o.material = new THREE.MeshLambertMaterial({
         color: 0xffffff, vertexColors: true
@@ -1270,6 +1274,10 @@ function subscribeRoom(roomId) {
     }
     
     updateCountdownDisplay(room);
+    // 게임 중일 때 roundCountdown 타이머 표시
+    if (room.state === 'playing' || room.state === 'ended') {
+      updateRoundTimer(room);
+    }
   });
 }
 
@@ -1680,9 +1688,10 @@ function paint(clientX, clientY) {
   // 스포이드는 paint() 밖에서 처리하므로 여기선 스킵
   if (currentTool === 'picker') return;
   
-  // 월드 좌표 → mesh 로컬 좌표
+  // 월드 좌표 → mesh 로컬 좌표 (matrixWorld 강제 갱신)
+  mesh.updateWorldMatrix(true, false);
   _tmpMat.copy(mesh.matrixWorld).invert();
-  const localPoint = worldPoint.clone().applyMatrix4(_tmpMat);
+  const localPoint = worldPoint.applyMatrix4(_tmpMat);
   
   const positions = mesh.geometry.attributes.position;
   const colors = mesh.geometry.attributes.color;
