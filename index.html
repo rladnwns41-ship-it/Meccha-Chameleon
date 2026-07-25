@@ -1699,6 +1699,18 @@ setInterval(async () => {
         console.log('▶ 인원 부족 → 라운드 종료');
         return;
       }
+      // ★ 살아있는 hider 0명이면 즉시 종료 (2명 게임에서 1명 죽어도 바로 끝)
+      const aliveMap = room.round?.alive || {};
+      const seekerUid = room.seekerUid;
+      const hiderUids = Object.keys(room.players || {}).filter(u => u !== seekerUid);
+      if (hiderUids.length > 0) {
+        const hidersAlive = hiderUids.filter(u => aliveMap[u] !== false).length;
+        if (hidersAlive === 0) {
+          await update(roomRef, { state: 'ended', roundCountdown: null });
+          console.log('▶ 모든 hider 사망 → 즉시 라운드 종료');
+          return;
+        }
+      }
       if (room.roundCountdown > 0) {
         await update(roomRef, { roundCountdown: room.roundCountdown - 1 });
       } else {
@@ -3470,7 +3482,34 @@ function startFirebaseSync(room) {
       grp.add(clone);
       grp.position.set(d.x, d.y, d.z);
       grp.rotation.y = d.r || 0;
-      // 주인한테만 "분" 표시 뜨게 (자기 분신 위치 파악용)
+
+      // 진짜 플레이어처럼 보이게 - 닉네임 스프라이트 (owner의 실제 닉)
+      const nickCv = document.createElement('canvas');
+      nickCv.width = 256; nickCv.height = 64;
+      const ncx = nickCv.getContext('2d');
+      ncx.fillStyle = 'rgba(0,0,0,0.6)'; ncx.fillRect(0,0,256,64);
+      ncx.fillStyle = '#fff'; ncx.font = 'bold 32px sans-serif'; ncx.textAlign = 'center';
+      ncx.fillText(d.nick || '?', 128, 42);
+      const nickTex = new THREE.CanvasTexture(nickCv);
+      const nickSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: nickTex, transparent: true }));
+      nickSp.scale.set(1.5, 0.4, 1);
+      nickSp.position.y = 2.2;
+      grp.add(nickSp);
+
+      // 진짜처럼 좋아요 스프라이트도 (owner의 실시간 카운트를 그대로 반영)
+      const likeSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeLikeTexture(0), transparent: true }));
+      likeSp.scale.set(0.6, 0.6, 1);
+      likeSp.position.y = 2.9;
+      grp.add(likeSp);
+      // owner의 실제 좋아요 수 구독 (분신도 실시간 반영 → 진짜와 구분 불가)
+      const likeOff = onValue(ref(fbDb, `rooms/${myRoomId}/likes/${d.owner}`), snap => {
+        const count = Object.keys(snap.val() || {}).length;
+        if (likeSp.material.map) likeSp.material.map.dispose();
+        likeSp.material.map = makeLikeTexture(count);
+        likeSp.material.needsUpdate = true;
+      });
+
+      // 주인한테만 "분" 표시 (자기 분신 위치 파악용)
       if (isMine) {
         const cv = document.createElement('canvas');
         cv.width = 64; cv.height = 64;
@@ -3483,15 +3522,16 @@ function startFirebaseSync(room) {
         const tex = new THREE.CanvasTexture(cv);
         const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
         sp.scale.set(0.5, 0.5, 1);
-        sp.position.y = 2.5;
+        sp.position.y = 3.5;
         grp.add(sp);
       }
       scene.add(grp);
-      decoys[key] = { group: grp, ownerUid: d.owner };
+      decoys[key] = { group: grp, ownerUid: d.owner, likeOff };
     }
     function despawnDecoy(key) {
       const d = decoys[key];
       if (!d) return;
+      if (d.likeOff) { try { d.likeOff(); } catch(e){} }
       scene.remove(d.group);
       delete decoys[key];
     }
@@ -3517,6 +3557,7 @@ function startFirebaseSync(room) {
       const dRef = push(ref(fbDb, `rooms/${myRoomId}/decoys`));
       const payload = {
         owner: myUid,
+        nick: myNick,
         x: +player.position.x.toFixed(2),
         y: +player.position.y.toFixed(2),
         z: +player.position.z.toFixed(2),
