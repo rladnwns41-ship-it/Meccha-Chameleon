@@ -105,6 +105,7 @@
     );
     background-size: 400% 400%;
     animation: gradientShift 8s ease infinite, screenFadeIn .4s ease;
+    will-change: background-position;
   }
   /* 닉네임 화면은 자체 배경 사용 */
   #scr-nick.screen { animation: screenFadeIn .4s ease; }
@@ -450,9 +451,10 @@
   /* ===== 방 목록 ===== */
   #roomListBox {
     width:100%; max-height:42vh; overflow-y:auto;
-    display:flex; flex-direction:column; gap:14px;
-    padding-right:4px;
-    padding:6px 4px 6px 0;
+    padding:4px 4px 4px 0;
+  }
+  #roomList {
+    display:flex; flex-direction:column; gap:12px;
   }
   #roomListBox::-webkit-scrollbar { width:6px; }
   #roomListBox::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
@@ -714,8 +716,8 @@
     display:flex; align-items:center; justify-content:center;
     position:relative;
   }
-  .tool img, .tool .tool-ico {
-    width:28px; height:28px; object-fit:contain;
+  .tool span {
+    font-size:22px;
     pointer-events:none;
   }
   .tool:hover { background:var(--border); border-color:var(--border); transform:translateY(-2px); }
@@ -999,8 +1001,7 @@
 <div id="deathScreen" class="hidden">
   <div class="deathBox">
     <div class="death-icon">
-      <img src="./img/icon-death.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-      <span style="display:none;">💀</span>
+      <span>💀</span>
     </div>
     <div class="death-title">잡혔다!</div>
     <div class="death-sub">관전 중 · 다음 라운드 대기</div>
@@ -1012,7 +1013,7 @@
     <div class="lobby-header">
       <h2 class="lobby-title">라운드 결과</h2>
       <div class="lobby-badge">
-        <img src="./img/icon-trophy.png" style="width:18px;height:18px;object-fit:contain;" onerror="this.style.display='none'">
+        <span>🏆</span>
         <span>순위</span>
       </div>
     </div>
@@ -1030,8 +1031,7 @@
 <div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
   <div class="start-card">
     <div class="start-icon">
-      <img src="./img/icon-logo.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-      <span style="display:none;font-size:40px;">🎮</span>
+      <span style="font-size:40px;">🎮</span>
     </div>
     <div class="start-label">화면 클릭해서 시작</div>
     <div class="start-sub">ESC 키로 마우스 풀기</div>
@@ -1047,16 +1047,16 @@
 
 <div id="tools">
   <button class="tool active" data-tool="brush" title="붓 (B)">
-    <img src="./img/tool-brush.png" alt="붓" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🖌️</span>
+    <span>🖌️</span>
   </button>
   <button class="tool" data-tool="bucket" title="페인트통 (F)">
-    <img src="./img/tool-bucket.png" alt="페인트통" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🪣</span>
+    <span>🪣</span>
   </button>
   <button class="tool" data-tool="eraser" title="지우개 (E)">
-    <img src="./img/tool-eraser.png" alt="지우개" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🧽</span>
+    <span>🧽</span>
   </button>
   <button class="tool" data-tool="picker" title="스포이드 (I)">
-    <img src="./img/tool-picker.png" alt="스포이드" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;">🎯</span>
+    <span>🎯</span>
   </button>
   <div id="brushSize">
     <div style="margin-bottom:4px">붓 크기: <span id="brushSizeVal">20</span>px</div>
@@ -1092,7 +1092,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { Sky } from 'three/addons/objects/Sky.js';
 // BVH는 도쿄 mesh 인스턴스에만 개별 적용 (캐릭터 raycast 안 건드림)
 import { MeshBVH, acceleratedRaycast } from 'https://unpkg.com/three-mesh-bvh@0.7.8/build/index.module.js';
 
@@ -1139,62 +1138,44 @@ signInAnonymously(fbAuth)
 
 // ================ Scene ================
 const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, powerPreference:'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference:'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft → PCF (성능 향상, 품질 비슷)
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 400);
 
-// Sky
-const sky = new Sky();
-sky.scale.setScalar(10000);
-scene.add(sky);
-const skyU = sky.material.uniforms;
-skyU.turbidity.value = 8;
-skyU.rayleigh.value = 2.5;
-skyU.mieCoefficient.value = 0.005;
-skyU.mieDirectionalG.value = 0.8;
-const sun = new THREE.Vector3();
-sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(55), THREE.MathUtils.degToRad(180));
-skyU.sunPosition.value.copy(sun);
-scene.fog = new THREE.Fog(0xd6dde3, 80, 260);
+// 배경 단색 (Sky 셰이더 렉 원인 제거)
+scene.background = new THREE.Color(0x8bb8d0);
+scene.fog = new THREE.Fog(0x8bb8d0, 60, 160);
 
-// Lights
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+// Lights - 단순화 (그림자 끔)
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
 scene.add(ambientLight);
-const hemiLight = new THREE.HemisphereLight(0xcfe8ff, 0xffddaa, 0.75);
+const hemiLight = new THREE.HemisphereLight(0xcfe8ff, 0xffddaa, 0.8);
 scene.add(hemiLight);
-const dir = new THREE.DirectionalLight(0xffffee, 2.2);
+const dir = new THREE.DirectionalLight(0xffffee, 1.5);
 dir.position.set(60, 120, 40);
-dir.castShadow = true;
-dir.shadow.mapSize.set(512, 512);
-const S = 60;
-dir.shadow.camera.left = -S; dir.shadow.camera.right = S;
-dir.shadow.camera.top = S; dir.shadow.camera.bottom = -S;
-dir.shadow.camera.near = 1; dir.shadow.camera.far = 300;
-dir.shadow.bias = -0.0005;
+dir.castShadow = false;
 scene.add(dir);
 
 // Ground
-const groundMat = new THREE.MeshStandardMaterial({ color:0x4a4a4a, roughness:0.95 });
+const groundMat = new THREE.MeshLambertMaterial({ color:0x4a4a4a });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), groundMat);
 ground.rotation.x = -Math.PI/2;
 ground.position.y = -0.02;
-ground.receiveShadow = true;
+ground.receiveShadow = false;
 scene.add(ground);
 
 // Walls (동적 생성)
 const wallGroup = new THREE.Group();
 scene.add(wallGroup);
-const wallMat = new THREE.MeshStandardMaterial({ color:0xa8a29a, roughness:0.9 });
-const capMat = new THREE.MeshStandardMaterial({ color:0x6d6a63, roughness:0.8 });
-const cornerMat = new THREE.MeshStandardMaterial({ color:0x8a857c, roughness:0.85 });
+const wallMat = new THREE.MeshLambertMaterial({ color:0xa8a29a });
+const capMat = new THREE.MeshLambertMaterial({ color:0x6d6a63 });
+const cornerMat = new THREE.MeshLambertMaterial({ color:0x8a857c });
 
 function buildWalls(center, halfX, halfZ) {
   wallGroup.clear();
@@ -1202,11 +1183,11 @@ function buildWalls(center, halfX, halfZ) {
   const makeSide = (x, z, len, rotY) => {
     const w = new THREE.Mesh(new THREE.BoxGeometry(len+12, wh, wt), wallMat);
     w.position.set(x, wh/2, z); w.rotation.y = rotY;
-    w.castShadow = true; w.receiveShadow = true;
+    w.castShadow = false; w.receiveShadow = false;
     wallGroup.add(w);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(len+12.4, 0.5, wt+0.6), capMat);
     cap.position.set(x, wh+0.1, z); cap.rotation.y = rotY;
-    cap.castShadow = true;
+    cap.castShadow = false;
     wallGroup.add(cap);
   };
   makeSide(center.x, center.z-halfZ, halfX*2, 0);
@@ -1217,7 +1198,7 @@ function buildWalls(center, halfX, halfZ) {
     // 코너 기둥 - 벽과 같은 색/재질로
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(3, wh, 3), wallMat);
     pillar.position.set(center.x+sx*halfX, wh/2, center.z+sz*halfZ);
-    pillar.castShadow = true; pillar.receiveShadow = true;
+    pillar.castShadow = false; pillar.receiveShadow = false;
     wallGroup.add(pillar);
     const cornerCap = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 3.4), capMat);
     cornerCap.position.set(center.x+sx*halfX, wh+0.1, center.z+sz*halfZ);
@@ -1341,6 +1322,15 @@ setInterval(async () => {
     const state = room.state || 'lobby';
     const roomRef = ref(fbDb, `rooms/${myRoomId}`);
     
+    // 방 생성 후 10분 경과 시 자동 삭제
+    if (room.createdAt && Date.now() - room.createdAt > 10 * 60 * 1000) {
+      console.log('⏰ 방 생성 10분 초과 → 자동 삭제');
+      await remove(roomRef);
+      myRoomId = null;
+      leaveToRooms();
+      return;
+    }
+
     if (count === 0) {
       await remove(roomRef);
       return;
@@ -1601,10 +1591,9 @@ async function showScoreboard() {
   rows.forEach((r, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === 0 ? ' first' : '');
-    const rankIcons = ['./img/rank-1.png','./img/rank-2.png','./img/rank-3.png'];
-    const medalFallback = i === 0 ? '1' : (i === 1 ? '2' : (i === 2 ? '3' : (i+1)+''));
+    const rankEmojis = ['🥇', '🥈', '🥉'];
     const rankHtml = i < 3
-      ? `<span class="rank"><img src="${rankIcons[i]}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><span style="display:none;">${medalFallback}</span></span>`
+      ? `<span class="rank">${rankEmojis[i]}</span>`
       : `<span class="rank">${i+1}</span>`;
     const roleTag = r.isSeeker
       ? `<span style="font-size:11px;background:var(--red);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px;font-weight:800;">술래</span>`
@@ -1787,8 +1776,8 @@ gltfLoader.load(
     model.traverse(o => {
       if (o.isMesh) {
         o.castShadow = false;
-        o.receiveShadow = true;
-        o.frustumCulled = true; // 맵은 frustum culling 활성 (기본값이지만 명시)
+        o.receiveShadow = false;
+        o.frustumCulled = true;
         // 도쿄 mesh에만 BVH 트리 + 이 인스턴스만 accelerated raycast
         if (o.geometry) {
           o.geometry.boundsTree = new MeshBVH(o.geometry);
@@ -2037,8 +2026,7 @@ function subscribeRoom(roomId) {
       row.innerHTML = `
         <div class="p-name">
           <div class="p-avatar">
-            <img src="./img/avatar-default.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-            <span style="display:none;font-size:14px;">${avatarLetter}</span>
+            <span style="font-size:14px;">${avatarLetter}</span>
           </div>
           ${p.nick}${uid === myUid ? ' <span style="color:var(--text-dim);font-size:12px;">(나)</span>' : ''}
         </div>
@@ -2136,12 +2124,10 @@ function renderVoteMaps(room) {
   MAPS.forEach((m, i) => {
     const d = document.createElement('div');
     d.className = 'voteMap' + (String(myVote) === String(i) ? ' voted' : '');
-    const mapImgSrc = i === 0 ? './img/map-tokyo.png' : './img/map-classic.png';
     const mapFallback = i === 0 ? '🏙️' : '🏛️';
     d.innerHTML = `
       <div class="map-icon">
-        <img src="${mapImgSrc}" alt="${m.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-        <span style="display:none;font-size:30px;">${mapFallback}</span>
+        <span style="font-size:30px;">${mapFallback}</span>
       </div>
       <div class="mapName">${m.name}</div>
       <div class="voteCount">${votes[i] || 0} 표</div>
@@ -2896,9 +2882,15 @@ function animate() {
   camera.position.y = Math.max(0.5, focusY + vo);
   camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
 
-  renderer.render(scene, camera);
+  // 게임 화면(인게임)일 때만 렌더
+  if (currentScreen === 'game') renderer.render(scene, camera);
 }
 animate();
+
+// 탭 숨겨지면 렌더 멈추기
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentScreen === 'game') animate();
+});
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight;
