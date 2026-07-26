@@ -1012,8 +1012,9 @@
     </div>
     <div id="lobbyCountdown"></div>
     <div id="lobbyPlayers" class="playerList" style="margin-top:12px;width:100%;"></div>
-    <div style="margin-top:14px;display:flex;justify-content:center;">
+    <div style="margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
       <button class="btn btn-ghost" id="leaveRoomBtn">← 나가기</button>
+      <button class="btn btn-green" id="startGameBtn" style="display:none;">🎮 게임 시작</button>
     </div>
   </div>
 </div>
@@ -1633,7 +1634,15 @@ setInterval(async () => {
     
     if (state === 'lobby') {
       if (count < 2) {
-        // 이미 null이면 Firebase 쓰기 스킵 (불필요한 write 제거)
+        // 인원 부족 → 카운트/시작요청 취소
+        if (room.countdown != null || room.startRequested) {
+          await update(roomRef, { countdown: null, startRequested: null });
+        }
+        _lastPlayerCount = count;
+        return;
+      }
+      // ★ 방장이 시작 버튼 안 눌렀으면 대기
+      if (!room.startRequested) {
         if (room.countdown != null) await update(roomRef, { countdown: null });
         _lastPlayerCount = count;
         return;
@@ -2111,6 +2120,8 @@ async function showScoreboard() {
 
 // 결과 화면에서 방으로 돌아가기
 document.getElementById('backToLobbyBtn').addEventListener('click', async () => {
+  // ★ 모든 클라이언트가 자기 맵 리셋 (그래야 다음 라운드 새 맵 로드됨)
+  resetMap();
   // 방장이 상태 리셋
   if (await uid_is_host_by_id(myRoomId)) {
     await update(ref(fbDb, `rooms/${myRoomId}`), {
@@ -2122,7 +2133,8 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       roundCountdown: null,
       hidePhaseCountdown: null,
       selectedMap: null,
-      seekerUid: null
+      seekerUid: null,
+      startRequested: null  // 다음 라운드 위해 리셋
     });
     // 플레이어들 vote 리셋
     const s = await get(ref(fbDb, `rooms/${myRoomId}/players`));
@@ -2133,6 +2145,19 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
   }
   currentScreen = 'lobby';
   showScreen('lobby');
+});
+
+// ★ 방장 시작 버튼
+document.getElementById('startGameBtn').addEventListener('click', async () => {
+  if (!myRoomId) return;
+  const snap = await get(ref(fbDb, `rooms/${myRoomId}`));
+  const room = snap.val();
+  if (!room) return;
+  if (room.hostUid !== myUid) { alert('방장만 시작할 수 있음'); return; }
+  const count = Object.keys(room.players || {}).length;
+  if (count < 2) { alert('최소 2명 필요'); return; }
+  await update(ref(fbDb, `rooms/${myRoomId}`), { startRequested: true });
+  console.log('▶ 방장이 게임 시작 요청');
 });
 
 
@@ -2265,6 +2290,59 @@ const MAPS = [
 ];
 let selectedMap = MAPS[0];
 let mapLoaded = false;
+let _currentMapModel = null;      // 현재 로드된 맵 모델 (리셋용)
+let _currentMapLights = [];       // 실내 맵에서 추가한 조명들
+let _currentMapMixer = null;      // 애니메이션 mixer
+
+// ★ 맵 완전 초기화 (다음 라운드에서 새 맵 로드 가능하게)
+function resetMap() {
+  console.log('🧹 맵 리셋');
+  if (_currentMapModel) {
+    scene.remove(_currentMapModel);
+    // geometry / material / BVH 정리 (메모리 누수 방지)
+    _currentMapModel.traverse(o => {
+      if (o.isMesh) {
+        if (o.geometry) {
+          o.geometry.boundsTree = null;
+          o.geometry.dispose();
+        }
+        if (o.material) {
+          if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
+          else o.material.dispose();
+        }
+      }
+    });
+    _currentMapModel = null;
+  }
+  // 조명 제거
+  _currentMapLights.forEach(l => scene.remove(l));
+  _currentMapLights = [];
+  // 애니메이션 정지
+  if (_currentMapMixer) {
+    _currentMapMixer.stopAllAction();
+    _currentMapMixer = null;
+  }
+  mixer = null;
+  // 충돌체 배열 비우기
+  collidableMeshes.length = 0;
+  _groundAndCollidable.length = 0;
+  _groundAndCollidable.push(ground);
+  // 경계 리셋
+  worldBounds = null;
+  // 바닥 원위치
+  if (ground) {
+    ground.visible = true;
+    ground.position.y = 0;
+  }
+  // 조명 세기 원위치
+  if (typeof ambientLight !== 'undefined' && ambientLight) ambientLight.intensity = 0.8;
+  if (typeof hemiLight !== 'undefined' && hemiLight) hemiLight.intensity = 0.7;
+  // 다시 로드 가능
+  mapLoaded = false;
+  selectedMap = MAPS[0];
+  const mn = document.getElementById('mapName');
+  if (mn) mn.textContent = '-';
+}
 
 function loadSelectedMap(mapIdx) {
   if (mapLoaded) return;
@@ -2296,12 +2374,14 @@ gltfLoader.load(
       }
     });
     scene.add(model);
+    _currentMapModel = model;  // ★ 리셋용 트래킹
     // _groundAndCollidable 동기화 (getGroundHeight 매 프레임 스프레드 방지)
     _groundAndCollidable.length = 0;
     _groundAndCollidable.push(ground, ...collidableMeshes);
     if (gltf.animations.length) {
       mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(gltf.animations[0]).play();
+      _currentMapMixer = mixer;
     }
 
     // 경계(맵 밖 방지)는 그대로 track 하되, 눈에 보이는 벽은 만들지 않음
@@ -2339,6 +2419,7 @@ gltfLoader.load(
       const indoorLight = new THREE.PointLight(0xffe0b0, 3, 100);
       indoorLight.position.set(center.x, 15, center.z);
       scene.add(indoorLight);
+      _currentMapLights.push(indoorLight);  // ★ 리셋용 트래킹
     }
 
     // 백룸 맵 여부 (지붕 위 스폰 방지용 특별 처리)
@@ -2704,9 +2785,25 @@ let lastPlayerCount = 0;
 function updateCountdownDisplay(room) {
   const el = document.getElementById('lobbyCountdown');
   const count = Object.keys(room.players || {}).length;
+  // 시작 버튼 표시 관리 (방장 + lobby 상태 + 미시작)
+  const startBtn = document.getElementById('startGameBtn');
+  if (startBtn) {
+    const isHost = room.hostUid === myUid;
+    const canShow = isHost && room.state === 'lobby' && !room.startRequested;
+    startBtn.style.display = canShow ? '' : 'none';
+    startBtn.disabled = count < 2;
+    startBtn.textContent = count < 2 ? '👥 2명 이상 필요' : '🎮 게임 시작';
+    startBtn.style.opacity = count < 2 ? '0.5' : '1';
+  }
   // Firebase 값 그대로 표시 (방장이 매초 감소시킴)
   if (room.countdown == null) {
-    el.textContent = count < 2 ? '최소 2명 필요' : '';
+    if (count < 2) {
+      el.textContent = '최소 2명 필요';
+    } else if (!room.startRequested) {
+      el.textContent = room.hostUid === myUid ? '시작 버튼을 눌러줘' : '방장이 시작하기를 기다리는 중...';
+    } else {
+      el.textContent = '';
+    }
     el.style.fontSize = '20px';
     el.style.color = '#ffca28';
     return;
@@ -2728,6 +2825,7 @@ async function leaveToRooms() {
   unsubscribeChat();
   if (_leavingRoom) return;
   _leavingRoom = true;
+  resetMap();  // ★ 방 나갈 때도 맵 리셋
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   _cachedRoom = null;
   if (myRoomId && myUid) {
