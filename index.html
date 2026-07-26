@@ -2497,7 +2497,8 @@ const MAPS = [
     scale: 2.5,
     hasWalls: true,
     procedural: false,
-    spawnOffsetY: -3
+    spawnOffsetY: 0,
+    forceSpawnCenter: true
   },
 ];
 let selectedMap = MAPS[0];
@@ -2675,6 +2676,25 @@ gltfLoader.load(
     }
 
     // 스폰 찾기 (지붕 위 스폰 방지 - 머리 위 최소 3유닛 여유 필요)
+    if (selectedMap.forceSpawnCenter) {
+      // 중앙 위에서 아래로 레이캐스트 → 가장 높은 열린 바닥에 스폰
+      const csray = new THREE.Raycaster();
+      csray.set(new THREE.Vector3(center.x, 300, center.z), new THREE.Vector3(0,-1,0));
+      csray.far = 600;
+      const chits = csray.intersectObjects(collidableMeshes, false);
+      // 위에서부터 hit들 순회하며 머리 위 공간 충분한 첫 번째 바닥 선택
+      let spawnY = 20;
+      for (const h of chits) {
+        const ty = h.point.y;
+        const upray2 = new THREE.Raycaster();
+        upray2.set(new THREE.Vector3(center.x, ty + 0.5, center.z), new THREE.Vector3(0,1,0));
+        upray2.far = 30;
+        const uh = upray2.intersectObjects(collidableMeshes, false);
+        const clearance = uh.length ? uh[0].distance : 999;
+        if (clearance >= 4) { spawnY = ty + 0.05; break; }
+      }
+      player.position.set(center.x, spawnY + (selectedMap.spawnOffsetY || 0), center.z);
+    } else {
     const spawnCandidates = [];
     const R = Math.min(halfX, halfZ) * 0.6;
     for (let dx=-R; dx<=R; dx+=3) for (let dz=-R; dz<=R; dz+=3) spawnCandidates.push([center.x+dx, center.z+dz]);
@@ -2698,6 +2718,7 @@ gltfLoader.load(
     }
     if (best) player.position.set(best.x, best.y + (selectedMap.spawnOffsetY || 0), best.z);
     else player.position.set(center.x, 20 + (selectedMap.spawnOffsetY || 0), center.z);
+    }
     velocityY = 0; isGrounded = true;
 
     document.getElementById('barFill').style.width = '100%';
