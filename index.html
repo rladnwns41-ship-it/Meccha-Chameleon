@@ -3173,53 +3173,119 @@ function bucketFill() {
   }
 }
 
-// 스포이드 - 페인트 가능한 캐릭터에서만 색 뽑기 (맵/벽 무시)
+// 스포이드용 타겟 메쉬 캐시 (매 클릭 traverse 방지)
+let _pickerTargets = null;
+let _pickerTargetsDirty = true;
+function _getPickerTargets() {
+  if (!_pickerTargetsDirty && _pickerTargets) return _pickerTargets;
+  _pickerTargets = [...characterMeshes];
+  Object.values(otherPlayers).forEach(ot => {
+    if (ot.charMesh) ot.charMesh.traverse(o => { if (o.isMesh) _pickerTargets.push(o); });
+  });
+  _pickerTargetsDirty = false;
+  return _pickerTargets;
+}
+function invalidatePickerCache() { _pickerTargetsDirty = true; }
+
+// 바리센트릭 보간으로 히트 포인트의 정확한 vertex color 샘플링
+function _sampleVertexColor(mesh, hit) {
+  const colors = mesh.geometry.attributes.color;
+  const positions = mesh.geometry.attributes.position;
+  if (!colors || !positions) return null;
+
+  mesh.updateWorldMatrix(true, false);
+  _tmpMat.copy(mesh.matrixWorld).invert();
+  const localPt = hit.point.clone().applyMatrix4(_tmpMat);
+
+  const face = hit.face;
+  if (!face) {
+    let bestI = 0, bestD = Infinity;
+    for (let i = 0; i < positions.count; i++) {
+      const dx = positions.getX(i) - localPt.x;
+      const dy = positions.getY(i) - localPt.y;
+      const dz = positions.getZ(i) - localPt.z;
+      const d = dx*dx + dy*dy + dz*dz;
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    return { r: colors.getX(bestI), g: colors.getY(bestI), b: colors.getZ(bestI) };
+  }
+
+  // 바리센트릭 보간
+  const a = face.a, b = face.b, c = face.c;
+  const pA = new THREE.Vector3(positions.getX(a), positions.getY(a), positions.getZ(a));
+  const pB = new THREE.Vector3(positions.getX(b), positions.getY(b), positions.getZ(b));
+  const pC = new THREE.Vector3(positions.getX(c), positions.getY(c), positions.getZ(c));
+  const bary = new THREE.Vector3();
+  THREE.Triangle.getBarycoord(localPt, pA, pB, pC, bary);
+  const barySum = bary.x + bary.y + bary.z;
+  let wa, wb, wc;
+  if (!isFinite(barySum) || barySum < 0.0001) {
+    const da = pA.distanceToSquared(localPt) || 0.0001;
+    const db = pB.distanceToSquared(localPt) || 0.0001;
+    const dc = pC.distanceToSquared(localPt) || 0.0001;
+    const s = 1/da + 1/db + 1/dc;
+    wa = (1/da)/s; wb = (1/db)/s; wc = (1/dc)/s;
+  } else {
+    wa = bary.x; wb = bary.y; wc = bary.z;
+  }
+  return {
+    r: colors.getX(a)*wa + colors.getX(b)*wb + colors.getX(c)*wc,
+    g: colors.getY(a)*wa + colors.getY(b)*wb + colors.getY(c)*wc,
+    b: colors.getZ(a)*wa + colors.getZ(b)*wb + colors.getZ(c)*wc,
+  };
+}
+
 function pickColor(clientX, clientY) {
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
-    ((clientX - rect.left)/rect.width)*2 - 1,
-    -((clientY - rect.top)/rect.height)*2 + 1
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1
   );
   paintRc.setFromCamera(mv, camera);
-  // 페인트 가능한 표면만 대상 (내 캐릭터 + 다른 플레이어 캐릭터)
-  const targets = [...characterMeshes];
-  Object.values(otherPlayers).forEach(ot => {
-    if (ot.charMesh) ot.charMesh.traverse(o => { if (o.isMesh) targets.push(o); });
-  });
-  const hits = paintRc.intersectObjects(targets, false);
-  if (!hits.length) { console.log('🎯 스포이드 - 캐릭터 안 맞음'); return; }
-  const hit = hits[0];
-  const mesh = hit.object;
+
   let hex = null;
-  
-  // vertex color (페인트한 색)
-  const colors = mesh.geometry.attributes.color;
-  if (colors && mesh.material.vertexColors) {
-    _tmpMat.copy(mesh.matrixWorld).invert();
-    const localPoint = hit.point.clone().applyMatrix4(_tmpMat);
-    const positions = mesh.geometry.attributes.position;
-    // face 의 3 정점 중 가장 가까운 것 → 더 정확
-    const face = hit.face;
-    if (face) {
-      const indices = [face.a, face.b, face.c];
-      let bestI = indices[0], bestDist = Infinity;
-      for (const i of indices) {
-        const dx = positions.getX(i) - localPoint.x;
-        const dy = positions.getY(i) - localPoint.y;
-        const dz = positions.getZ(i) - localPoint.z;
-        const d = dx*dx + dy*dy + dz*dz;
-        if (d < bestDist) { bestDist = d; bestI = i; }
+
+  // 1순위: 캐릭터 메쉬 (vertex color 정확 샘플링)
+  const charTargets = _getPickerTargets();
+  if (charTargets.length) {
+    const hits = paintRc.intersectObjects(charTargets, false);
+    for (const hit of hits) {
+      const mesh = hit.object;
+      if (mesh.geometry?.attributes?.color && mesh.material?.vertexColors) {
+        const col = _sampleVertexColor(mesh, hit);
+        if (col) {
+          hex = '#' + [col.r, col.g, col.b].map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+          break;
+        }
       }
-      const r = colors.getX(bestI), g = colors.getY(bestI), b = colors.getZ(bestI);
-      hex = '#' + [r,g,b].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+      if (!hex && mesh.material?.color) {
+        hex = '#' + mesh.material.color.getHexString();
+        break;
+      }
     }
   }
-  // material color fallback
-  else if (mesh.material.color) {
-    hex = '#' + mesh.material.color.getHexString();
+
+  // 2순위: 씬 전체 (맵, 벽 등 어디서든)
+  if (!hex) {
+    const allHits = paintRc.intersectObjects(scene.children, true);
+    for (const hit of allHits) {
+      const mesh = hit.object;
+      if (!mesh.isMesh) continue;
+      if (mesh.geometry?.attributes?.color && mesh.material?.vertexColors) {
+        const col = _sampleVertexColor(mesh, hit);
+        if (col) {
+          hex = '#' + [col.r, col.g, col.b].map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+          break;
+        }
+      }
+      if (mesh.material?.color) {
+        hex = '#' + mesh.material.color.getHexString();
+        break;
+      }
+    }
   }
-  
-  if (!hex) { console.log('🎯 색 못뽑음'); return; }
+
+  if (!hex) { console.log('🎯 스포이드 - 색 없음'); return; }
   currentColor = hex;
   document.getElementById('preview').style.background = hex;
   document.getElementById('hexInput').value = hex;
@@ -3808,6 +3874,7 @@ function startFirebaseSync(room) {
           grp.add(likeSp);
           scene.add(grp);
           otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', likeSprite: likeSp, likeCount: 0 };
+          invalidatePickerCache(); // 스포이드 타겟 캐시 갱신
           subscribePaintForUid(uid); // uid별 페인트 리스너 등록
           subscribeLikesForUid(uid); // 좋아요 리스너 등록
           // 이 플레이어가 술래면 총 부착
@@ -3851,6 +3918,7 @@ function startFirebaseSync(room) {
           unsubPaintForUid(uid); // 페인트 리스너 해제
           unsubLikesForUid(uid); // 좋아요 리스너 해제
           delete otherPlayers[uid];
+          invalidatePickerCache(); // 스포이드 타겟 캐시 갱신
         }
       });
     });
