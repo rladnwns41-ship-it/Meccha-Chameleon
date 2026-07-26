@@ -540,6 +540,14 @@
     box-shadow:0 3px 0 #1e8a3e;
   }
   #voteTimer { color:var(--yellow); font-weight:800; }
+  /* 모드 카드는 맵 카드보다 좀 작게 */
+  #voteModes .voteMap { width:170px; padding:14px 12px; }
+  #voteModes .voteMap .map-icon { width:52px; height:52px; font-size:26px; margin-bottom:8px; }
+  #voteModes .voteMap .mapName { font-size:16px; }
+  #voteModes .voteMap .voteDesc {
+    font-size:11px; color:var(--text-dim); font-weight:700;
+    margin:2px 0 8px; line-height:1.3;
+  }
 
   /* ===== 뽑기 스피너 ===== */
   @keyframes spinnerGlow {
@@ -1052,9 +1060,12 @@
 </div>
 
 <div id="scr-vote" class="screen hidden">
-  <div class="screen-title">맵 투표</div>
+  <div class="screen-title">맵 & 모드 투표</div>
   <div class="vote-timer-pill" id="voteTimer">남은 시간: 15초</div>
   <div id="voteMaps" class="voteBox"></div>
+  <div style="height:8px;"></div>
+  <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:16px; color:var(--text-dim); margin:4px 0 8px;">게임 모드</div>
+  <div id="voteModes" class="voteBox"></div>
 </div>
 
 <div id="scr-draw" class="screen hidden">
@@ -1093,6 +1104,13 @@
     <div class="death-icon"><span>💀</span></div>
     <div class="death-title">잡혔다!</div>
     <div class="death-sub">관전 중 · 다음 라운드 대기</div>
+  </div>
+</div>
+<div id="infectionPopup" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:150;pointer-events:none;">
+  <div style="background:rgba(20,10,10,0.85); border:3px solid #7ee06a; border-radius:24px; padding:36px 56px; text-align:center; box-shadow:0 0 60px rgba(126,224,106,0.5); font-family:'Nunito',sans-serif; animation:cardSlideUp .4s cubic-bezier(0.34,1.56,0.64,1);">
+    <div style="font-size:72px; line-height:1;">☣️</div>
+    <div style="font-size:34px; font-weight:900; color:#7ee06a; margin-top:8px; text-shadow:0 3px 0 #2f6b26;">감염됨!</div>
+    <div style="font-size:15px; font-weight:700; color:#cfd8d0; margin-top:6px;">이제 너도 술래다 — 남은 애들 잡아라</div>
   </div>
 </div>
 
@@ -1246,24 +1264,76 @@ renderer.toneMappingExposure = 0.85; // 과노출 방지
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 120);
+const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 320);
 
-// 배경 단색 (Sky 셰이더 렉 원인 제거)
-scene.background = new THREE.Color(0x8bb8d0);
-scene.fog = new THREE.Fog(0x8bb8d0, 30, 70);
+// 하늘 그라디언트 (셰이더 안 쓰고 canvas 텍스처 하나 — 렉 X)
+function makeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.00, '#5b9dd6'); // 하늘 상단 (짙은 파랑)
+  grad.addColorStop(0.55, '#a9cee6'); // 중간
+  grad.addColorStop(0.85, '#e2d6b8'); // 지평선 근처 (따뜻한 톤)
+  grad.addColorStop(1.00, '#c8bfa8'); // 하단
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 4, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+scene.background = makeSkyTexture();
+// 안개는 시야 잡는 벽이 아니라 원경 대기감 (55~220)
+scene.fog = new THREE.Fog(0xb8c8d8, 55, 220);
 
-// Lights - 단순화 (그림자 끔)
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+// Lights - 단순 유지 (그림자 X) 하지만 톤 조정
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
 scene.add(ambientLight);
-const hemiLight = new THREE.HemisphereLight(0xcfe8ff, 0xffddaa, 0.8);
+const hemiLight = new THREE.HemisphereLight(0xbcdcff, 0xf0d8a8, 0.85);
 scene.add(hemiLight);
-const dir = new THREE.DirectionalLight(0xffffee, 1.5);
+const dir = new THREE.DirectionalLight(0xfff2d0, 1.55);
 dir.position.set(60, 120, 40);
 dir.castShadow = false;
 scene.add(dir);
+// 살짝 반대편 필 라이트 — 인물 실루엣 안 죽게 (거의 공짜)
+const fillLight = new THREE.DirectionalLight(0x9fb8d8, 0.35);
+fillLight.position.set(-40, 60, -50);
+scene.add(fillLight);
+renderer.toneMappingExposure = 0.95;
 
-// Ground
-const groundMat = new THREE.MeshLambertMaterial({ color:0x4a4a4a });
+// Ground — 저해상도 canvas 텍스처 (256×256 한 장, 렉 X)
+function makeGroundTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  // 베이스
+  g.fillStyle = '#5a5f52';
+  g.fillRect(0, 0, 256, 256);
+  // 라이트 노이즈 (돌바닥 느낌)
+  for (let i = 0; i < 1400; i++) {
+    const x = Math.random()*256, y = Math.random()*256;
+    const shade = Math.floor(80 + Math.random()*60);
+    g.fillStyle = `rgba(${shade},${shade-4},${shade-10},0.35)`;
+    g.fillRect(x, y, 1 + Math.random()*2, 1 + Math.random()*2);
+  }
+  // 어두운 얼룩 몇 개
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = `rgba(30,32,28,${0.08 + Math.random()*0.08})`;
+    const r = 6 + Math.random()*18;
+    g.beginPath();
+    g.arc(Math.random()*256, Math.random()*256, r, 0, Math.PI*2);
+    g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(24, 24);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 2;
+  return tex;
+}
+const groundMat = new THREE.MeshLambertMaterial({ map: makeGroundTexture(), color: 0xa8a89c });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), groundMat);
 ground.rotation.x = -Math.PI/2;
 ground.position.y = -0.02;
@@ -1439,10 +1509,10 @@ function detachGunFromOther(uid) {
   if (ot && ot.gun) { ot.group.remove(ot.gun); ot.gun = null; }
 }
 function refreshOtherSeekerGuns() {
-  const seekerUid = _cachedRoom?.seekerUid;
-  if (!seekerUid) return;
+  const room = _cachedRoom;
+  if (!room) return;
   Object.keys(otherPlayers).forEach(uid => {
-    if (uid === seekerUid) attachGunToOther(uid);
+    if (isSeekerUid(uid, room)) attachGunToOther(uid);
     else detachGunFromOther(uid);
   });
 }
@@ -1451,21 +1521,22 @@ function refreshOtherSeekerGuns() {
 let _gunWatchdogSpam = 0;
 function ensureGunAttached() {
   if (!seekerGunModel) return;
-  // myRole 기반으로도 체크 (seekerUid 매칭 실패 대비)
+  const room = _cachedRoom;
+  // myRole 기반으로도 체크
   if (myRole === 'seeker' && !attachedGun) {
     attachGunToPlayer();
   }
-  const room = _cachedRoom;
-  if (!room || !room.seekerUid) return;
-  // seekerUid 기반 이중 체크
-  if (room.seekerUid === myUid && !attachedGun) {
+  if (!room) return;
+  // seekerUid or 감염 기반 이중 체크
+  if (isSeekerUid(myUid, room) && !attachedGun) {
     attachGunToPlayer();
   }
-  // 다른 술래
+  // 다른 술래들 (감염 포함)
   Object.keys(otherPlayers).forEach(uid => {
     const ot = otherPlayers[uid];
-    if (uid === room.seekerUid && !ot.gun) attachGunToOther(uid);
-    if (uid !== room.seekerUid && ot.gun) detachGunFromOther(uid);
+    const seeker = isSeekerUid(uid, room);
+    if (seeker && !ot.gun) attachGunToOther(uid);
+    if (!seeker && ot.gun) detachGunFromOther(uid);
   });
 }
 
@@ -1489,7 +1560,7 @@ function updatePlayerListHUD() {
   const items = uids.map(uid => ({
     uid, p: players[uid],
     isDead: alive[uid] === false,
-    isSeeker: uid === seekerUid,
+    isSeeker: isSeekerUid(uid, room),
     catches: (room.catches?.[uid]) || 0
   }));
   diffRender(
@@ -1673,6 +1744,7 @@ setInterval(async () => {
         await update(roomRef, { voteCountdown: room.voteCountdown - 1 });
       } else {
         const players = room.players || {};
+        // 맵 투표 집계
         const votes = {};
         Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
         let maxV = -1, winners = [];
@@ -1680,20 +1752,32 @@ setInterval(async () => {
           if (v > maxV) { maxV = v; winners = [k]; }
           else if (v === maxV) winners.push(k);
         });
-        // 아무도 투표 안 하면 MAPS 중 랜덤 선택
         const chosen = winners.length > 0
           ? winners[Math.floor(Math.random()*winners.length)]
           : String(Math.floor(Math.random() * MAPS.length));
+        // 모드 투표 집계
+        const modeVotes = {};
+        Object.values(players).forEach(p => { if (p.modeVote) modeVotes[p.modeVote] = (modeVotes[p.modeVote] || 0) + 1; });
+        let mMax = -1, mWinners = [];
+        Object.entries(modeVotes).forEach(([k, v]) => {
+          if (v > mMax) { mMax = v; mWinners = [k]; }
+          else if (v === mMax) mWinners.push(k);
+        });
+        const chosenMode = mWinners.length > 0
+          ? mWinners[Math.floor(Math.random()*mWinners.length)]
+          : 'classic';
         const uids = Object.keys(players);
         const seekerUid = uids[Math.floor(Math.random() * uids.length)];
         await update(roomRef, {
           state: 'drawing',
           selectedMap: chosen,
+          gameMode: chosenMode,
           seekerUid: seekerUid,
+          seekers: null,           // 새 라운드 시작 시 감염 리스트 초기화
           drawCountdown: 5,
           voteCountdown: null
         });
-        console.log('▶ voting → drawing, 술래=', seekerUid);
+        console.log('▶ voting → drawing, 술래=', seekerUid, '모드=', chosenMode);
       }
       
     } else if (state === 'drawing') {
@@ -1725,15 +1809,15 @@ setInterval(async () => {
         console.log('▶ 인원 부족 → 라운드 종료');
         return;
       }
-      // ★ 살아있는 hider 0명이면 즉시 종료 (2명 게임에서 1명 죽어도 바로 끝)
+      // ★ 살아있는 hider 0명이면 즉시 종료
+      // 감염 모드에서는 술래로 전환된 애들(room.seekers)도 hider 아님
       const aliveMap = room.round?.alive || {};
-      const seekerUid = room.seekerUid;
-      const hiderUids = Object.keys(room.players || {}).filter(u => u !== seekerUid);
+      const hiderUids = Object.keys(room.players || {}).filter(u => !isSeekerUid(u, room));
       if (hiderUids.length > 0) {
         const hidersAlive = hiderUids.filter(u => aliveMap[u] !== false).length;
         if (hidersAlive === 0) {
           await update(roomRef, { state: 'ended', roundCountdown: null });
-          console.log('▶ 모든 hider 사망 → 즉시 라운드 종료');
+          console.log('▶ 모든 hider 정리됨 → 즉시 라운드 종료');
           return;
         }
       }
@@ -1942,6 +2026,7 @@ function shootFromCamera() {
   const decoyByObj = new Map();
   Object.entries(otherPlayers).forEach(([uid, op]) => {
     if (roundState.alive?.[uid] === false) return;
+    if (isSeekerUid(uid, _cachedRoom)) return; // 술래끼리 못 맞음 (감염 모드)
     op.group.traverse(o => {
       if (o.isMesh) {
         targets.push(o);
@@ -1994,23 +2079,32 @@ function triggerGlitch() {
 }
 
 async function killPlayer(uid) {
-  // ★ 보안: 술래 본인, 게임 중, 대상 alive 상태 모두 재검증
+  // ★ 보안: 술래(원조 or 감염), 게임 중, 대상 상태 검증
   if (!_cachedRoom || _cachedRoom.state !== 'playing') return;
-  if (_cachedRoom.seekerUid !== myUid) return; // 내가 진짜 술래인지
+  if (!isSeekerUid(myUid, _cachedRoom)) return; // 내가 진짜 술래(감염 포함)인지
   if (myRole !== 'seeker') return;
   if (!myAlive) return;
   if (!uid || uid === myUid) return; // 자해 방지
+  if (isSeekerUid(uid, _cachedRoom)) return; // 술래끼리 못 잡음
   if (_cachedRoom.round?.alive?.[uid] === false) return; // 이미 죽은 플레이어
-  // 대상이 현재 방의 플레이어인지 확인
   if (!_cachedRoom.players?.[uid]) return;
-  // _cachedRoom에서 현재 점수 읽기 (get() 제거)
+
+  const isInfection = _cachedRoom.gameMode === 'infection';
   const scores = Object.assign({}, _cachedRoom?.round?.scores || {});
   scores[myUid] = (scores[myUid] || 0) + 50;
-  await update(ref(fbDb, `rooms/${myRoomId}/round`), {
-    [`alive/${uid}`]: false,
-    scores: scores
-  });
-  // 잡은 수 파이어베이스에 저장 (모든 클라이언트가 봄)
+
+  if (isInfection) {
+    // 감염: alive=false 안 하고 술래 목록에 추가
+    await update(ref(fbDb, `rooms/${myRoomId}/round`), { scores: scores });
+    await update(ref(fbDb, `rooms/${myRoomId}/seekers`), { [uid]: true });
+    console.log('☣️ 감염 성공:', uid);
+  } else {
+    // 클래식: 사망 처리
+    await update(ref(fbDb, `rooms/${myRoomId}/round`), {
+      [`alive/${uid}`]: false,
+      scores: scores
+    });
+  }
   const catches = Object.assign({}, _cachedRoom?.catches || {});
   catches[myUid] = (catches[myUid] || 0) + 1;
   await update(ref(fbDb, `rooms/${myRoomId}`), { catches });
@@ -2107,6 +2201,14 @@ function checkAliveTransitions(rs) {
 let spectatorMode = false;
 let spectatorTargetUid = null; // 관전 중인 uid
 let _spectatorBtn = null;
+
+function showInfectionPopup() {
+  const el = document.getElementById('infectionPopup');
+  if (!el) return;
+  el.style.display = 'flex';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
 
 function onIDied() {
   console.log('💀 내가 죽음 → 관전 전환');
@@ -2247,17 +2349,19 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       hidePhaseCountdown: null,
       selectedMap: null,
       seekerUid: null,
-      startRequested: null,  // 다음 라운드 위해 리셋
-      catches: null,         // 잡기 수 리셋
-      decoys: null,          // 분신 리셋
-      whistles: null,        // 휘슬 리셋
-      paint: null            // 페인트 리셋
+      seekers: null,         // 감염 목록 리셋
+      gameMode: null,        // 게임 모드 리셋
+      startRequested: null,
+      catches: null,
+      decoys: null,
+      whistles: null,
+      paint: null
     });
-    // 플레이어들 vote 리셋
+    // 플레이어들 투표 리셋 (맵 + 모드)
     const s = await get(ref(fbDb, `rooms/${myRoomId}/players`));
     const players = s.val() || {};
     for (const uid of Object.keys(players)) {
-      await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
+      await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null, modeVote: null });
     }
   }
   currentScreen = 'lobby';
@@ -2543,6 +2647,27 @@ const MAPS = [
 ];
 let selectedMap = MAPS[0];
 let mapLoaded = false;
+
+// ============ 게임 모드 ============
+const MODES = [
+  { id: 'classic',   name: '클래식',  icon: '🎯', desc: '술래 1명이 다 잡음' },
+  { id: 'infection', name: '감염',    icon: '☣️', desc: '잡히면 술래 됨' }
+];
+// 모든 술래 uid 구하기 (원래 술래 + 감염된 애들)
+function getSeekerUids(room) {
+  if (!room) return [];
+  const set = new Set();
+  if (room.seekerUid) set.add(room.seekerUid);
+  if (room.seekers) {
+    Object.keys(room.seekers).forEach(u => { if (room.seekers[u]) set.add(u); });
+  }
+  return Array.from(set);
+}
+function isSeekerUid(uid, room) {
+  if (!uid || !room) return false;
+  if (uid === room.seekerUid) return true;
+  return !!(room.seekers && room.seekers[uid]);
+}
 let _currentMapModel = null;      // 현재 로드된 맵 모델 (리셋용)
 let _currentMapLights = [];       // 실내 맵에서 추가한 조명들
 let _currentMapMixer = null;      // 애니메이션 mixer
@@ -2988,6 +3113,21 @@ function subscribeRoom(roomId) {
       return;
     }
     _nullHits = 0;
+    // ★ 감염 모드: 내가 방금 감염됐다면 즉시 술래로 전환
+    if (room.state === 'playing' && room.gameMode === 'infection'
+        && myRole === 'hider' && isSeekerUid(myUid, room)) {
+      console.log('☣️ 내가 감염됨 → 술래로 전환');
+      setRole('seeker');
+      // 역할 태그 UI 갱신
+      const rt = document.getElementById('roleTag');
+      if (rt) { rt.textContent = '☣️ 감염됨!'; rt.classList.add('seeker'); }
+      const sh = document.getElementById('hudShootHint');
+      if (sh) sh.style.display = 'inline';
+      // 화면 중앙에 감염 팝업
+      showInfectionPopup();
+    }
+    // 다른 사람 감염 상태 변화 → 총 부착 갱신
+    refreshOtherSeekerGuns();
     // 내 잡은 수 HUD 갱신
     const myCatchEl = document.getElementById('myCatchCount');
     if (myCatchEl) myCatchEl.textContent = (room.catches?.[myUid]) || 0;
@@ -3046,7 +3186,7 @@ function subscribeRoom(roomId) {
     // 상태별 화면 전환
     if (room.state === 'voting') {
       if (currentScreen !== 'vote') startVotingUI(room);
-      else renderVoteMaps(room);  // 다른 사람 투표하면 실시간 갱신
+      else { renderVoteMaps(room); renderVoteModes(room); }  // 다른 사람 투표하면 실시간 갱신
       const timerEl = document.getElementById('voteTimer');
       if (timerEl) timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
     } else if (room.state === 'drawing' && currentScreen !== 'draw') {
@@ -3187,6 +3327,7 @@ const VOTE_COOLDOWN = 1500; // 1.5초 쿨다운 (연속 스팸 방지)
 function startVotingUI(room) {
   showScreen('vote');
   renderVoteMaps(room);
+  renderVoteModes(room);
 }
 
 function renderVoteMaps(room) {
@@ -3249,6 +3390,60 @@ function renderVoteMaps(room) {
   const timerEl = document.getElementById('voteTimer');
   const t = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
   if (timerEl.textContent !== t) timerEl.textContent = t;
+}
+
+function renderVoteModes(room) {
+  const box = document.getElementById('voteModes');
+  if (!box) return;
+  const players = room.players || {};
+  const votes = {};
+  const votedUids = new Set();
+  Object.entries(players).forEach(([uid, p]) => {
+    if (p.modeVote != null && !votedUids.has(uid)) {
+      votedUids.add(uid);
+      votes[p.modeVote] = (votes[p.modeVote] || 0) + 1;
+    }
+  });
+  const myVote = players[myUid]?.modeVote;
+  diffRender(
+    box,
+    MODES.map((m, i) => ({ m, i })),
+    it => it.m.id,
+    it => {
+      const d = document.createElement('div');
+      d.className = 'voteMap';
+      d.innerHTML = `
+        <div class="map-icon"><span>${it.m.icon}</span></div>
+        <div class="mapName"></div>
+        <div class="voteDesc"></div>
+        <div class="voteCount"></div>
+      `;
+      d.style.pointerEvents = 'auto';
+      d.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!myUid || !myRoomId) return;
+        const cur = _cachedRoom?.players?.[myUid]?.modeVote;
+        if (cur === it.m.id) return;
+        console.log('🗳 모드 투표:', it.m.id);
+        try {
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { modeVote: it.m.id });
+        } catch(err) { console.error('❌ 모드 투표 실패:', err); }
+      });
+      return d;
+    },
+    (el, it) => {
+      const name = el.querySelector('.mapName');
+      const desc = el.querySelector('.voteDesc');
+      const cnt = el.querySelector('.voteCount');
+      if (name.textContent !== it.m.name) name.textContent = it.m.name;
+      if (desc.textContent !== it.m.desc) desc.textContent = it.m.desc;
+      const voteNum = votes[it.m.id] || 0;
+      const cntTxt = voteNum + ' 표';
+      if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
+      const voted = myVote === it.m.id;
+      if (el.classList.contains('voted') !== voted) el.classList.toggle('voted', voted);
+    }
+  );
 }
 
 // finishVoting 제거 - 방장 tick 이 함
@@ -3347,8 +3542,8 @@ async function startGame(room) {
   const mapIdx = parseInt(room.selectedMap || 0);
   loadSelectedMap(mapIdx);
   
-  // 내 역할 세팅
-  if (room.seekerUid === myUid) {
+  // 내 역할 세팅 (원조 술래 or 감염된 상태)
+  if (isSeekerUid(myUid, room)) {
     setRole('seeker');
   } else {
     setRole('hider');
