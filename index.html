@@ -1480,7 +1480,7 @@ gltfLoader.load(GUN_URL, gltf => {
   const tempBox = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); tempBox.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z);
-  const gunScale = maxDim > 0 ? (1.8 / maxDim) : 1;
+  const gunScale = maxDim > 0 ? (0.8 / maxDim) : 1;
   glb.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
@@ -1543,42 +1543,65 @@ function makeFallbackGun() {
 let attachedGun = null;
 function attachGunToPlayer() {
   if (!seekerGunModel) { console.warn('🔫 attachGunToPlayer: seekerGunModel 없음'); return; }
-  if (attachedGun) { return; /* 이미 붙어있음, 조용히 리턴 */ }
+  if (attachedGun) { return; }
   const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
   cloned.scale.setScalar(s);
-  // pivot 중앙 정렬
   cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
   const center = new THREE.Vector3(); box.getCenter(center);
   const size = new THREE.Vector3(); box.getSize(size);
-  cloned.position.sub(center);
+  // ★ 근본 원인 대응:
+  //   기존 로직은 gun을 bbox 중심으로 정렬 → 모델마다 원점 위치가 달라서 부착 후
+  //   총이 캐릭터 몸 안에 파묻히거나 이상한 곳에 뜸.
+  //   여기선 gun 의 "왼쪽면(x=box.min.x)" + "아래(y=box.min.y)" + "뒤(z=box.max.z)" 를
+  //   attachedGun 원점에 맞춤. 즉 총의 손잡이 뒤끝을 anchor 로 삼음 → 항상 예측 가능.
+  cloned.position.set(-box.min.x, -box.min.y, -box.max.z);
   cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
       o.frustumCulled = false;
       o.renderOrder = 10;
-      // 원본 material 유지 (glb 자체 색상/텍스처 살림)
     }
   });
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
-  // ★ 3인칭 카메라 뒤에서 보이도록 위치 조정
-  // 캐릭터는 -Z 방향을 바라봄. 카메라는 뒤(+Z)에 있음.
-  // 총이 몸 앞(-Z)에 있으면 몸에 가려서 안 보임 → 오른쪽 옆(+X) + 약간 뒤(+Z)로
-  attachedGun.position.set(0.65, 1.0, 0.15);
-  // 총구가 앞을 향하도록 살짝 회전 (기본 X축 정렬 기준)
-  attachedGun.rotation.y = -Math.PI / 2; // -Z 방향(캐릭터 앞)을 총구가 향함
+
+  // ★ 디버그: 부착 지점에 빨간 구 (총이 안 보이면 이거라도 봐야 위치 확인 가능)
+  const dbg = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff2244, depthTest: false })
+  );
+  dbg.renderOrder = 999;
+  dbg.userData.isGunDebug = true;
+  attachedGun.add(dbg);
+
+  // 캐릭터 오른쪽 옆구리 앞쪽, 손이 잡는 위치
+  attachedGun.position.set(0.35, 1.0, -0.25);
+  // 총구가 캐릭터 앞(-Z)을 향하도록. 원본이 +X 방향으로 눕혀있다고 가정 → 90° 돌림.
+  attachedGun.rotation.y = Math.PI / 2;
   player.add(attachedGun);
-  // 부착 직후 world 좌표 로그
+
+  // 부착 후 실제 렌더링 mesh 의 world 위치 확인
   attachedGun.updateMatrixWorld(true);
   const worldPos = new THREE.Vector3();
   attachedGun.getWorldPosition(worldPos);
-  console.log('🔫 총 부착 완료 - scale:', s.toFixed(3),
-              '/ 원본bbox:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2),
-              '/ local pos:', attachedGun.position.x, attachedGun.position.y, attachedGun.position.z,
-              '/ world pos:', worldPos.x.toFixed(2), worldPos.y.toFixed(2), worldPos.z.toFixed(2),
-              '/ visible:', attachedGun.visible);
+  // 진짜 mesh 하나의 world 좌표도 뽑아보기 (bbox 중심)
+  const finalBox = new THREE.Box3().setFromObject(attachedGun);
+  const finalCenter = new THREE.Vector3(); finalBox.getCenter(finalCenter);
+  const finalSize = new THREE.Vector3(); finalBox.getSize(finalSize);
+  console.log('🔫 총 부착 완료',
+    '\n  scale:', s.toFixed(3),
+    '\n  원본 bbox size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2),
+    '\n  원본 bbox min:', box.min.x.toFixed(2), box.min.y.toFixed(2), box.min.z.toFixed(2),
+    '\n  원본 bbox max:', box.max.x.toFixed(2), box.max.y.toFixed(2), box.max.z.toFixed(2),
+    '\n  attachedGun local:', attachedGun.position.toArray().map(v=>v.toFixed(2)).join(','),
+    '\n  attachedGun world:', worldPos.toArray().map(v=>v.toFixed(2)).join(','),
+    '\n  최종 렌더 bbox 중심:', finalCenter.toArray().map(v=>v.toFixed(2)).join(','),
+    '\n  최종 렌더 bbox 크기:', finalSize.toArray().map(v=>v.toFixed(2)).join(','),
+    '\n  visible:', attachedGun.visible,
+    '\n  isFallback:', seekerGunModel.userData.isFallback,
+    '\n  💡 빨간 구가 보이는데 총이 안 보이면 gun.glb 모델 자체 문제 (재질/투명/좌표계)');
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1593,8 +1616,7 @@ function attachGunToOther(uid) {
   cloned.scale.setScalar(s);
   cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
-  const center = new THREE.Vector3(); box.getCenter(center);
-  cloned.position.sub(center);
+  cloned.position.set(-box.min.x, -box.min.y, -box.max.z);
   cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
@@ -1604,8 +1626,8 @@ function attachGunToOther(uid) {
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.65, 1.0, 0.15);
-  wrap.rotation.y = -Math.PI / 2;
+  wrap.position.set(0.35, 1.0, -0.25);
+  wrap.rotation.y = Math.PI / 2;
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -1620,6 +1642,23 @@ function refreshOtherSeekerGuns() {
     if (isSeekerUid(uid, room)) attachGunToOther(uid);
     else detachGunFromOther(uid);
   });
+}
+
+// 게임 진행 중(찾기 페이즈)에는 닉/따봉 숨김 — 하이더 위치 노출 방지
+function updateNickLikeLabels(room) {
+  const hide = room?.state === 'playing'
+    && (room.hidePhaseCountdown == null || room.hidePhaseCountdown <= 0);
+  Object.values(otherPlayers).forEach(ot => {
+    if (ot.nickSprite) ot.nickSprite.visible = !hide;
+    if (ot.likeSprite) ot.likeSprite.visible = !hide;
+  });
+  if (window._decoys) {
+    Object.values(window._decoys).forEach(dec => {
+      dec.group?.traverse(o => {
+        if (o.isSprite) o.visible = !hide;
+      });
+    });
+  }
 }
 
 // 매 프레임 안전망: 술래인데 총 안 붙었으면 붙임
@@ -3289,6 +3328,8 @@ function subscribeRoom(roomId) {
     }
     // 다른 사람 감염 상태 변화 → 총 부착 갱신
     refreshOtherSeekerGuns();
+    // 게임 상태에 따라 닉/따봉 라벨 표시/숨김
+    updateNickLikeLabels(room);
     // 내 잡은 수 HUD 갱신
     const myCatchEl = document.getElementById('myCatchCount');
     if (myCatchEl) myCatchEl.textContent = (room.catches?.[myUid]) || 0;
@@ -3867,6 +3908,10 @@ function isStuckInWall() {
 const groundRay = new THREE.Raycaster();
 const downV = new THREE.Vector3(0,-1,0);
 const _groundOrigin = new THREE.Vector3();
+// 천장 체크용 (상승 중 지붕 뚫림 방지)
+const _ceilRc = new THREE.Raycaster();
+const _ceilOrigin = new THREE.Vector3();
+const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
   // ★ 최적화: ray 시작점을 플레이어 바로 위로 단축 (200→player.y+6) → far도 단축
@@ -3876,7 +3921,7 @@ function getGroundHeight(x, z) {
   groundRay.far = _rayStartY + 5;
   const hits = groundRay.intersectObjects(_groundAndCollidable, false);
   if (!hits.length) return 0;
-  const maxAllowed = player.position.y + 1.0;
+  const maxAllowed = player.position.y + 0.4; // 자동 계단 오르기 상한 (너무 높으면 지붕까지 텔레포트됨)
   let best = null;
   for (const h of hits) if (h.point.y <= maxAllowed) if (best===null || h.point.y > best) best = h.point.y;
   return best !== null ? best : 0;
@@ -3884,18 +3929,22 @@ function getGroundHeight(x, z) {
 
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
-const PR = 0.25; // ★ 충돌 반경 축소 (0.55→0.25): 벽에 더 가까이 붙을 수 있게
+const PR = 0.4; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
+// 캐릭터 몸통 여러 높이(발/허리/머리)에서 광선 검사 → 벽 뚫림 근본 방지
+const _tryMoveHeights = [0.35, 1.0, 1.7];
 function tryMove(dx, dz) {
-  // ★ 최적화: collidableMeshes 없으면 raycast 스킵
   const hasColl = collidableMeshes.length > 0;
   const check = (mx, mz) => {
     const d = Math.hypot(mx, mz);
     if (d < 0.0001) return true;
     if (!hasColl) return true;
     rd.set(mx, 0, mz).normalize();
-    ro.set(player.position.x, player.position.y+0.5, player.position.z);
-    rc.set(ro, rd); rc.far = d + PR;
-    if (rc.intersectObjects(collidableMeshes, false).length) return false;
+    // ★ 3개 높이(발/허리/머리)에서 각각 광선 → 하나라도 걸리면 이동 차단
+    for (const hY of _tryMoveHeights) {
+      ro.set(player.position.x, player.position.y + hY, player.position.z);
+      rc.set(ro, rd); rc.far = d + PR;
+      if (rc.intersectObjects(collidableMeshes, false).length) return false;
+    }
     return true;
   };
   // X 축 이동 - 벽 검사 통과해도 경계 넘으면 이동 안 함
@@ -4686,7 +4735,9 @@ function startFirebaseSync(room) {
           likeSp.position.y = 2.9;
           grp.add(likeSp);
           scene.add(grp);
-          otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', likeSprite: likeSp, likeCount: 0 };
+          otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', nickSprite: sp, likeSprite: likeSp, likeCount: 0 };
+          // 새로 들어온 플레이어도 즉시 라벨 표시 상태 반영
+          if (typeof updateNickLikeLabels === 'function' && _cachedRoom) updateNickLikeLabels(_cachedRoom);
           invalidatePickerCache(); // 스포이드 타겟 캐시 갱신
           subscribePaintForUid(uid); // uid별 페인트 리스너 등록
           subscribeLikesForUid(uid); // 좋아요 리스너 등록
@@ -5137,6 +5188,16 @@ function animate() {
     velocityY = CLIMB_SPEED;
   } else {
     velocityY += GRAVITY * dt;
+  }
+  // ★ 천장 체크: 위로 이동 중일 때 머리 위 벽 있으면 상승 중단 (지붕 뚫림 방지)
+  if (velocityY > 0 && collidableMeshes.length > 0) {
+    _ceilOrigin.set(player.position.x, player.position.y + 1.7, player.position.z);
+    _ceilRc.set(_ceilOrigin, _upV);
+    _ceilRc.far = 0.4 + velocityY * dt;
+    if (_ceilRc.intersectObjects(collidableMeshes, false).length > 0) {
+      velocityY = 0;
+      isClimbing = false;
+    }
   }
   player.position.y += velocityY * dt;
   
