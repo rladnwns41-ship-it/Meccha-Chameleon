@@ -2270,8 +2270,8 @@ function processGlb(gltf, poseName) {
   console.log(`포즈 [${poseName}] 머리 Y:`, poseHeadY[poseName]);
   glb.traverse(o => {
     if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
+      o.castShadow = false;   // ★ 최적화: 그림자 비활성
+      o.receiveShadow = false;
       // geometry 클론 (다른 mesh와 공유 방지 - 색 독립 적용)
       o.geometry = o.geometry.clone();
       // indexed geometry → non-indexed 변환 (vertex color 면 단위 독립 적용)
@@ -2290,7 +2290,7 @@ function processGlb(gltf, poseName) {
         color: 0xffffff, vertexColors: true, side: THREE.DoubleSide
       });
       o.material.needsUpdate = true;
-      o.frustumCulled = false;
+      o.frustumCulled = true; // ★ 최적화: 화면 밖 컬링 활성
     }
   });
   // 로드 즉시 player 에 추가 (일단 숨김)
@@ -2506,7 +2506,7 @@ const MAPS = [
     forceSpawnCenter: true
   },
   {
-    name: '마인크래프트',
+    name: '마크맵',
     url: './minecraft.glb',
     scale: 2.5,
     hasWalls: true,
@@ -2527,6 +2527,7 @@ function resetMap() {
   if (_currentMapModel) {
     scene.remove(_currentMapModel);
     // geometry / material / BVH 정리 (메모리 누수 방지)
+    _currentMapModel.traverse(o => { o.matrixAutoUpdate = true; }); // ★ 복원
     _currentMapModel.traverse(o => {
       if (o.isMesh) {
         if (o.geometry) {
@@ -2637,6 +2638,8 @@ gltfLoader.load(
         collidableMeshes.push(o);
       }
     });
+    // ★ 최적화: 정적 맵은 행렬 자동 업데이트 끄기
+    model.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); });
     scene.add(model);
     _currentMapModel = model;  // ★ 리셋용 트래킹
     // _groundAndCollidable 동기화 (getGroundHeight 매 프레임 스프레드 방지)
@@ -3140,7 +3143,7 @@ function renderVoteMaps(room) {
     }
   });
   const myVote = players[myUid]?.vote;
-  const MAP_ICONS = ['🏙️', '🏛️', '🛒'];
+  const MAP_ICONS = ['🏙️', '🏛️', '🛒', '🏬', '⛏️'];
   diffRender(
     box,
     MAPS.map((m, i) => ({ m, i })),
@@ -4069,7 +4072,7 @@ function startFirebaseSync(room) {
             opacity: isMine ? 0.55 : 1.0
           });
           o.castShadow = false;
-          o.frustumCulled = false;
+          o.frustumCulled = true; // ★ 컬링 활성
         }
       });
       const grp = new THREE.Group();
@@ -4226,7 +4229,7 @@ function startFirebaseSync(room) {
               o.geometry.setAttribute('color', cAttr);
               o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
               o.castShadow = false;
-              o.frustumCulled = false;
+              o.frustumCulled = true; // ★ 컬링 활성
             }
           });
           const grp = new THREE.Group();
@@ -4288,7 +4291,7 @@ function startFirebaseSync(room) {
               o.geometry.setAttribute('color', cAttr);
               o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
               o.castShadow = false;
-              o.frustumCulled = false;
+              o.frustumCulled = true; // ★ 컬링 활성
             }
           });
           ot.group.add(clone);
@@ -4552,7 +4555,9 @@ function animate() {
   const roomNow = _cachedRoom;
   const isEnded = roomNow && roomNow.state === 'ended';
   const aliveMap = roundState?.alive || {};
-  const blinkPhase = (Math.sin(_frameNow * 0.012) + 1) * 0.5;
+  // ★ 최적화: blink 필요한 플레이어 있을 때만 sin 계산
+  const _needBlink = isEnded || Object.values(otherPlayers).some(o => o.stuck === 1);
+  const blinkPhase = _needBlink ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
