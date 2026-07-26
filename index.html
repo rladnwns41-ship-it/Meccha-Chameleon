@@ -515,7 +515,6 @@
   .voteMap:nth-child(3) { animation-delay:.16s; }
   .voteMap:nth-child(4) { animation-delay:.24s; }
   .voteMap:nth-child(5) { animation-delay:.32s; }
-  .voteMap:nth-child(6) { animation-delay:.40s; }
   .voteMap:hover {
     border-color:var(--green); transform:translateY(-8px) scale(1.03);
     box-shadow:0 16px 0 rgba(0,0,0,0.25), 0 0 30px rgba(62,207,108,0.2);
@@ -1237,7 +1236,9 @@ const renderer = new THREE.WebGLRenderer({
   precision: 'mediump'
 });
 // 대회 모드: 전 기기 픽셀 비율 0.75 고정 (GPU 부하 최소화)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio * 0.75, 0.75));
+// ★ 최적화: 모바일/저사양은 픽셀비율 더 낮게
+const _dpr = window.devicePixelRatio || 1;
+renderer.setPixelRatio(Math.min(_dpr * 0.65, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2505,15 +2506,7 @@ const MAPS = [
     spawnOffsetY: 0,
     forceSpawnCenter: true
   },
-  {
-    name: '마크맵',
-    url: './minecraft.glb',
-    scale: 2.5,
-    hasWalls: true,
-    procedural: false,
-    spawnOffsetY: 0,
-    forceSpawnCenter: true
-  },
+
 ];
 let selectedMap = MAPS[0];
 let mapLoaded = false;
@@ -3143,7 +3136,7 @@ function renderVoteMaps(room) {
     }
   });
   const myVote = players[myUid]?.vote;
-  const MAP_ICONS = ['🏙️', '🏛️', '🛒', '🏬', '⛏️'];
+  const MAP_ICONS = ['🏙️', '🏛️', '🛒', '🏬'];
   diffRender(
     box,
     MAPS.map((m, i) => ({ m, i })),
@@ -3471,9 +3464,12 @@ const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const PR = 0.55;
 function tryMove(dx, dz) {
+  // ★ 최적화: collidableMeshes 없으면 raycast 스킵
+  const hasColl = collidableMeshes.length > 0;
   const check = (mx, mz) => {
     const d = Math.hypot(mx, mz);
     if (d < 0.0001) return true;
+    if (!hasColl) return true;
     rd.set(mx, 0, mz).normalize();
     ro.set(player.position.x, player.position.y+0.9, player.position.z);
     rc.set(ro, rd); rc.far = d + PR;
@@ -4535,8 +4531,16 @@ addEventListener('keydown', e => {
 let _animRunning = true;
 // ===== 카메라 줌 변수 (animate보다 먼저 선언해야 TDZ 안 남) =====
 let _camZoom = 6;
+let _lastGunCheck = 0;
+let _blinkCheckFrame = 0, _needBlinkCache = false;
 const CAM_ZOOM_MIN = 2;
 const CAM_ZOOM_MAX = 20;
+
+// ★ 카메라 벽 체크용 재사용 객체 (매 프레임 new 방지)
+const _camFocusPt = new THREE.Vector3();
+const _idealCamPt = new THREE.Vector3();
+const _camToFocus = new THREE.Vector3();
+const _camRc = new THREE.Raycaster();
 
 function animate() {
   if (!_animRunning) return;
@@ -4544,20 +4548,26 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const _frameNow = Date.now(); // 매 프레임 1회만 호출
   if (mixer) mixer.update(dt);
-  updateDustBursts(dt);
   // ★ 최적화: 게임 화면 아닐 때 물리/연산 완전 스킵
   if (currentScreen !== 'game') return;
+  updateDustBursts(dt);
   clampPlayerToBounds();
-  // 총 부착 watchdog (혹시 안 붙었으면 매 프레임 다시 시도)
-  ensureGunAttached();
+  // 총 부착 watchdog - 500ms throttle (매 프레임 불필요)
+  if (!_lastGunCheck || _frameNow - _lastGunCheck > 500) {
+    _lastGunCheck = _frameNow;
+    ensureGunAttached();
+  }
 
   // 다른 플레이어 lerp + 빨간 깜빡임 처리
   const roomNow = _cachedRoom;
   const isEnded = roomNow && roomNow.state === 'ended';
   const aliveMap = roundState?.alive || {};
-  // ★ 최적화: blink 필요한 플레이어 있을 때만 sin 계산
-  const _needBlink = isEnded || Object.values(otherPlayers).some(o => o.stuck === 1);
-  const blinkPhase = _needBlink ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
+  // ★ 최적화: blinkPhase - 60프레임마다 needBlink 재계산
+  if (!_blinkCheckFrame || _frameNow - _blinkCheckFrame > 200) {
+    _blinkCheckFrame = _frameNow;
+    _needBlinkCache = isEnded || Object.values(otherPlayers).some(o => o.stuck === 1);
+  }
+  const blinkPhase = _needBlinkCache ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
@@ -4575,9 +4585,12 @@ function animate() {
       ot.group.position.x += (ot.targetX - ot.group.position.x) * 0.15;
       ot.group.position.y += (ot.targetY - ot.group.position.y) * 0.15;
       ot.group.position.z += (ot.targetZ - ot.group.position.z) * 0.15;
-      const dr = ot.targetR - ot.group.rotation.y;
-      let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
-      ot.group.rotation.y += nd * 0.15;
+      // ★ 최적화: 30유닛 이내 플레이어만 rotation lerp
+      if (_distSq < 900) {
+        const dr = ot.targetR - ot.group.rotation.y;
+        let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
+        ot.group.rotation.y += nd * 0.15;
+      }
       } // end near lerp
     }
     const shouldBlink = ot.stuck === 1 || (isEnded && aliveMap[uid] !== false);
@@ -4680,8 +4693,9 @@ function animate() {
   }
   player.position.y += velocityY * dt;
   
-  const moved = Math.abs(player.position.x - lastGroundX) > 0.5 || Math.abs(player.position.z - lastGroundZ) > 0.5;
-  if (!isGrounded || moved || cachedGroundY === null) {
+  const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
+  // ★ 착지+정지 시 raycast 완전 스킵, 공중이거나 이동 시만 갱신
+  if (cachedGroundY === null || moved || (!isGrounded && Math.abs(velocityY) > 0.5)) {
     cachedGroundY = getGroundHeight(player.position.x, player.position.z);
     lastGroundX = player.position.x; lastGroundZ = player.position.z;
   }
@@ -4737,18 +4751,17 @@ function animate() {
   const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
   const idealCamY = Math.max(0.5, focusY + vo);
 
-  // ★ 카메라-플레이어 사이 벽 체크 (카메라가 벽 안에 들어가지 않게)
+  // ★ 카메라 벽 체크 - 재사용 객체로 GC 제거
   if (collidableMeshes.length > 0) {
-    const _camFocusPt = new THREE.Vector3(player.position.x, focusY, player.position.z);
-    const _idealCamPt = new THREE.Vector3(idealCamX, idealCamY, idealCamZ);
-    const _camToFocus = new THREE.Vector3().subVectors(_camFocusPt, _idealCamPt).normalize();
+    _camFocusPt.set(player.position.x, focusY, player.position.z);
+    _idealCamPt.set(idealCamX, idealCamY, idealCamZ);
+    _camToFocus.subVectors(_camFocusPt, _idealCamPt).normalize();
     const _camDist = _idealCamPt.distanceTo(_camFocusPt);
-    const _camRc = new THREE.Raycaster(_idealCamPt, _camToFocus, 0, _camDist + 0.5);
+    _camRc.set(_idealCamPt, _camToFocus);
+    _camRc.far = _camDist + 0.5;
     const _camHits = _camRc.intersectObjects(collidableMeshes, false);
     if (_camHits.length > 0) {
-      // 벽에 부딪혔으면 카메라를 벽 앞으로 당김
-      const hitDist = _camHits[0].distance;
-      const pullDist = Math.max(0.3, hitDist - 0.4);
+      const pullDist = Math.max(0.3, _camHits[0].distance - 0.4);
       camera.position.copy(_idealCamPt).addScaledVector(_camToFocus, pullDist);
     } else {
       camera.position.set(idealCamX, idealCamY, idealCamZ);
