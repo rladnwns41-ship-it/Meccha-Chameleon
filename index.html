@@ -2077,14 +2077,14 @@ function showSpectatorHUD() {
   if (!hud) {
     hud = document.createElement('div');
     hud.id = 'spectatorHUD';
-    hud.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,0,0,0.7);color:#fff;padding:10px 24px;border-radius:20px;font-family:Nunito,sans-serif;font-weight:800;font-size:14px;pointer-events:none;text-align:center;border:2px solid rgba(255,255,255,0.2);';
+    hud.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,0,0,0.7);color:#fff;padding:8px 20px;border-radius:20px;font-family:Nunito,sans-serif;font-weight:800;font-size:13px;pointer-events:none;text-align:center;border:2px solid rgba(255,255,255,0.2);';
     document.body.appendChild(hud);
   }
   hud.style.display = 'block';
   const nick = spectatorTargetUid ? (otherPlayers[spectatorTargetUid]?.charMesh ? '?' : '?') : '없음';
   // 닉은 Firebase에서 가져오기
   const playerNick = _cachedRoom?.players?.[spectatorTargetUid]?.nick || spectatorTargetUid?.slice(0,6) || '없음';
-  hud.textContent = `👁 관전 중: ${playerNick} | 좌클릭/우클릭으로 전환`;
+  hud.textContent = `관전 중: ${playerNick} | 좌클릭/우클릭으로 전환`;
 }
 
 function exitSpectatorMode() {
@@ -2248,8 +2248,9 @@ function processGlb(gltf, poseName) {
       colorAttr.setUsage(THREE.DynamicDrawUsage); // GPU에 dynamic 힌트
       o.geometry.setAttribute('color', colorAttr);
       // Lambert 재질 - 조명 있으면서 vertex color 확실히 반영
+      // DoubleSide: toNonIndexed 후 법선 뒤집힌 face 및 원본 양면 mesh 안쪽 뚫림 방지
       o.material = new THREE.MeshLambertMaterial({
-        color: 0xffffff, vertexColors: true
+        color: 0xffffff, vertexColors: true, side: THREE.DoubleSide
       });
       o.material.needsUpdate = true;
       o.frustumCulled = false;
@@ -3015,6 +3016,8 @@ async function leaveToRooms() {
 }
 
 // ============ 투표 ============
+let _lastVoteTime = 0;
+const VOTE_COOLDOWN = 1500; // 1.5초 쿨다운 (연속 스팸 방지)
 function startVotingUI(room) {
   showScreen('vote');
   renderVoteMaps(room);
@@ -3055,6 +3058,10 @@ function renderVoteMaps(room) {
         // 이미 같은 맵에 투표했으면 무시
         const cur = players[myUid]?.vote;
         if (String(cur) === String(it.i)) return;
+        // 연속 투표 스팸 방지
+        const now = Date.now();
+        if (now - _lastVoteTime < VOTE_COOLDOWN) return;
+        _lastVoteTime = now;
         console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
         try {
           await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(it.i) });
@@ -3949,6 +3956,7 @@ function startFirebaseSync(room) {
           o.material = new THREE.MeshLambertMaterial({
             color: 0xffffff,
             vertexColors: true,
+            side: THREE.DoubleSide,
             transparent: isMine,
             opacity: isMine ? 0.55 : 1.0
           });
@@ -4108,7 +4116,7 @@ function startFirebaseSync(room) {
               const cAttr = new THREE.BufferAttribute(ca, 3);
               cAttr.setUsage(THREE.DynamicDrawUsage);
               o.geometry.setAttribute('color', cAttr);
-              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
+              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
               o.castShadow = false;
               o.frustumCulled = false;
             }
@@ -4170,7 +4178,7 @@ function startFirebaseSync(room) {
               const cAttr = new THREE.BufferAttribute(ca, 3);
               cAttr.setUsage(THREE.DynamicDrawUsage);
               o.geometry.setAttribute('color', cAttr);
-              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
+              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
               o.castShadow = false;
               o.frustumCulled = false;
             }
