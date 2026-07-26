@@ -857,7 +857,7 @@
     to   { opacity:1; transform:translateY(0); }
   }
   #chatBox {
-    position:fixed; bottom:80px; left:14px;
+    position:fixed; bottom:80px; right:14px;
     width:280px; z-index:25;
     display:none; flex-direction:column; gap:0;
     pointer-events:none;
@@ -1049,18 +1049,6 @@
 
 <div id="glitchOverlay"></div>
 <div id="endFadeOverlay" style="position:fixed;inset:0;z-index:180;background:#000;opacity:0;pointer-events:none;transition:opacity 3s ease-in;"></div>
-
-<div id="chatBox" style="position:fixed;right:14px;bottom:20px;width:280px;
-     background:rgba(0,0,0,0.5);border-radius:10px;padding:8px;font-size:13px;
-     color:#fff;font-family:'Nunito',sans-serif;z-index:50;display:none;
-     pointer-events:auto;">
-  <div id="chatMsgs" style="max-height:140px;overflow-y:auto;margin-bottom:6px;
-       line-height:1.5;word-break:break-word;"></div>
-  <input id="chatInput" type="text" maxlength="80" placeholder="Enter로 채팅 (ESC로 닫기)"
-    style="width:100%;box-sizing:border-box;padding:6px 8px;border:none;
-    border-radius:6px;background:rgba(255,255,255,0.15);color:#fff;outline:none;
-    font-family:inherit;font-size:13px;">
-</div>
 
 <div id="hidePhaseOverlay" class="hidden">
   <div class="msg"></div>
@@ -2856,6 +2844,38 @@ function startDrawingUI(room) {
   // 게임 시작은 방장 tick 이 자동으로 함
 }
 
+// x-ray(depthTest=false) 상태를 모두 원래대로 복원
+function resetXray() {
+  // 다른 플레이어
+  for (const uid in otherPlayers) {
+    const ot = otherPlayers[uid];
+    if (!ot._meshes) continue;
+    for (let i = 0; i < ot._meshes.length; i++) {
+      const mat = ot._meshes[i].material;
+      if (mat._xrayOn) {
+        mat.depthTest = true;
+        mat.depthWrite = true;
+        ot._meshes[i].renderOrder = 0;
+        mat._xrayOn = false;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+  // 내 캐릭터
+  if (player._meshes) {
+    for (let i = 0; i < player._meshes.length; i++) {
+      const mat = player._meshes[i].material;
+      if (mat._xrayOn) {
+        mat.depthTest = true;
+        mat.depthWrite = true;
+        player._meshes[i].renderOrder = 0;
+        mat._xrayOn = false;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+}
+
 // ============ 게임 시작 ============
 async function startGame(room) {
   currentScreen = 'game';
@@ -2880,6 +2900,8 @@ async function startGame(room) {
   document.getElementById('roleTag').textContent = myRole === 'seeker' ? '🎯 술래' : '🦎 숨는 자';
   document.getElementById('roleTag').classList.toggle('seeker', myRole === 'seeker');
   document.getElementById('hudShootHint').style.display = myRole === 'seeker' ? 'inline' : 'none';
+  // 라운드 시작 시 x-ray 복원 (이전 라운드 ended 상태 잔재 제거)
+  resetXray();
   // 라운드 시작 시 stand 포즈 강제 (crouch 잔재 없애기)
   currentPose = 'stand';
   if (poseModels.stand) switchPose('stand');
@@ -4024,7 +4046,19 @@ function animate() {
     }
     if (ot._meshes) {
       const r = shouldBlink ? blinkPhase * 0.9 : 0;
-      for (let i = 0; i < ot._meshes.length; i++) ot._meshes[i].material.emissive.setRGB(r, 0, 0);
+      // 게임 종료 깜빡임: 구조물 뚫고 보이게 (x-ray)
+      const xray = isEnded && aliveMap[uid] !== false;
+      for (let i = 0; i < ot._meshes.length; i++) {
+        const mat = ot._meshes[i].material;
+        mat.emissive.setRGB(r, 0, 0);
+        if (xray !== mat._xrayOn) {
+          mat.depthTest = !xray;
+          mat.depthWrite = !xray;
+          ot._meshes[i].renderOrder = xray ? 999 : 0;
+          mat._xrayOn = xray;
+          mat.needsUpdate = true;
+        }
+      }
     }
     ot._wasBlinking = shouldBlink;
   }
@@ -4043,7 +4077,18 @@ function animate() {
       }
       if (player._meshes) {
         const r = shouldBlinkMe ? blinkPhase * 0.9 : 0;
-        for (let i = 0; i < player._meshes.length; i++) player._meshes[i].material.emissive.setRGB(r, 0, 0);
+        const xrayMe = isEnded && aliveMap[myUid] !== false;
+        for (let i = 0; i < player._meshes.length; i++) {
+          const mat = player._meshes[i].material;
+          mat.emissive.setRGB(r, 0, 0);
+          if (xrayMe !== mat._xrayOn) {
+            mat.depthTest = !xrayMe;
+            mat.depthWrite = !xrayMe;
+            player._meshes[i].renderOrder = xrayMe ? 999 : 0;
+            mat._xrayOn = xrayMe;
+            mat.needsUpdate = true;
+          }
+        }
       }
     }
     player._wasBlinking = shouldBlinkMe;
@@ -4110,7 +4155,7 @@ function animate() {
 
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
   const headY = poseHeadY[currentPose] || 1.5;
-  const camDist = paintMode ? 4 : 6;
+  const camDist = paintMode ? 4 : _camZoom;
   const focusY = player.position.y + headY;
   const hd = camDist * Math.cos(cameraPitch);
   const vo = camDist * Math.sin(cameraPitch);
@@ -4134,6 +4179,17 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+// ===== 마우스 휠 줌 =====
+let _camZoom = 6; // 기본 카메라 거리 (paintMode 아닐 때)
+const CAM_ZOOM_MIN = 2;
+const CAM_ZOOM_MAX = 20;
+addEventListener('wheel', e => {
+  if (currentScreen !== 'game' || paintMode) return;
+  e.preventDefault();
+  _camZoom += e.deltaY * 0.01;
+  _camZoom = Math.max(CAM_ZOOM_MIN, Math.min(CAM_ZOOM_MAX, _camZoom));
+}, { passive: false });
 </script>
 </body>
 </html>
