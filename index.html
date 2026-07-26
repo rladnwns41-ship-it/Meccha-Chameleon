@@ -1240,7 +1240,8 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(window.devicePixelRatio * 0.75, 0.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85; // 과노출 방지
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
@@ -1678,7 +1679,10 @@ setInterval(async () => {
           if (v > maxV) { maxV = v; winners = [k]; }
           else if (v === maxV) winners.push(k);
         });
-        const chosen = winners.length > 0 ? winners[Math.floor(Math.random()*winners.length)] : '0';
+        // 아무도 투표 안 하면 MAPS 중 랜덤 선택
+        const chosen = winners.length > 0
+          ? winners[Math.floor(Math.random()*winners.length)]
+          : String(Math.floor(Math.random() * MAPS.length));
         const uids = Object.keys(players);
         const seekerUid = uids[Math.floor(Math.random() * uids.length)];
         await update(roomRef, {
@@ -2502,8 +2506,8 @@ const MAPS = [
     forceSpawnCenter: true
   },
   {
-    name: '바다',
-    url: './ocean.glb',
+    name: '마인크래프트',
+    url: './minecraft.glb',
     scale: 2.5,
     hasWalls: true,
     procedural: false,
@@ -2558,8 +2562,8 @@ function resetMap() {
     ground.position.y = 0;
   }
   // 조명 세기 원위치
-  if (typeof ambientLight !== 'undefined' && ambientLight) ambientLight.intensity = 0.8;
-  if (typeof hemiLight !== 'undefined' && hemiLight) hemiLight.intensity = 0.7;
+  if (typeof ambientLight !== 'undefined' && ambientLight) ambientLight.intensity = 0.75;
+  if (typeof hemiLight !== 'undefined' && hemiLight) hemiLight.intensity = 0.6;
   // 다시 로드 가능
   mapLoaded = false;
   selectedMap = MAPS[0];
@@ -2602,8 +2606,8 @@ function loadSelectedMap(mapIdx) {
     velocityY = 0; isGrounded = false;
     ground.visible = false;
     ground.position.y = -1000;
-    ambientLight.intensity = 1.2;
-    hemiLight.intensity = 1.0;
+    ambientLight.intensity = 0.9;
+    hemiLight.intensity = 0.6;
     document.getElementById('barFill').style.width = '100%';
     document.getElementById('pct').textContent = '100%';
     setTimeout(() => document.getElementById('loading').classList.add('hidden'), 300);
@@ -2676,10 +2680,11 @@ gltfLoader.load(
       // 실내 맵은 우리 바닥 안 보이게 확 아래로
       ground.position.y = -50;
       // 실내라 라이팅 강화
-      ambientLight.intensity = 1.4;
-      hemiLight.intensity = 1.2;
-      // 실내엔 point light 추가
-      const indoorLight = new THREE.PointLight(0xffe0b0, 3, 100);
+      // ★ 실내 맵 조명: 과노출 방지 (ambient 낮추고 포인트라이트 부드럽게)
+      ambientLight.intensity = 0.9;
+      hemiLight.intensity = 0.5;
+      // 실내엔 point light 추가 (부드러운 중간 밝기)
+      const indoorLight = new THREE.PointLight(0xfff5e8, 1.2, 60);
       indoorLight.position.set(center.x, 15, center.z);
       scene.add(indoorLight);
       _currentMapLights.push(indoorLight);  // ★ 리셋용 트래킹
