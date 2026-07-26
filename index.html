@@ -2482,6 +2482,13 @@ const MAPS = [
     hasWalls: true,
     procedural: false
   },
+  {
+    name: '마켓',
+    url: './market.glb',
+    scale: 1,
+    hasWalls: false,
+    procedural: false
+  },
 ];
 let selectedMap = MAPS[0];
 let mapLoaded = false;
@@ -3083,7 +3090,7 @@ function renderVoteMaps(room) {
     }
   });
   const myVote = players[myUid]?.vote;
-  const MAP_ICONS = ['🏙️', '🏛️'];
+  const MAP_ICONS = ['🏙️', '🏛️', '🛒'];
   diffRender(
     box,
     MAPS.map((m, i) => ({ m, i })),
