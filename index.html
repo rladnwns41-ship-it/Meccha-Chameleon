@@ -2485,8 +2485,8 @@ const MAPS = [
   {
     name: '마켓',
     url: './market.glb',
-    scale: 1.5,
-    hasWalls: false,
+    scale: 2.5,
+    hasWalls: true,
     procedural: false,
     spawnOffsetY: -3
   },
@@ -2634,12 +2634,15 @@ gltfLoader.load(
     const halfX = (size.x / 2) * 0.8;
     const halfZ = (size.z / 2) * 0.8;
     if (!selectedMap.hasWalls) {
-      // 벽 만들지 않음 - 대신 소프트 경계로 사용
+      // 야외 맵 - 소프트 경계
       worldBounds = { minX: center.x - halfX, maxX: center.x + halfX,
                       minZ: center.z - halfZ, maxZ: center.z + halfZ };
       console.log('🔷 소프트 경계 설정', worldBounds);
     } else {
-      worldBounds = null;
+      // 실내 맵도 소프트 경계 적용 (맵 밖으로 나가지 않게)
+      worldBounds = { minX: center.x - halfX, maxX: center.x + halfX,
+                      minZ: center.z - halfZ, maxZ: center.z + halfZ };
+      console.log('🔷 실내 경계 설정', worldBounds);
     }
 
     // 바닥 확장 (실내 맵은 자체 바닥 있으니 안 늘림)
