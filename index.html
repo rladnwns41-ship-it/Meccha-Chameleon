@@ -949,6 +949,36 @@
     85%     { transform: translate(1px, -1px); }
   }
 
+  /* ===== 포즈 전환 치지직 + 페이드 ===== */
+  #poseTransitionOverlay {
+    position: fixed; inset: 0; z-index: 100;
+    pointer-events: none; opacity: 0;
+    background: #000;
+  }
+  #poseTransitionOverlay.active {
+    animation: poseFade 0.5s ease forwards;
+  }
+  @keyframes poseFade {
+    0%   { opacity: 0; }
+    15%  { opacity: 0.85; filter: brightness(1.5) contrast(2); }
+    30%  { opacity: 0.7;  filter: brightness(0.3) saturate(3) hue-rotate(30deg); }
+    50%  { opacity: 0.9;  filter: brightness(2) contrast(1.5) hue-rotate(-20deg); }
+    70%  { opacity: 0.6;  filter: brightness(0.5); }
+    85%  { opacity: 0.3; }
+    100% { opacity: 0; filter: none; }
+  }
+  body.poseFadeShake canvas {
+    animation: poseFadeShake 0.5s steps(10) forwards;
+  }
+  @keyframes poseFadeShake {
+    0%   { transform: translate(0,0); filter: none; }
+    10%  { transform: translate(-4px, 2px); filter: brightness(2) contrast(2); }
+    25%  { transform: translate(3px, -2px); filter: hue-rotate(40deg) saturate(2); }
+    40%  { transform: translate(-2px, 3px); filter: hue-rotate(-30deg); }
+    60%  { transform: translate(2px, -1px); filter: brightness(0.5); }
+    80%  { transform: translate(-1px, 1px); }
+    100% { transform: translate(0,0); filter: none; }
+  }
 </style>
 </head>
 <body>
@@ -1050,6 +1080,7 @@
 </div>
 
 <div id="glitchOverlay"></div>
+<div id="poseTransitionOverlay"></div>
 <div id="endFadeOverlay" style="position:fixed;inset:0;z-index:180;background:#000;opacity:0;pointer-events:none;transition:opacity 3s ease-in;"></div>
 
 <div id="hidePhaseOverlay" class="hidden">
@@ -2262,6 +2293,20 @@ function processGlb(gltf, poseName) {
   return glb;
 }
 
+// 포즈 전환 치지직 효과
+function triggerPoseTransitionEffect() {
+  const ov = document.getElementById('poseTransitionOverlay');
+  if (!ov) return;
+  ov.classList.remove('active');
+  void ov.offsetWidth;
+  ov.classList.add('active');
+  document.body.classList.add('poseFadeShake');
+  setTimeout(() => {
+    ov.classList.remove('active');
+    document.body.classList.remove('poseFadeShake');
+  }, 500);
+}
+
 // 포즈 전환
 function switchPose(poseName) {
   if (!poseModels[poseName]) { console.warn('포즈 없음:', poseName); return; }
@@ -2280,6 +2325,8 @@ function switchPose(poseName) {
     if (o.isMesh) characterMeshes.push(o);
   });
   console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
+  // 게임 중 R 키로 전환할 때만 효과 (로딩 초기화 때는 스킵)
+  if (currentScreen === 'game') triggerPoseTransitionEffect();
 }
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -3055,13 +3102,9 @@ function renderVoteMaps(room) {
       d.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!myUid || !myRoomId) return;
-        // 이미 같은 맵에 투표했으면 무시
-        const cur = players[myUid]?.vote;
+        // 이미 같은 맵에 투표했으면 무시 (투표수 중복 방지)
+        const cur = _cachedRoom?.players?.[myUid]?.vote;
         if (String(cur) === String(it.i)) return;
-        // 연속 투표 스팸 방지
-        const now = Date.now();
-        if (now - _lastVoteTime < VOTE_COOLDOWN) return;
-        _lastVoteTime = now;
         console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
         try {
           await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(it.i) });
