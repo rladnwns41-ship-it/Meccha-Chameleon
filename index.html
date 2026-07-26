@@ -3462,7 +3462,7 @@ function getGroundHeight(x, z) {
 
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
-const PR = 0.55;
+const PR = 0.25; // ★ 충돌 반경 축소 (0.55→0.25): 벽에 더 가까이 붙을 수 있게
 function tryMove(dx, dz) {
   // ★ 최적화: collidableMeshes 없으면 raycast 스킵
   const hasColl = collidableMeshes.length > 0;
@@ -3471,7 +3471,7 @@ function tryMove(dx, dz) {
     if (d < 0.0001) return true;
     if (!hasColl) return true;
     rd.set(mx, 0, mz).normalize();
-    ro.set(player.position.x, player.position.y+0.9, player.position.z);
+    ro.set(player.position.x, player.position.y+0.5, player.position.z);
     rc.set(ro, rd); rc.far = d + PR;
     if (rc.intersectObjects(collidableMeshes, false).length) return false;
     return true;
