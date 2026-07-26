@@ -3411,6 +3411,7 @@ const _wallDirs = [
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
 ];
 function checkNearWall() {
+  if (!collidableMeshes || !collidableMeshes.length) return false;
   _wallOrigin.set(player.position.x, player.position.y + 1.0, player.position.z);
   for (const d of _wallDirs) {
     wallRc.set(_wallOrigin, d);
@@ -3445,9 +3446,11 @@ const downV = new THREE.Vector3(0,-1,0);
 const _groundOrigin = new THREE.Vector3();
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
-  _groundOrigin.set(x, 200, z);
+  // ★ 최적화: ray 시작점을 플레이어 바로 위로 단축 (200→player.y+6) → far도 단축
+  const _rayStartY = player.position.y + 6;
+  _groundOrigin.set(x, _rayStartY, z);
   groundRay.set(_groundOrigin, downV);
-  groundRay.far = 400;
+  groundRay.far = _rayStartY + 5;
   const hits = groundRay.intersectObjects(_groundAndCollidable, false);
   if (!hits.length) return 0;
   const maxAllowed = player.position.y + 1.0;
@@ -3876,23 +3879,28 @@ function startFirebaseSync(room) {
       if (el) el.textContent = Object.keys(val).length;
     });
 
-    // 100ms마다 내 상태 업데이트 (변화 없으면 스킵 - 대회용 write 절감)
+    // ★ 최적화: 움직일 때 100ms, 정지 시 500ms 주기로 전송 (Firebase write 절감)
     let _lastSyncX = null, _lastSyncY = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null, _lastSyncStuck = null;
+    let _lastSyncTime = 0;
     setInterval(() => {
       if (!myRef) return;
+      const now = Date.now();
       const px = +player.position.x.toFixed(1);
       const py = +player.position.y.toFixed(1);
       const pz = +player.position.z.toFixed(1);
       const pr = +player.rotation.y.toFixed(1);
-      const stuck = window._myStuck ? 1 : 0; // 캐시 재사용
-      if (_lastSyncX !== null &&
-          Math.abs(px - _lastSyncX) < 0.15 &&
-          Math.abs(py - _lastSyncY) < 0.15 &&
-          Math.abs(pz - _lastSyncZ) < 0.15 &&
-          Math.abs(pr - _lastSyncR) < 0.1 &&
-          currentPose === _lastSyncPose &&
-          stuck === _lastSyncStuck) return;
-      _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck;
+      const stuck = window._myStuck ? 1 : 0;
+      const moved = _lastSyncX === null ||
+          Math.abs(px - _lastSyncX) >= 0.15 ||
+          Math.abs(py - _lastSyncY) >= 0.15 ||
+          Math.abs(pz - _lastSyncZ) >= 0.15 ||
+          Math.abs(pr - _lastSyncR) >= 0.1 ||
+          currentPose !== _lastSyncPose ||
+          stuck !== _lastSyncStuck;
+      // 움직임 있으면 100ms, 없으면 500ms 주기
+      const minInterval = moved ? 100 : 500;
+      if (!moved && now - _lastSyncTime < minInterval) return;
+      _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck; _lastSyncTime = now;
       set(myRef, {
         x: px,
         y: py,
@@ -3902,7 +3910,7 @@ function startFirebaseSync(room) {
         p: currentPose,
         role: myRole,
         stuck,
-        t: Date.now()
+        t: now
       });
     }, 100);
 
@@ -4529,6 +4537,8 @@ function animate() {
   const _frameNow = Date.now(); // 매 프레임 1회만 호출
   if (mixer) mixer.update(dt);
   updateDustBursts(dt);
+  // ★ 최적화: 게임 화면 아닐 때 물리/연산 완전 스킵
+  if (currentScreen !== 'game') return;
   clampPlayerToBounds();
   // 총 부착 watchdog (혹시 안 붙었으면 매 프레임 다시 시도)
   ensureGunAttached();
@@ -4546,9 +4556,12 @@ function animate() {
       const _dz = ot.targetZ - player.position.z;
       const _distSq = _dx*_dx + _dz*_dz;
       if (_distSq > 5625) { // 75*75 = fog 70 + 여유
+        // ★ 최적화: 멀리 있는 플레이어는 위치만 순간이동, visibility off로 렌더 스킵
         ot.group.position.set(ot.targetX, ot.targetY, ot.targetZ);
         ot.group.rotation.y = ot.targetR;
+        if (ot.group.visible) ot.group.visible = false;
       } else {
+        if (!ot.group.visible) ot.group.visible = true;
       ot.group.position.x += (ot.targetX - ot.group.position.x) * 0.15;
       ot.group.position.y += (ot.targetY - ot.group.position.y) * 0.15;
       ot.group.position.z += (ot.targetZ - ot.group.position.z) * 0.15;
