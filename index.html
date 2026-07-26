@@ -4140,6 +4140,12 @@ addEventListener('keydown', e => {
 });
 
 // ================ Animate ================
+let _animRunning = true;
+// ===== 카메라 줌 변수 (animate보다 먼저 선언해야 TDZ 안 남) =====
+let _camZoom = 6;
+const CAM_ZOOM_MIN = 2;
+const CAM_ZOOM_MAX = 20;
+
 function animate() {
   if (!_animRunning) return;
   requestAnimationFrame(animate);
@@ -4307,10 +4313,13 @@ function animate() {
   if (currentScreen === 'game') renderer.render(scene, camera);
 }
 
-// 탭 숨겨지면 렌더 완전 정지
-let _animRunning = true;
+// ===== 마우스 휠 줌 =====
+// (변수 선언은 animate 함수 위로 이동함 - TDZ 방지)
+
+// animate 에서 참조하는 변수들은 모두 위에 선언 완료
 animate();
 
+// 탭 숨겨지면 렌더 완전 정지
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _animRunning = false; }
   else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
@@ -4326,10 +4335,6 @@ addEventListener('resize', () => {
   }, 100);
 });
 
-// ===== 마우스 휠 줌 =====
-let _camZoom = 6; // 기본 카메라 거리 (paintMode 아닐 때)
-const CAM_ZOOM_MIN = 2;
-const CAM_ZOOM_MAX = 20;
 addEventListener('wheel', e => {
   if (currentScreen !== 'game' || paintMode) return;
   e.preventDefault();
