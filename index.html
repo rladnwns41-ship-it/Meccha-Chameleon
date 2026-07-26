@@ -1351,26 +1351,28 @@ function attachGunToPlayer() {
   const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
   cloned.scale.setScalar(s);
-  // ★ pivot 중앙 정렬 - gun.glb 원점이 중심이 아닐 때 대비
+  // pivot 중앙 정렬
+  cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
   const center = new THREE.Vector3(); box.getCenter(center);
+  const size = new THREE.Vector3(); box.getSize(size);
   cloned.position.sub(center);
   cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
       o.frustumCulled = false;
-      // Basic 재질로 라이트 무관하게 항상 보이게
-      o.material = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      o.renderOrder = 10;
+      // 원본 material 유지 (glb 자체 색상/텍스처 살림)
     }
   });
-  // 래퍼로 감싸서 어깨 위치에 배치
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
-  attachedGun.position.set(0.45, 1.2, -0.3);
+  // 캐릭터 몸통 밖으로 확실히 (오른쪽 옆 + 앞으로)
+  attachedGun.position.set(0.7, 1.1, -0.5);
   player.add(attachedGun);
-  const fBox = new THREE.Box3().setFromObject(attachedGun);
-  const fSize = new THREE.Vector3(); fBox.getSize(fSize);
-  console.log('🔫 총 부착 완료, scale:', s.toFixed(3), '최종 크기:', fSize.x.toFixed(2), fSize.y.toFixed(2), fSize.z.toFixed(2));
+  console.log('🔫 총 부착 - scale:', s.toFixed(3),
+              '/ 원본bbox:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2),
+              '/ 위치: 캐릭터 오른쪽 옆');
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1383,6 +1385,7 @@ function attachGunToOther(uid) {
   const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
   cloned.scale.setScalar(s);
+  cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
   const center = new THREE.Vector3(); box.getCenter(center);
   cloned.position.sub(center);
@@ -1390,12 +1393,12 @@ function attachGunToOther(uid) {
     o.visible = true;
     if (o.isMesh) {
       o.frustumCulled = false;
-      o.material = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      o.renderOrder = 10;
     }
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.45, 1.2, -0.3);
+  wrap.position.set(0.7, 1.1, -0.5);
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -2185,6 +2188,7 @@ function switchPose(poseName) {
   if (!poseModels[poseName]) { console.warn('포즈 없음:', poseName); return; }
   currentPose = poseName;
   currentPoseGlb = poseModels[poseName];
+  player._meshes = null;
   // 두 모델 다 씬에 두고 visibility 만 토글 (자연스러운 즉시 전환)
   Object.entries(poseModels).forEach(([name, model]) => {
     if (model) model.visible = (name === poseName);
@@ -3752,6 +3756,7 @@ function startFirebaseSync(room) {
           });
           ot.group.add(clone);
           ot.charMesh = clone;
+          ot._meshes = null; // mesh 캐시 무효화
           ot.currentPose = p.p;
           // 포즈 바뀌어도 술래면 총 유지 (기존 gun은 group에 남아있음 - 안 건드림)
           if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
@@ -3998,7 +4003,7 @@ function animate() {
   const roomNow = _cachedRoom;
   const isEnded = roomNow && roomNow.state === 'ended';
   const aliveMap = roundState?.alive || {};
-  const blinkPhase = (Math.sin(Date.now() * 0.012) + 1) * 0.5; // 0..1 삼각파
+  const blinkPhase = (Math.sin(Date.now() * 0.012) + 1) * 0.5;
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
@@ -4009,35 +4014,37 @@ function animate() {
       let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
       ot.group.rotation.y += nd * 0.15;
     }
-    // 빨간 깜빡임: 벽에 파묻힘 or 라운드 종료 후 생존자
-    const aliveAtEnd = isEnded && aliveMap[uid] !== false;
-    const shouldBlink = ot.stuck === 1 || aliveAtEnd;
-    if (ot.charMesh) {
-      ot.charMesh.traverse(o => {
-        if (o.isMesh && o.material) {
-          if (!o.material.emissive) return;
-          if (shouldBlink) {
-            o.material.emissive.setRGB(blinkPhase * 0.9, 0, 0);
-          } else if (ot._wasBlinking) {
-            o.material.emissive.setRGB(0, 0, 0);
-          }
-        }
-      });
+    const shouldBlink = ot.stuck === 1 || (isEnded && aliveMap[uid] !== false);
+    // idle이고 이전에도 idle이면 아무것도 안 함
+    if (!shouldBlink && !ot._wasBlinking) continue;
+    // mesh 캐시 (traverse 1회만)
+    if (!ot._meshes && ot.charMesh) {
+      ot._meshes = [];
+      ot.charMesh.traverse(o => { if (o.isMesh && o.material && o.material.emissive) ot._meshes.push(o); });
+    }
+    if (ot._meshes) {
+      const r = shouldBlink ? blinkPhase * 0.9 : 0;
+      for (let i = 0; i < ot._meshes.length; i++) ot._meshes[i].material.emissive.setRGB(r, 0, 0);
     }
     ot._wasBlinking = shouldBlink;
   }
-  // 내 캐릭터도 파묻힘/생존 시 깜빡 (본인 뷰에서도 인식되게)
+  // 내 캐릭터 깜빡임 (throttle - isStuckInWall 매프레임 X)
   {
-    const myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
-    const myAliveAtEnd = isEnded && aliveMap[myUid] !== false;
-    const shouldBlinkMe = myStuck || myAliveAtEnd;
-    if (currentPoseGlb) {
-      currentPoseGlb.traverse(o => {
-        if (o.isMesh && o.material && o.material.emissive) {
-          if (shouldBlinkMe) o.material.emissive.setRGB(blinkPhase * 0.9, 0, 0);
-          else if (player._wasBlinking) o.material.emissive.setRGB(0, 0, 0);
-        }
-      });
+    const now = Date.now();
+    if (!window._lastStuckCheck || now - window._lastStuckCheck > 200) {
+      window._lastStuckCheck = now;
+      window._myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
+    }
+    const shouldBlinkMe = window._myStuck || (isEnded && aliveMap[myUid] !== false);
+    if (shouldBlinkMe || player._wasBlinking) {
+      if (!player._meshes && currentPoseGlb) {
+        player._meshes = [];
+        currentPoseGlb.traverse(o => { if (o.isMesh && o.material && o.material.emissive) player._meshes.push(o); });
+      }
+      if (player._meshes) {
+        const r = shouldBlinkMe ? blinkPhase * 0.9 : 0;
+        for (let i = 0; i < player._meshes.length; i++) player._meshes[i].material.emissive.setRGB(r, 0, 0);
+      }
     }
     player._wasBlinking = shouldBlinkMe;
   }
