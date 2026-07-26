@@ -4306,10 +4306,11 @@ function animate() {
   // 게임 화면(인게임)일 때만 렌더
   if (currentScreen === 'game') renderer.render(scene, camera);
 }
-animate();
 
 // 탭 숨겨지면 렌더 완전 정지
 let _animRunning = true;
+animate();
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _animRunning = false; }
   else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
