@@ -513,6 +513,7 @@
   }
   .voteMap:nth-child(2) { animation-delay:.08s; }
   .voteMap:nth-child(3) { animation-delay:.16s; }
+  .voteMap:nth-child(4) { animation-delay:.24s; }
   .voteMap:hover {
     border-color:var(--green); transform:translateY(-8px) scale(1.03);
     box-shadow:0 16px 0 rgba(0,0,0,0.25), 0 0 30px rgba(62,207,108,0.2);
@@ -760,7 +761,7 @@
   #hidePhaseOverlay {
     position:fixed; inset:0; z-index:60;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:rgba(18,22,34,0.7); backdrop-filter:blur(4px);
+    background:rgba(0,0,0,1);
     color:var(--text); pointer-events:none;
   }
   #hidePhaseOverlay.hidden { display:none !important; }
@@ -1202,7 +1203,6 @@ const renderer = new THREE.WebGLRenderer({
   stencil: false,
   precision: 'mediump'
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
 // 대회 모드: 전 기기 픽셀 비율 0.75 고정 (GPU 부하 최소화)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio * 0.75, 0.75));
 renderer.setSize(innerWidth, innerHeight);
@@ -1517,64 +1517,10 @@ function diffRender(container, items, getKey, buildNode, updateNode) {
 }
 
 // ============ 채팅 ============
-let _chatUnsub = null;
-window._chatTyping = false;
-function initChat() {
-  if (!myRoomId) return;
-  const box = document.getElementById('chatBox');
-  const msgs = document.getElementById('chatMsgs');
-  const input = document.getElementById('chatInput');
-  if (!box || !msgs || !input) return;
-  box.style.display = 'block';
-  msgs.innerHTML = '';
-  // 이전 구독 해제
-  if (_chatUnsub) { _chatUnsub(); _chatUnsub = null; }
-  const chatRef = query(ref(fbDb, `rooms/${myRoomId}/chat`), limitToLast(30));
-  _chatUnsub = onValue(chatRef, snap => {
-    const all = snap.val() || {};
-    const arr = Object.values(all).sort((a,b) => (a.t||0) - (b.t||0));
-    msgs.innerHTML = arr.map(m => {
-      const mine = m.uid === myUid;
-      const nick = String(m.nick || '???').replace(/</g,'&lt;');
-      const txt  = String(m.text || '').replace(/</g,'&lt;');
-      const color = mine ? '#ffe066' : '#8ecfff';
-      return `<div><span style="color:${color};font-weight:700">${nick}:</span> ${txt}</div>`;
-    }).join('');
-    msgs.scrollTop = msgs.scrollHeight;
-  });
-  input.onkeydown = async (e) => {
-    if (e.key === 'Escape') { input.blur(); e.stopPropagation(); return; }
-    if (e.key !== 'Enter') return;
-    e.stopPropagation();
-    const text = input.value.trim();
-    input.value = '';
-    if (!text || !myRoomId) { input.blur(); return; }
-    try {
-      await push(ref(fbDb, `rooms/${myRoomId}/chat`), {
-        uid: myUid, nick: myNick, text, t: Date.now()
-      });
-    } catch (err) { console.warn('채팅 전송 실패:', err); }
-    input.blur();
-  };
-  input.onfocus = () => { window._chatTyping = true; };
-  input.onblur  = () => { window._chatTyping = false; };
-}
-function closeChat() {
-  if (_chatUnsub) { _chatUnsub(); _chatUnsub = null; }
-  const box = document.getElementById('chatBox');
-  if (box) box.style.display = 'none';
-  window._chatTyping = false;
-}
-// Enter 키로 채팅 포커스
-window.addEventListener('keydown', (e) => {
-  if (window._chatTyping) return;
-  if (e.key !== 'Enter') return;
-  const input = document.getElementById('chatInput');
-  if (input && input.offsetParent !== null) {
-    e.preventDefault();
-    input.focus();
-  }
-}, true);
+// 채팅 시스템은 startFirebaseSync → subscribeChat 에서 일괄 처리
+// initChat/closeChat 은 하위 호환 스텁으로만 유지 (enterRoom 등에서 호출되므로)
+function initChat() { /* 채팅 구독은 startFirebaseSync 내 subscribeChat이 담당 */ }
+function closeChat() { unsubscribeChat(); }
 
 // 역할 전환 - 총만 붙였다 뗐다 (모델은 동일)
 function setRole(role) {
@@ -1607,6 +1553,30 @@ let _cachedRoom = null;
 let _lastPlayerCount = 0;
 
 // 방 데이터는 subscribeRoom의 onValue에서 _cachedRoom으로 캐시됨
+
+// ★ 전체 방 자동 정리 (방에 들어가지 않아도 오래된/빈 방 삭제)
+// 방 목록 화면에서도 주기적으로 실행
+setInterval(async () => {
+  if (!myUid) return;
+  if (currentScreen !== 'rooms') return; // 방 목록 화면에서만
+  try {
+    const { get: _g } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js");
+    const snap = await _g(ref(fbDb, 'rooms'));
+    const data = snap.val() || {};
+    for (const [rid, room] of Object.entries(data)) {
+      if (!room) continue;
+      const count = Object.keys(room.players || {}).length;
+      const age = room.createdAt ? Date.now() - room.createdAt : 0;
+      if (count === 0 || age > 10 * 60 * 1000) {
+        // 방장이거나 빈 방이면 삭제
+        if (room.hostUid === myUid || count === 0) {
+          await remove(ref(fbDb, `rooms/${rid}`));
+          console.log('🧹 자동 방 삭제:', rid, count === 0 ? '빈방' : '10분초과');
+        }
+      }
+    }
+  } catch(e) {}
+}, 30000); // 30초마다
 
 let _hostTickRunning = false;
 let _prevTickState = null;
@@ -2074,11 +2044,78 @@ function checkAliveTransitions(rs) {
   if (attachedGun) attachedGun.visible = !iAmDead;
 }
 
+// ============ 관전 시스템 ============
+let spectatorMode = false;
+let spectatorTargetUid = null; // 관전 중인 uid
+let _spectatorBtn = null;
+
 function onIDied() {
-  document.getElementById('deathScreen').classList.remove('hidden');
-  console.log('💀 내가 죽음');
-  setTimeout(() => document.getElementById('deathScreen').classList.add('hidden'), 3000);
+  console.log('💀 내가 죽음 → 관전 전환');
+  // 3초 후 관전 모드로 전환
+  const ds = document.getElementById('deathScreen');
+  ds.classList.remove('hidden');
+  setTimeout(() => {
+    ds.classList.add('hidden');
+    enterSpectatorMode();
+  }, 3000);
 }
+
+function enterSpectatorMode() {
+  spectatorMode = true;
+  // 살아있는 hider 목록에서 첫 번째 타겟
+  const aliveMap = roundState?.alive || {};
+  const seekerUid = _cachedRoom?.seekerUid;
+  const alivePlayers = Object.keys(otherPlayers).filter(uid => aliveMap[uid] !== false && uid !== seekerUid);
+  spectatorTargetUid = alivePlayers.length > 0 ? alivePlayers[0] : (seekerUid || null);
+  // 관전 HUD 표시
+  showSpectatorHUD();
+  console.log('👁 관전 시작:', spectatorTargetUid);
+}
+
+function showSpectatorHUD() {
+  let hud = document.getElementById('spectatorHUD');
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'spectatorHUD';
+    hud.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,0,0,0.7);color:#fff;padding:10px 24px;border-radius:20px;font-family:Nunito,sans-serif;font-weight:800;font-size:14px;pointer-events:none;text-align:center;border:2px solid rgba(255,255,255,0.2);';
+    document.body.appendChild(hud);
+  }
+  hud.style.display = 'block';
+  const nick = spectatorTargetUid ? (otherPlayers[spectatorTargetUid]?.charMesh ? '?' : '?') : '없음';
+  // 닉은 Firebase에서 가져오기
+  const playerNick = _cachedRoom?.players?.[spectatorTargetUid]?.nick || spectatorTargetUid?.slice(0,6) || '없음';
+  hud.textContent = `👁 관전 중: ${playerNick} | 좌클릭/우클릭으로 전환`;
+}
+
+function exitSpectatorMode() {
+  spectatorMode = false;
+  spectatorTargetUid = null;
+  const hud = document.getElementById('spectatorHUD');
+  if (hud) hud.style.display = 'none';
+}
+
+function spectatorNext(dir) {
+  if (!spectatorMode) return;
+  const aliveMap = roundState?.alive || {};
+  const allUids = Object.keys(otherPlayers).filter(uid => aliveMap[uid] !== false);
+  if (!allUids.length) return;
+  const idx = allUids.indexOf(spectatorTargetUid);
+  let next = (idx + dir + allUids.length) % allUids.length;
+  spectatorTargetUid = allUids[next];
+  showSpectatorHUD();
+  console.log('👁 관전 전환:', spectatorTargetUid);
+}
+
+// 마우스 클릭으로 관전 전환
+document.addEventListener('mousedown', e => {
+  if (!spectatorMode) return;
+  if (e.button === 0) spectatorNext(1);  // 좌클릭: 다음
+  else if (e.button === 2) spectatorNext(-1); // 우클릭: 이전
+});
+// 우클릭 메뉴 막기 (관전 중)
+document.addEventListener('contextmenu', e => {
+  if (spectatorMode) e.preventDefault();
+});
 
 // endRound 제거 - host tick 이 관리
 
@@ -2122,6 +2159,17 @@ async function showScoreboard() {
 document.getElementById('backToLobbyBtn').addEventListener('click', async () => {
   // ★ 모든 클라이언트가 자기 맵 리셋 (그래야 다음 라운드 새 맵 로드됨)
   resetMap();
+  // ★ 관전 모드 리셋
+  exitSpectatorMode();
+  // ★ 생존/점수 리셋
+  myAlive = true;
+  myScore = 0;
+  roundState = { phase: 'idle', startedAt: 0, endsAt: 0 };
+  inHidePhase = false;
+  syncStarted = false; // 다음 게임에서 재등록 허용
+  if (scoreTimer) { clearInterval(scoreTimer); scoreTimer = null; }
+  // prevAlive 리셋
+  Object.keys(_prevAlive).forEach(k => delete _prevAlive[k]);
   // 방장이 상태 리셋
   if (await uid_is_host_by_id(myRoomId)) {
     await update(ref(fbDb, `rooms/${myRoomId}`), {
@@ -2134,7 +2182,11 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       hidePhaseCountdown: null,
       selectedMap: null,
       seekerUid: null,
-      startRequested: null  // 다음 라운드 위해 리셋
+      startRequested: null,  // 다음 라운드 위해 리셋
+      catches: null,         // 잡기 수 리셋
+      decoys: null,          // 분신 리셋
+      whistles: null,        // 휘슬 리셋
+      paint: null            // 페인트 리셋
     });
     // 플레이어들 vote 리셋
     const s = await get(ref(fbDb, `rooms/${myRoomId}/players`));
@@ -2215,16 +2267,18 @@ function switchPose(poseName) {
   currentPose = poseName;
   currentPoseGlb = poseModels[poseName];
   player._meshes = null;
-  // 두 모델 다 씬에 두고 visibility 만 토글 (자연스러운 즉시 전환)
+  // ★ 죽었으면 모든 포즈 숨김 유지 (포즈 바꿔도 보이면 안 됨)
+  const iAmDead = roundState?.alive?.[myUid] === false;
   Object.entries(poseModels).forEach(([name, model]) => {
-    if (model) model.visible = (name === poseName);
+    if (model) model.visible = !iAmDead && (name === poseName);
   });
+  if (attachedGun) attachedGun.visible = !iAmDead;
   // characterMeshes 갱신
   characterMeshes = [];
   currentPoseGlb.traverse(o => {
     if (o.isMesh) characterMeshes.push(o);
   });
-  console.log('👤 포즈 전환:', poseName, '/ 보이는 mesh 수:', characterMeshes.length);
+  console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
 }
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -2268,24 +2322,117 @@ let mixer = null;
 const clock = new THREE.Clock();
 
 // ==== 맵 시스템 (투표로 선택) ====
+// ★ 폴리곤 맵 생성 함수 (Three.js 프로시저럴)
+function buildPolygonMap(type) {
+  const group = new THREE.Group();
+  const meshes = [];
+  if (type === 'arena') {
+    // 팔각형 아레나: 중앙 광장 + 기둥 8개 + 경사로 4개
+    const floorGeo = new THREE.CylinderGeometry(40, 40, 0.5, 8);
+    const floorMat = new THREE.MeshLambertMaterial({ color: 0x5a4a3a });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.y = -0.25;
+    group.add(floor); meshes.push(floor);
+    // 외벽 (팔각형)
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const wallGeo = new THREE.BoxGeometry(10, 8, 1.2);
+      const wallMat = new THREE.MeshLambertMaterial({ color: 0x7a6a5a });
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(Math.sin(a)*38, 4, Math.cos(a)*38);
+      wall.rotation.y = -a;
+      group.add(wall); meshes.push(wall);
+    }
+    // 중앙 기둥들
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const pillarGeo = new THREE.CylinderGeometry(1.2, 1.2, 10, 6);
+      const pillarMat = new THREE.MeshLambertMaterial({ color: 0x9a8070 });
+      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+      pillar.position.set(Math.sin(a)*20, 5, Math.cos(a)*20);
+      group.add(pillar); meshes.push(pillar);
+    }
+    // 계단 플랫폼 4개
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI/4;
+      const platGeo = new THREE.BoxGeometry(8, 0.5, 8);
+      const platMat = new THREE.MeshLambertMaterial({ color: 0x6a5a4a });
+      const plat = new THREE.Mesh(platGeo, platMat);
+      plat.position.set(Math.sin(a)*12, 3, Math.cos(a)*12);
+      group.add(plat); meshes.push(plat);
+      // 계단
+      for (let s = 0; s < 3; s++) {
+        const stepGeo = new THREE.BoxGeometry(8, 0.5, 2);
+        const step = new THREE.Mesh(stepGeo, platMat.clone());
+        step.position.set(Math.sin(a)*12, s*1, Math.cos(a)*12 + Math.cos(a)*((3-s)*1.5));
+        group.add(step); meshes.push(step);
+      }
+    }
+    // 중앙 오벨리스크
+    const obGeo = new THREE.CylinderGeometry(0.5, 1.5, 12, 4);
+    const obMat = new THREE.MeshLambertMaterial({ color: 0xc0a080 });
+    const ob = new THREE.Mesh(obGeo, obMat);
+    ob.position.set(0, 6, 0);
+    group.add(ob); meshes.push(ob);
+  } else if (type === 'maze') {
+    // 미로: 격자형 벽 + 비어있는 경로
+    const floorGeo = new THREE.BoxGeometry(80, 0.5, 80);
+    const floorMat = new THREE.MeshLambertMaterial({ color: 0x3a4a3a });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.y = -0.25;
+    group.add(floor); meshes.push(floor);
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0x2a5a2a });
+    // 미로 레이아웃 (1=벽)
+    const layout = [
+      [1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,1,0,0,0,0,1],
+      [1,0,1,0,1,0,1,1,0,1],
+      [1,0,1,0,0,0,1,0,0,1],
+      [1,0,1,1,1,0,1,0,1,1],
+      [1,0,0,0,1,0,0,0,1,1],
+      [1,1,1,0,1,1,1,0,1,1],
+      [1,0,0,0,0,0,1,0,0,1],
+      [1,0,1,1,1,0,0,1,0,1],
+      [1,1,1,1,1,1,1,1,1,1],
+    ];
+    const cell = 8, wh = 6;
+    const off = -(layout.length * cell) / 2;
+    for (let r = 0; r < layout.length; r++) {
+      for (let c = 0; c < layout[r].length; c++) {
+        if (!layout[r][c]) continue;
+        const wGeo = new THREE.BoxGeometry(cell, wh, cell);
+        const wall = new THREE.Mesh(wGeo, wallMat.clone());
+        wall.position.set(off + c*cell + cell/2, wh/2, off + r*cell + cell/2);
+        group.add(wall); meshes.push(wall);
+      }
+    }
+    // 미로 내 장애물/숨을 곳 블록들
+    const boxes = [[2,2],[5,3],[7,5],[3,7],[6,7],[4,5]];
+    const boxMat = new THREE.MeshLambertMaterial({ color: 0x4a7a4a });
+    for (const [bc, br] of boxes) {
+      const bGeo = new THREE.BoxGeometry(3, 3, 3);
+      const box = new THREE.Mesh(bGeo, boxMat.clone());
+      box.position.set(off + bc*cell + cell/2, 1.5, off + br*cell + cell/2);
+      group.add(box); meshes.push(box);
+    }
+  }
+  return { group, meshes };
+}
+
 const MAPS = [
   {
     name: '도쿄 뒷골목',
     url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
     scale: 0.18,
-    hasWalls: false
+    hasWalls: false,
+    procedural: false
   },
   {
     name: 'Sponza 궁전',
     url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Sponza/glTF/Sponza.gltf',
     scale: 3,
-    hasWalls: true
-  },
-  {
-    name: '백룸',
-    url: './original_backrooms.glb',
-    scale: 4,
-    hasWalls: true
+    hasWalls: true,
+    procedural: false
   },
 ];
 let selectedMap = MAPS[0];
@@ -2350,6 +2497,43 @@ function loadSelectedMap(mapIdx) {
   selectedMap = MAPS[mapIdx] || MAPS[0];
   console.log('🗺️ 맵 로딩:', selectedMap.name);
   document.getElementById('mapName').textContent = selectedMap.name;
+
+  // 프로시저럴 맵 처리
+  if (selectedMap.procedural) {
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('loading').querySelector('.loading-title').textContent = selectedMap.name + ' 생성 중...';
+    document.getElementById('barFill').style.width = '80%';
+    const { group, meshes } = buildPolygonMap(selectedMap.type);
+    scene.add(group);
+    _currentMapModel = group;
+    meshes.forEach(o => {
+      if (o.geometry) {
+        try { o.geometry.boundsTree = new MeshBVH(o.geometry); o.raycast = acceleratedRaycast; } catch(e){}
+      }
+      collidableMeshes.push(o);
+    });
+    _groundAndCollidable.length = 0;
+    _groundAndCollidable.push(...collidableMeshes);
+    // 경계 설정
+    const finalBox = new THREE.Box3().setFromObject(group);
+    const size = new THREE.Vector3(); finalBox.getSize(size);
+    const center = new THREE.Vector3(); finalBox.getCenter(center);
+    const halfX = (size.x / 2) * 0.85;
+    const halfZ = (size.z / 2) * 0.85;
+    worldBounds = { minX: center.x - halfX, maxX: center.x + halfX, minZ: center.z - halfZ, maxZ: center.z + halfZ };
+    // 스폰
+    player.position.set(center.x, 5, center.z);
+    velocityY = 0; isGrounded = false;
+    ground.visible = false;
+    ground.position.y = -1000;
+    ambientLight.intensity = 1.2;
+    hemiLight.intensity = 1.0;
+    document.getElementById('barFill').style.width = '100%';
+    document.getElementById('pct').textContent = '100%';
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 300);
+    return;
+  }
+
   document.getElementById('loading').classList.remove('hidden');
   document.getElementById('loading').querySelector('.loading-title').textContent = selectedMap.name + ' 불러오는 중...';
 
@@ -2422,10 +2606,7 @@ gltfLoader.load(
       _currentMapLights.push(indoorLight);  // ★ 리셋용 트래킹
     }
 
-    // 백룸 맵 여부 (지붕 위 스폰 방지용 특별 처리)
-    const isBackrooms = selectedMap.name === '백룸';
-
-    // 스폰 찾기
+    // 스폰 찾기 (지붕 위 스폰 방지 - 머리 위 최소 3유닛 여유 필요)
     const spawnCandidates = [];
     const R = Math.min(halfX, halfZ) * 0.6;
     for (let dx=-R; dx<=R; dx+=3) for (let dz=-R; dz<=R; dz+=3) spawnCandidates.push([center.x+dx, center.z+dz]);
@@ -2436,34 +2617,14 @@ gltfLoader.load(
       sray.far = 600;
       const hits = sray.intersectObjects(collidableMeshes, false);
       if (!hits.length) continue;
-
-      let topY, clear;
-      if (isBackrooms) {
-        // 백룸만: 위에 천장 있는 hit(=실내 바닥) 찾기, 지붕 위 스폰 방지
-        let found = false;
-        for (let i = 0; i < hits.length; i++) {
-          const y = hits[i].point.y;
-          const upray = new THREE.Raycaster();
-          upray.set(new THREE.Vector3(sx, y+0.5, sz), new THREE.Vector3(0,1,0));
-          upray.far = 30;
-          const uphits = upray.intersectObjects(collidableMeshes, false);
-          const c = uphits.length ? uphits[0].distance : 999;
-          if (c >= 1.8 && c <= 20) {
-            topY = y; clear = c; found = true; break;
-          }
-        }
-        if (!found) continue; // 실내 바닥 못 찾음 = 이 위치 스킵
-      } else {
-        // Sponza / 도쿄 등 기존 로직 그대로
-        topY = hits[0].point.y;
-        const upray = new THREE.Raycaster();
-        upray.set(new THREE.Vector3(sx, topY+0.5, sz), new THREE.Vector3(0,1,0));
-        upray.far = 30;
-        const uphits = upray.intersectObjects(collidableMeshes, false);
-        clear = uphits.length ? uphits[0].distance : 999;
-        if (clear < 3) continue;
-      }
-
+      // Sponza / 도쿄: 가장 위 hit 기준, 머리 위 여유 확인
+      const topY = hits[0].point.y;
+      const upray = new THREE.Raycaster();
+      upray.set(new THREE.Vector3(sx, topY+0.5, sz), new THREE.Vector3(0,1,0));
+      upray.far = 30;
+      const uphits = upray.intersectObjects(collidableMeshes, false);
+      const clear = uphits.length ? uphits[0].distance : 999;
+      if (clear < 3) continue;
       const score = -topY + clear * 0.1;
       if (score > bestScore) { bestScore = score; best = {x:sx, y:topY+0.05, z:sz}; }
     }
@@ -2862,11 +3023,17 @@ function startVotingUI(room) {
 function renderVoteMaps(room) {
   const box = document.getElementById('voteMaps');
   const players = room.players || {};
+  // ★ 투표 중복 방지: uid당 1표만 카운트 (각 uid의 마지막 투표만)
   const votes = {};
-  Object.values(players).forEach(p => {
-    if (p.vote != null) votes[p.vote] = (votes[p.vote] || 0) + 1;
+  const votedUids = new Set();
+  Object.entries(players).forEach(([uid, p]) => {
+    if (p.vote != null && !votedUids.has(uid)) {
+      votedUids.add(uid);
+      votes[p.vote] = (votes[p.vote] || 0) + 1;
+    }
   });
   const myVote = players[myUid]?.vote;
+  const MAP_ICONS = ['🏙️', '🏛️'];
   diffRender(
     box,
     MAPS.map((m, i) => ({ m, i })),
@@ -2874,17 +3041,21 @@ function renderVoteMaps(room) {
     it => {
       const d = document.createElement('div');
       d.className = 'voteMap';
-      const mapFallback = it.i === 0 ? '🏙️' : (it.i === 1 ? '🏛️' : '🚪');
+      const icon = MAP_ICONS[it.i] || '🗺️';
       d.innerHTML = `
-        <div class="map-icon"><span style="font-size:30px;">${mapFallback}</span></div>
+        <div class="map-icon"><span style="font-size:30px;">${icon}</span></div>
         <div class="mapName"></div>
         <div class="voteCount"></div>
       `;
       d.style.pointerEvents = 'auto';
+      // ★ 이미 투표된 상태면 중복 클릭 무시
       d.addEventListener('click', async (e) => {
         e.stopPropagation();
-        console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
         if (!myUid || !myRoomId) return;
+        // 이미 같은 맵에 투표했으면 무시
+        const cur = players[myUid]?.vote;
+        if (String(cur) === String(it.i)) return;
+        console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
         try {
           await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(it.i) });
         } catch(err) { console.error('❌ 투표 실패:', err); }
@@ -2895,7 +3066,9 @@ function renderVoteMaps(room) {
       const name = el.querySelector('.mapName');
       const cnt = el.querySelector('.voteCount');
       if (name.textContent !== it.m.name) name.textContent = it.m.name;
-      const cntTxt = (votes[it.i] || 0) + ' 표';
+      // ★ 실제 득표 수 표시 (1명=1표 보장됨)
+      const voteNum = votes[String(it.i)] || 0;
+      const cntTxt = voteNum + ' 표';
       if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
       const voted = String(myVote) === String(it.i);
       if (el.classList.contains('voted') !== voted) {
@@ -3018,6 +3191,8 @@ async function startGame(room) {
   document.getElementById('hudShootHint').style.display = myRole === 'seeker' ? 'inline' : 'none';
   // 라운드 시작 시 x-ray 복원 (이전 라운드 ended 상태 잔재 제거)
   resetXray();
+  // ★ 관전 모드 리셋
+  exitSpectatorMode();
   // 라운드 시작 시 stand 포즈 강제 (crouch 잔재 없애기)
   currentPose = 'stand';
   if (poseModels.stand) switchPose('stand');
@@ -4337,8 +4512,8 @@ function animate() {
     player._wasBlinking = shouldBlinkMe;
   }
 
-  // 입력 - 숨는 시간에 술래는 움직임 금지
-  const canMove = !paintMode && !(inHidePhase && myRole === 'seeker');
+  // 입력 - 숨는 시간에 술래는 움직임 금지, 관전 중엔 아무도 못 움직임
+  const canMove = !paintMode && !(inHidePhase && myRole === 'seeker') && !spectatorMode;
   if (canMove) {
     const running = keys['ShiftLeft'] || keys['ShiftRight'];
     const speed = (running ? 22 : 10) * dt;
@@ -4396,16 +4571,67 @@ function animate() {
     cachedGroundY = null;
   }
 
+  // ★ 끼임 자동 탈출: 오래 끼어있으면 위로 순간이동
+  if (!window._stuckSince) window._stuckSince = 0;
+  if (window._myStuck) {
+    if (!window._stuckSince) window._stuckSince = _frameNow;
+    else if (_frameNow - window._stuckSince > 2000) {
+      // 2초 이상 끼임 → 위로 탈출
+      player.position.y += 3;
+      velocityY = 5;
+      cachedGroundY = null;
+      window._stuckSince = 0;
+      console.warn('🚨 끼임 탈출 → 위로 이동');
+    }
+  } else {
+    window._stuckSince = 0;
+  }
+
+  // 카메라 - 관전 모드면 타겟 플레이어 따라가기
+  if (spectatorMode && spectatorTargetUid && otherPlayers[spectatorTargetUid]) {
+    const tgt = otherPlayers[spectatorTargetUid];
+    const tx = tgt.group.position.x, ty = tgt.group.position.y, tz = tgt.group.position.z;
+    const tHeadY = 1.55;
+    const camDist = _camZoom;
+    const focusY = ty + tHeadY;
+    const hd = camDist * Math.cos(cameraPitch);
+    const vo = camDist * Math.sin(cameraPitch);
+    camera.position.x = tx + Math.sin(cameraYaw) * hd;
+    camera.position.z = tz + Math.cos(cameraYaw) * hd;
+    camera.position.y = Math.max(0.5, focusY + vo);
+    camera.lookAt(tx, focusY - 0.3, tz);
+  } else {
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
   const headY = poseHeadY[currentPose] || 1.5;
   const camDist = paintMode ? 4 : _camZoom;
   const focusY = player.position.y + headY;
   const hd = camDist * Math.cos(cameraPitch);
   const vo = camDist * Math.sin(cameraPitch);
-  camera.position.x = player.position.x + Math.sin(cameraYaw) * hd;
-  camera.position.z = player.position.z + Math.cos(cameraYaw) * hd;
-  camera.position.y = Math.max(0.5, focusY + vo);
+  const idealCamX = player.position.x + Math.sin(cameraYaw) * hd;
+  const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
+  const idealCamY = Math.max(0.5, focusY + vo);
+
+  // ★ 카메라-플레이어 사이 벽 체크 (카메라가 벽 안에 들어가지 않게)
+  if (collidableMeshes.length > 0) {
+    const _camFocusPt = new THREE.Vector3(player.position.x, focusY, player.position.z);
+    const _idealCamPt = new THREE.Vector3(idealCamX, idealCamY, idealCamZ);
+    const _camToFocus = new THREE.Vector3().subVectors(_camFocusPt, _idealCamPt).normalize();
+    const _camDist = _idealCamPt.distanceTo(_camFocusPt);
+    const _camRc = new THREE.Raycaster(_idealCamPt, _camToFocus, 0, _camDist + 0.5);
+    const _camHits = _camRc.intersectObjects(collidableMeshes, false);
+    if (_camHits.length > 0) {
+      // 벽에 부딪혔으면 카메라를 벽 앞으로 당김
+      const hitDist = _camHits[0].distance;
+      const pullDist = Math.max(0.3, hitDist - 0.4);
+      camera.position.copy(_idealCamPt).addScaledVector(_camToFocus, pullDist);
+    } else {
+      camera.position.set(idealCamX, idealCamY, idealCamZ);
+    }
+  } else {
+    camera.position.set(idealCamX, idealCamY, idealCamZ);
+  }
   camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
+  }
 
   // 게임 화면(인게임)일 때만 렌더
   if (currentScreen === 'game') renderer.render(scene, camera);
