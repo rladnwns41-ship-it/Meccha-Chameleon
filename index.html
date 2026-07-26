@@ -1007,7 +1007,7 @@
       <h2 id="lobbyName" class="lobby-title">대기실</h2>
       <div class="lobby-badge">
         <span class="dot-green"></span>
-        <span id="lobbyPlayerCount">1</span>/5명
+        <span id="lobbyPlayerCount">1</span>/10명
       </div>
     </div>
     <div id="lobbyCountdown"></div>
@@ -1194,19 +1194,26 @@ signInAnonymously(fbAuth)
 
 // ================ Scene ================
 const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference:'high-performance' });
+const renderer = new THREE.WebGLRenderer({
+  antialias: false,
+  powerPreference: 'high-performance',
+  stencil: false,
+  precision: 'mediump'
+});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
+// 대회 모드: 전 기기 픽셀 비율 0.75 고정 (GPU 부하 최소화)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio * 0.75, 0.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.2, 120);
 
 // 배경 단색 (Sky 셰이더 렉 원인 제거)
 scene.background = new THREE.Color(0x8bb8d0);
-scene.fog = new THREE.Fog(0x8bb8d0, 60, 160);
+scene.fog = new THREE.Fog(0x8bb8d0, 30, 70);
 
 // Lights - 단순화 (그림자 끔)
 const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
@@ -1600,6 +1607,7 @@ let _lastPlayerCount = 0;
 // 방 데이터는 subscribeRoom의 onValue에서 _cachedRoom으로 캐시됨
 
 let _hostTickRunning = false;
+let _prevTickState = null;
 setInterval(async () => {
   if (_hostTickRunning) return;
   if (!myRoomId || !myUid || !_cachedRoom) return;
@@ -1624,6 +1632,7 @@ setInterval(async () => {
     
     if (state === 'lobby') {
       if (count < 2) {
+        // 이미 null이면 Firebase 쓰기 스킵 (불필요한 write 제거)
         if (room.countdown != null) await update(roomRef, { countdown: null });
         _lastPlayerCount = count;
         return;
@@ -1800,8 +1809,8 @@ function startRoundTimer() {
     myScore += bonus;
     document.getElementById('myScore').textContent = myScore;
     _scoreTick++;
-    // 5틱(5초)마다 Firebase에 한 번만 씀
-    if (_scoreTick % 5 === 0) {
+    // 10틱(10초)마다 Firebase에 한 번만 씀 (대회용 write 절감)
+    if (_scoreTick % 10 === 0) {
       update(ref(fbDb, `rooms/${myRoomId}/round/scores`), { [myUid]: myScore });
       _scoreAccum = 0;
     }
@@ -1817,19 +1826,22 @@ function isVisibleToSeeker() {
   if (!seeker) return false;
   
   // 술래 → 내 벡터
-  const toMe = new THREE.Vector3().subVectors(player.position, seeker.group.position);
+  const toMe = _toMeVec.subVectors(player.position, seeker.group.position);
   const dist = toMe.length();
   if (dist > SHOOT_RANGE) return false;
   toMe.normalize();
   
   // 술래가 바라보는 방향 (Y 회전 기준)
-  const seekerFwd = new THREE.Vector3(-Math.sin(seeker.group.rotation.y), 0, -Math.cos(seeker.group.rotation.y));
+  const seekerFwd = _seekerFwdVec.set(-Math.sin(seeker.group.rotation.y), 0, -Math.cos(seeker.group.rotation.y));
   const dot = toMe.dot(seekerFwd);
   return dot > VISION_FOV_COS;
 }
 
 // 술래가 발사 (좌클릭)
 const shootRc = new THREE.Raycaster();
+// isVisibleToSeeker 재사용 벡터 (매 호출 new 방지)
+const _toMeVec = new THREE.Vector3();
+const _seekerFwdVec = new THREE.Vector3();
 renderer.domElement.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   if (paintMode) return; // 페인트 모드에선 발사 X
@@ -2452,7 +2464,11 @@ document.getElementById('nickInput').addEventListener('keydown', e => {
 function subscribeRoomList() {
   const roomsRef = ref(fbDb, 'rooms');
   if (roomListUnsub) roomListUnsub();
+  let _rlThrottle = 0;
   roomListUnsub = onValue(roomsRef, snap => {
+    const now2 = Date.now();
+    if (now2 - _rlThrottle < 150) return;
+    _rlThrottle = now2;
     const data = snap.val() || {};
     const list = document.getElementById('roomList');
     const roomEntries = Object.entries(data).filter(([id, r]) => r && r.name);
@@ -2492,7 +2508,7 @@ function subscribeRoomList() {
         const cnt = el.querySelector('.count');
         const st  = el.querySelector('.state');
         const infoTxt = room.name;
-        const cntTxt  = `👥 ${count}/5`;
+        const cntTxt  = `👥 ${count}/10`;
         const stTxt   = state === 'playing' ? '게임 중' : '대기';
         if (info.textContent !== infoTxt) info.textContent = infoTxt;
         if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
@@ -2534,7 +2550,7 @@ async function joinRoom(roomId) {
   const room = roomSnap.val();
   if (!room) { alert('방이 없음'); return; }
   const count = Object.keys(room.players || {}).length;
-  if (count >= 5) { alert('방이 꽉 참'); return; }
+  if (count >= 10) { alert('방이 꽉 참'); return; }
   if (room.state === 'playing') { alert('이미 게임 중'); return; }
   await set(ref(fbDb, `rooms/${roomId}/players/${myUid}`), {
     nick: myNick, joinedAt: Date.now()
@@ -2558,6 +2574,7 @@ function subscribeRoom(roomId) {
   const roomRef = ref(fbDb, `rooms/${roomId}`);
   if (roomUnsub) roomUnsub();
   let _nullHits = 0;
+  let _roomThrottle = 0;
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
     _cachedRoom = room;
@@ -3261,16 +3278,16 @@ function paint(clientX, clientY) {
   console.log('🎨 페인트 적용:', painted, '개 정점, 색=', currentColor, '반경=', radiusLocal.toFixed(2));
 
   // Firebase에 스트로크 이벤트 push (모든 붓 스트로크가 전달됨)
-  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 40) {
+  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 120) { // 120ms throttle (대회용)
     _lastPaintSyncTime = Date.now();
     const meshIdx = characterMeshes.indexOf(mesh);
     const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
     push(strokesRef, {
-      x: +localPoint.x.toFixed(3),
-      y: +localPoint.y.toFixed(3),
-      z: +localPoint.z.toFixed(3),
+      x: +localPoint.x.toFixed(2),
+      y: +localPoint.y.toFixed(2),
+      z: +localPoint.z.toFixed(2),
       c: currentTool === 'eraser' ? '#ffffff' : currentColor,
-      r: +radiusLocal.toFixed(4),
+      r: +radiusLocal.toFixed(3),
       m: meshIdx,
       t: Date.now()
     });
@@ -3417,20 +3434,20 @@ function startFirebaseSync(room) {
       if (el) el.textContent = Object.keys(val).length;
     });
 
-    // 250ms마다 내 상태 업데이트 (변화 없으면 스킵)
+    // 100ms마다 내 상태 업데이트 (변화 없으면 스킵 - 대회용 write 절감)
     let _lastSyncX = null, _lastSyncY = null, _lastSyncZ = null, _lastSyncPose = null, _lastSyncR = null, _lastSyncStuck = null;
     setInterval(() => {
       if (!myRef) return;
-      const px = +player.position.x.toFixed(2);
-      const py = +player.position.y.toFixed(2);
-      const pz = +player.position.z.toFixed(2);
-      const pr = +player.rotation.y.toFixed(2);
-      const stuck = isStuckInWall() ? 1 : 0;
+      const px = +player.position.x.toFixed(1);
+      const py = +player.position.y.toFixed(1);
+      const pz = +player.position.z.toFixed(1);
+      const pr = +player.rotation.y.toFixed(1);
+      const stuck = window._myStuck ? 1 : 0; // 캐시 재사용
       if (_lastSyncX !== null &&
-          Math.abs(px - _lastSyncX) < 0.05 &&
-          Math.abs(py - _lastSyncY) < 0.05 &&
-          Math.abs(pz - _lastSyncZ) < 0.05 &&
-          Math.abs(pr - _lastSyncR) < 0.05 &&
+          Math.abs(px - _lastSyncX) < 0.15 &&
+          Math.abs(py - _lastSyncY) < 0.15 &&
+          Math.abs(pz - _lastSyncZ) < 0.15 &&
+          Math.abs(pr - _lastSyncR) < 0.1 &&
           currentPose === _lastSyncPose &&
           stuck === _lastSyncStuck) return;
       _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck;
@@ -3445,7 +3462,7 @@ function startFirebaseSync(room) {
         stuck,
         t: Date.now()
       });
-    }, 250);
+    }, 100);
 
     // 다른 플레이어 페인트 스트로크 수신 (uid별 개별 listen - 전체 노드 X)
     const _remoteColor = new THREE.Color();
@@ -3485,9 +3502,11 @@ function startFirebaseSync(room) {
     function applyRemotePaint(uid, stroke) {
       const ot = otherPlayers[uid];
       if (!ot) return;
-      const meshes = [];
-      ot.charMesh.traverse(o => { if (o.isMesh) meshes.push(o); });
-      applyStrokeToMeshes(meshes, stroke);
+      if (!ot._meshCache) {
+        ot._meshCache = [];
+        ot.charMesh.traverse(o => { if (o.isMesh) ot._meshCache.push(o); });
+      }
+      applyStrokeToMeshes(ot._meshCache, stroke);
     }
     function subscribePaintForUid(uid) {
       if (_paintListeners[uid]) return;
@@ -3509,7 +3528,10 @@ function startFirebaseSync(room) {
 
     // ============ 따봉(좋아요) 시스템 ============
     const _likeListeners = {}; // uid → unsub
+    const _likeTexCache = {};
     function makeLikeTexture(count) {
+      const key = String(count);
+      if (_likeTexCache[key]) return _likeTexCache[key];
       const cv = document.createElement('canvas');
       cv.width = 128; cv.height = 128;
       const cx = cv.getContext('2d');
@@ -3526,6 +3548,12 @@ function startFirebaseSync(room) {
       cx.fillText(String(count || 0), 64, 96);
       const tex = new THREE.CanvasTexture(cv);
       tex.needsUpdate = true;
+      _likeTexCache[key] = tex;
+      if (Object.keys(_likeTexCache).length > 30) {
+        const oldest = Object.keys(_likeTexCache)[0];
+        _likeTexCache[oldest].dispose();
+        delete _likeTexCache[oldest];
+      }
       return tex;
     }
     function updateLikeSprite(ot, count) {
@@ -3594,13 +3622,26 @@ function startFirebaseSync(room) {
       grp.rotation.y = d.r || 0;
 
       // 진짜 플레이어처럼 보이게 - 닉네임 스프라이트 (owner의 실제 닉)
-      const nickCv = document.createElement('canvas');
-      nickCv.width = 256; nickCv.height = 64;
-      const ncx = nickCv.getContext('2d');
-      ncx.fillStyle = 'rgba(0,0,0,0.6)'; ncx.fillRect(0,0,256,64);
-      ncx.fillStyle = '#fff'; ncx.font = 'bold 32px sans-serif'; ncx.textAlign = 'center';
-      ncx.fillText(d.nick || '?', 128, 42);
-      const nickTex = new THREE.CanvasTexture(nickCv);
+      if (!window._nickTexCache) window._nickTexCache = {};
+      const _nickKey = d.nick || '?';
+      let nickTex;
+      if (window._nickTexCache[_nickKey]) {
+        nickTex = window._nickTexCache[_nickKey];
+      } else {
+        const nickCv = document.createElement('canvas');
+        nickCv.width = 256; nickCv.height = 64;
+        const ncx = nickCv.getContext('2d');
+        ncx.fillStyle = 'rgba(0,0,0,0.6)'; ncx.fillRect(0,0,256,64);
+        ncx.fillStyle = '#fff'; ncx.font = 'bold 32px sans-serif'; ncx.textAlign = 'center';
+        ncx.fillText(_nickKey, 128, 42);
+        nickTex = new THREE.CanvasTexture(nickCv);
+        window._nickTexCache[_nickKey] = nickTex;
+        if (Object.keys(window._nickTexCache).length > 60) {
+          const firstKey = Object.keys(window._nickTexCache)[0];
+          window._nickTexCache[firstKey].dispose();
+          delete window._nickTexCache[firstKey];
+        }
+      } // end if cache miss
       const nickSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: nickTex, transparent: true }));
       nickSp.scale.set(1.5, 0.4, 1);
       nickSp.position.y = 2.2;
@@ -3698,7 +3739,12 @@ function startFirebaseSync(room) {
       } catch(err) { console.warn('분신 실패:', err); }
     };
 
+    // ✅ 위치 수신 throttle: 100ms (10명 대회 기준 - Firebase 이벤트 폭증 방지)
+    let _posRecvThrottle = 0;
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
+      const _now3 = Date.now();
+      if (_now3 - _posRecvThrottle < 100) return;
+      _posRecvThrottle = _now3;
       const data = snap.val() || {};
       const uids = Object.keys(data);
       document.getElementById('onlineCount').textContent = uids.length;
@@ -3729,14 +3775,26 @@ function startFirebaseSync(room) {
           });
           const grp = new THREE.Group();
           grp.add(clone);
-          // 닉네임 표시 (스프라이트)
-          const cv = document.createElement('canvas');
-          cv.width = 256; cv.height = 64;
-          const cx = cv.getContext('2d');
-          cx.fillStyle = 'rgba(0,0,0,0.6)'; cx.fillRect(0,0,256,64);
-          cx.fillStyle = '#fff'; cx.font = 'bold 32px sans-serif'; cx.textAlign = 'center';
-          cx.fillText(p.n || '?', 128, 42);
-          const tex = new THREE.CanvasTexture(cv);
+          // 닉네임 표시 (스프라이트) - 텍스처 캐싱
+          if (!window._nickTexCache) window._nickTexCache = {};
+          const _nk = p.n || '?';
+          let tex;
+          if (window._nickTexCache[_nk]) {
+            tex = window._nickTexCache[_nk];
+          } else {
+            const cv = document.createElement('canvas');
+            cv.width = 256; cv.height = 64;
+            const cx = cv.getContext('2d');
+            cx.fillStyle = 'rgba(0,0,0,0.6)'; cx.fillRect(0,0,256,64);
+            cx.fillStyle = '#fff'; cx.font = 'bold 32px sans-serif'; cx.textAlign = 'center';
+            cx.fillText(_nk, 128, 42);
+            tex = new THREE.CanvasTexture(cv);
+            window._nickTexCache[_nk] = tex;
+            if (Object.keys(window._nickTexCache).length > 60) {
+              const fk = Object.keys(window._nickTexCache)[0];
+              window._nickTexCache[fk].dispose(); delete window._nickTexCache[fk];
+            }
+          }
           const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true }));
           sp.scale.set(1.5, 0.4, 1);
           sp.position.y = 2.2;
@@ -3778,7 +3836,8 @@ function startFirebaseSync(room) {
           });
           ot.group.add(clone);
           ot.charMesh = clone;
-          ot._meshes = null; // mesh 캐시 무효화
+          ot._meshes = null;
+          ot._meshCache = null; // 페인트 mesh 캐시 무효화
           ot.currentPose = p.p;
           // 포즈 바뀌어도 술래면 총 유지 (기존 gun은 group에 남아있음 - 안 건드림)
           if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
@@ -4013,8 +4072,10 @@ addEventListener('keydown', e => {
 
 // ================ Animate ================
 function animate() {
+  if (!_animRunning) return;
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+  const _frameNow = Date.now(); // 매 프레임 1회만 호출
   if (mixer) mixer.update(dt);
   updateDustBursts(dt);
   clampPlayerToBounds();
@@ -4025,16 +4086,25 @@ function animate() {
   const roomNow = _cachedRoom;
   const isEnded = roomNow && roomNow.state === 'ended';
   const aliveMap = roundState?.alive || {};
-  const blinkPhase = (Math.sin(Date.now() * 0.012) + 1) * 0.5;
+  const blinkPhase = (Math.sin(_frameNow * 0.012) + 1) * 0.5;
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
     if (ot.targetX !== undefined) {
+      // fog 범위 밖 플레이어는 lerp 스킵 (CPU 절약)
+      const _dx = ot.targetX - player.position.x;
+      const _dz = ot.targetZ - player.position.z;
+      const _distSq = _dx*_dx + _dz*_dz;
+      if (_distSq > 5625) { // 75*75 = fog 70 + 여유
+        ot.group.position.set(ot.targetX, ot.targetY, ot.targetZ);
+        ot.group.rotation.y = ot.targetR;
+      } else {
       ot.group.position.x += (ot.targetX - ot.group.position.x) * 0.15;
       ot.group.position.y += (ot.targetY - ot.group.position.y) * 0.15;
       ot.group.position.z += (ot.targetZ - ot.group.position.z) * 0.15;
       const dr = ot.targetR - ot.group.rotation.y;
       let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
       ot.group.rotation.y += nd * 0.15;
+      } // end near lerp
     }
     const shouldBlink = ot.stuck === 1 || (isEnded && aliveMap[uid] !== false);
     // idle이고 이전에도 idle이면 아무것도 안 함
@@ -4064,8 +4134,8 @@ function animate() {
   }
   // 내 캐릭터 깜빡임 (throttle - isStuckInWall 매프레임 X)
   {
-    const now = Date.now();
-    if (!window._lastStuckCheck || now - window._lastStuckCheck > 200) {
+    const now = _frameNow;
+    if (!window._lastStuckCheck || now - window._lastStuckCheck > 500) {
       window._lastStuckCheck = now;
       window._myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
     }
@@ -4169,15 +4239,21 @@ function animate() {
 }
 animate();
 
-// 탭 숨겨지면 렌더 멈추기
+// 탭 숨겨지면 렌더 완전 정지
+let _animRunning = true;
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && currentScreen === 'game') animate();
+  if (document.hidden) { _animRunning = false; }
+  else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
 });
 
+let _resizeTimer = null;
 addEventListener('resize', () => {
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  }, 100);
 });
 
 // ===== 마우스 휠 줌 =====
