@@ -1246,7 +1246,7 @@ renderer.toneMappingExposure = 0.85; // 과노출 방지
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.2, 120);
+const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 120);
 
 // 배경 단색 (Sky 셰이더 렉 원인 제거)
 scene.background = new THREE.Color(0x8bb8d0);
@@ -2195,6 +2195,9 @@ async function showScoreboard() {
 
 // 결과 화면에서 방으로 돌아가기
 document.getElementById('backToLobbyBtn').addEventListener('click', async () => {
+  // ★ 먼저 currentScreen을 result로 표시해 onValue가 playing/ended 받아도 startGame 재호출 방지
+  currentScreen = 'result';
+  window._endSeqStarted = false; // 다음 라운드 종료 시퀀스 재사용 가능하게
   // ★ 모든 클라이언트가 자기 맵 리셋 (그래야 다음 라운드 새 맵 로드됨)
   resetMap();
   // ★ 관전 모드 리셋
@@ -2994,7 +2997,7 @@ function subscribeRoom(roomId) {
       if (timerEl) timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
     } else if (room.state === 'drawing' && currentScreen !== 'draw') {
       startDrawingUI(room);
-    } else if (room.state === 'playing' && currentScreen !== 'game') {
+    } else if (room.state === 'playing' && currentScreen !== 'game' && currentScreen !== 'result') {
       startGame(room);
     } else if (room.state === 'ended' && currentScreen === 'game' && !window._endSeqStarted) {
       // ★ 라운드 종료 시퀀스: 15초 빨간 깜빡임 유지 → 3초 페이드 → 스코어보드
@@ -4736,9 +4739,27 @@ function animate() {
     const focusY = ty + tHeadY;
     const hd = camDist * Math.cos(cameraPitch);
     const vo = camDist * Math.sin(cameraPitch);
-    camera.position.x = tx + Math.sin(cameraYaw) * hd;
-    camera.position.z = tz + Math.cos(cameraYaw) * hd;
-    camera.position.y = Math.max(0.5, focusY + vo);
+    const specIdealX = tx + Math.sin(cameraYaw) * hd;
+    const specIdealZ = tz + Math.cos(cameraYaw) * hd;
+    const specIdealY = Math.max(0.5, focusY + vo);
+    if (collidableMeshes.length > 0) {
+      _camFocusPt.set(tx, focusY, tz);
+      _idealCamPt.set(specIdealX, specIdealY, specIdealZ);
+      _camToFocus.subVectors(_idealCamPt, _camFocusPt).normalize();
+      const _specDist = _camFocusPt.distanceTo(_idealCamPt);
+      _camRc.set(_camFocusPt, _camToFocus);
+      _camRc.near = 0.1;
+      _camRc.far = _specDist + 0.5;
+      const _specHits = _camRc.intersectObjects(collidableMeshes, false);
+      if (_specHits.length > 0) {
+        const safeDist = Math.max(0, _specHits[0].distance - 0.3);
+        camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, safeDist);
+      } else {
+        camera.position.set(specIdealX, specIdealY, specIdealZ);
+      }
+    } else {
+      camera.position.set(specIdealX, specIdealY, specIdealZ);
+    }
     camera.lookAt(tx, focusY - 0.3, tz);
   } else {
   // 카메라 - 3인칭 (현재 포즈의 머리 위치에 정확히 맞춤)
@@ -4751,20 +4772,28 @@ function animate() {
   const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
   const idealCamY = Math.max(0.5, focusY + vo);
 
-  // ★ 카메라 벽 체크 - 재사용 객체로 GC 제거
+  // ★ 카메라 벽 체크 - focusPoint → idealCam 방향으로 레이캐스트
+  // (플레이어-카메라 사이 벽을 정확히 감지, 몸 속 파묻힘 방지)
   if (collidableMeshes.length > 0) {
     _camFocusPt.set(player.position.x, focusY, player.position.z);
     _idealCamPt.set(idealCamX, idealCamY, idealCamZ);
-    _camToFocus.subVectors(_camFocusPt, _idealCamPt).normalize();
-    const _camDist = _idealCamPt.distanceTo(_camFocusPt);
-    _camRc.set(_idealCamPt, _camToFocus);
+    // 방향: 초점 → 이상적 카메라 위치
+    _camToFocus.subVectors(_idealCamPt, _camFocusPt).normalize();
+    const _camDist = _camFocusPt.distanceTo(_idealCamPt);
+    _camRc.set(_camFocusPt, _camToFocus);
+    _camRc.near = 0.1;
     _camRc.far = _camDist + 0.5;
     const _camHits = _camRc.intersectObjects(collidableMeshes, false);
     if (_camHits.length > 0) {
-      const pullDist = Math.max(0.3, _camHits[0].distance - 0.4);
-      camera.position.copy(_idealCamPt).addScaledVector(_camToFocus, pullDist);
+      // 벽에 닿기 0.3m 앞에 카메라 배치 (안전 마진)
+      const safeDist = Math.max(0, _camHits[0].distance - 0.3);
+      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, safeDist);
     } else {
       camera.position.set(idealCamX, idealCamY, idealCamZ);
+    }
+    // 최소 거리 보장: 카메라가 포커스 포인트에 너무 가까우면 약간 뒤로
+    if (camera.position.distanceTo(_camFocusPt) < 0.5) {
+      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, 0.5);
     }
   } else {
     camera.position.set(idealCamX, idealCamY, idealCamZ);
