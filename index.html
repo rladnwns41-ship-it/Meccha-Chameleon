@@ -1860,12 +1860,17 @@ const shootRc = new THREE.Raycaster();
 // isVisibleToSeeker 재사용 벡터 (매 호출 new 방지)
 const _toMeVec = new THREE.Vector3();
 const _seekerFwdVec = new THREE.Vector3();
+let _lastShootTime = 0;
+const SHOOT_COOLDOWN = 500; // 0.5초 발사 쿨다운
 renderer.domElement.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   if (paintMode) return; // 페인트 모드에선 발사 X
   if (myRole !== 'seeker') return;
   if (!myAlive) return;
   if (!pointerLocked) return;
+  const nowShoot = Date.now();
+  if (nowShoot - _lastShootTime < SHOOT_COOLDOWN) return; // 쿨다운
+  _lastShootTime = nowShoot;
   shootFromCamera();
 });
 
@@ -1917,6 +1922,13 @@ addEventListener('keydown', async e => {
 });
 
 function shootFromCamera() {
+  // ★ 보안: role + 게임상태 이중 검증 (클라이언트 조작 방지)
+  if (myRole !== 'seeker') return;
+  if (!myAlive) return;
+  if (currentScreen !== 'game') return;
+  if (!myRoomId || !_cachedRoom) return;
+  if (_cachedRoom.seekerUid !== myUid) return; // Firebase 기준 술래인지 재확인
+  if (_cachedRoom.state !== 'playing') return;
   if (inHidePhase) { console.log('🙈 숨는 시간 - 발사 X'); return; }
   // 카메라 중심에서 앞으로 raycast
   const dir = new THREE.Vector3();
@@ -1982,6 +1994,15 @@ function triggerGlitch() {
 }
 
 async function killPlayer(uid) {
+  // ★ 보안: 술래 본인, 게임 중, 대상 alive 상태 모두 재검증
+  if (!_cachedRoom || _cachedRoom.state !== 'playing') return;
+  if (_cachedRoom.seekerUid !== myUid) return; // 내가 진짜 술래인지
+  if (myRole !== 'seeker') return;
+  if (!myAlive) return;
+  if (!uid || uid === myUid) return; // 자해 방지
+  if (_cachedRoom.round?.alive?.[uid] === false) return; // 이미 죽은 플레이어
+  // 대상이 현재 방의 플레이어인지 확인
+  if (!_cachedRoom.players?.[uid]) return;
   // _cachedRoom에서 현재 점수 읽기 (get() 제거)
   const scores = Object.assign({}, _cachedRoom?.round?.scores || {});
   scores[myUid] = (scores[myUid] || 0) + 50;
@@ -2185,7 +2206,7 @@ async function showScoreboard() {
       ? `<span style="font-size:11px;background:var(--red);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px;font-weight:800;">술래</span>`
       : (!r.alive ? `<span style="font-size:11px;background:var(--panel2);color:var(--text-dim);padding:1px 7px;border-radius:999px;margin-left:6px;font-weight:800;">탈락</span>` : '');
     row.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;">${rankHtml}<span style="font-weight:800;">${r.nick}</span>${roleTag}</div>
+      <div style="display:flex;align-items:center;gap:6px;">${rankHtml}<span style="font-weight:800;">${escHtml(sanitizeNick(r.nick,16))}</span>${roleTag}</div>
       <div class="score-val">${r.score}</div>
     `;
     box.appendChild(row);
@@ -2194,7 +2215,10 @@ async function showScoreboard() {
 }
 
 // 결과 화면에서 방으로 돌아가기
+let _backToLobbyPending = false;
 document.getElementById('backToLobbyBtn').addEventListener('click', async () => {
+  if (_backToLobbyPending) return; // 중복 클릭 방지
+  _backToLobbyPending = true;
   // ★ 먼저 currentScreen을 result로 표시해 onValue가 playing/ended 받아도 startGame 재호출 방지
   currentScreen = 'result';
   window._endSeqStarted = false; // 다음 라운드 종료 시퀀스 재사용 가능하게
@@ -2237,18 +2261,24 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
     }
   }
   currentScreen = 'lobby';
+  _backToLobbyPending = false;
   showScreen('lobby');
 });
 
 // ★ 방장 시작 버튼
+let _startBtnCooldown = false;
 document.getElementById('startGameBtn').addEventListener('click', async () => {
   if (!myRoomId) return;
+  if (_startBtnCooldown) return; // 중복 클릭 방지
+  _startBtnCooldown = true;
+  setTimeout(() => { _startBtnCooldown = false; }, 3000);
   const snap = await get(ref(fbDb, `rooms/${myRoomId}`));
   const room = snap.val();
-  if (!room) return;
-  if (room.hostUid !== myUid) { alert('방장만 시작할 수 있음'); return; }
+  if (!room) { _startBtnCooldown = false; return; }
+  if (room.hostUid !== myUid) { alert('방장만 시작할 수 있음'); _startBtnCooldown = false; return; }
   const count = Object.keys(room.players || {}).length;
-  if (count < 2) { alert('최소 2명 필요'); return; }
+  if (count < 2) { alert('최소 2명 필요'); _startBtnCooldown = false; return; }
+  if (room.startRequested) { _startBtnCooldown = false; return; } // 이미 요청됨
   await update(ref(fbDb, `rooms/${myRoomId}`), { startRequested: true });
   console.log('▶ 방장이 게임 시작 요청');
 });
@@ -2798,8 +2828,9 @@ function showScreen(name) {
 
 // 1단계: 닉네임 입력 완료 → 방 목록으로
 document.getElementById('nickNext').addEventListener('click', () => {
-  const nick = document.getElementById('nickInput').value.trim();
-  myNick = nick || '익명' + Math.floor(Math.random()*100);
+  const rawNick = document.getElementById('nickInput').value.trim();
+  const cleaned = sanitizeNick(rawNick, 16);
+  myNick = cleaned || '익명' + Math.floor(Math.random()*100);
   showScreen('rooms');
   subscribeRoomList();
 });
@@ -2870,9 +2901,22 @@ function subscribeRoomList() {
 }
 
 // 방 만들기
+let _lastRoomCreateTime = 0;
 document.getElementById('createRoomBtn').addEventListener('click', async () => {
-  const name = document.getElementById('newRoomName').value.trim() || (myNick + '의 방');
   if (!myUid) { alert('로그인 대기중...'); return; }
+  // 방 도배 방지: 15초 쿨다운
+  const now = Date.now();
+  if (now - _lastRoomCreateTime < 15000) {
+    alert('방은 15초에 1개만 만들 수 있어요'); return;
+  }
+  // 이미 내가 호스트인 방이 있으면 차단
+  const existSnap = await get(ref(fbDb, 'rooms'));
+  const existData = existSnap.val() || {};
+  const myHostedRoom = Object.values(existData).find(r => r && r.hostUid === myUid);
+  if (myHostedRoom) { alert('이미 내가 만든 방이 있어요!'); return; }
+  const rawName = document.getElementById('newRoomName').value.trim() || (myNick + '의 방');
+  const name = sanitizeNick(rawName, 20);
+  _lastRoomCreateTime = now;
   const roomsRef = ref(fbDb, 'rooms');
   const newRoom = push(roomsRef);
   await set(newRoom, {
@@ -2892,13 +2936,21 @@ document.getElementById('createRoomBtn').addEventListener('click', async () => {
 });
 
 // 방 입장
+let _joiningRoom = false;
 async function joinRoom(roomId) {
+  if (_joiningRoom) return; // 중복 입장 방지
+  if (!roomId || typeof roomId !== 'string') return;
+  _joiningRoom = true;
+  try {
   const roomSnap = await get(ref(fbDb, `rooms/${roomId}`));
   const room = roomSnap.val();
-  if (!room) { alert('방이 없음'); return; }
+  if (!room) { alert('방이 없음'); _joiningRoom = false; return; }
   const count = Object.keys(room.players || {}).length;
-  if (count >= 10) { alert('방이 꽉 참'); return; }
-  if (room.state === 'playing') { alert('이미 게임 중'); return; }
+  if (count >= 10) { alert('방이 꽉 참'); _joiningRoom = false; return; }
+  if (room.state === 'playing') { alert('이미 게임 중'); _joiningRoom = false; return; }
+  if (room.state === 'ended') { alert('라운드 종료 중. 잠시 후 입장하세요'); _joiningRoom = false; return; }
+  // 이미 방에 들어가 있으면 차단
+  if (myRoomId) { alert('이미 방에 있어요'); _joiningRoom = false; return; }
   await set(ref(fbDb, `rooms/${roomId}/players/${myUid}`), {
     nick: myNick, joinedAt: Date.now()
   });
@@ -2906,6 +2958,8 @@ async function joinRoom(roomId) {
   onDisconnect(ref(fbDb, `rooms/${roomId}/players/${myUid}`)).remove();
   console.log('🚪 방 입장:', roomId, '내 UID=', myUid);
   enterRoom(roomId);
+  } catch(e) { console.error('방 입장 오류:', e); }
+  finally { _joiningRoom = false; }
 }
 
 function enterRoom(roomId) {
@@ -3090,6 +3144,15 @@ async function leaveToRooms() {
   unsubscribeChat();
   if (_leavingRoom) return;
   _leavingRoom = true;
+  // 게임 중 이탈 시 로컬 상태 강제 리셋
+  currentScreen = 'leaving';
+  syncStarted = false;
+  myAlive = true;
+  myRole = 'hider';
+  roundState = { phase: 'idle', startedAt: 0, endsAt: 0 };
+  inHidePhase = false;
+  window._endSeqStarted = false;
+  if (scoreTimer) { clearInterval(scoreTimer); scoreTimer = null; }
   resetMap();  // ★ 방 나갈 때도 맵 리셋
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   _cachedRoom = null;
@@ -3233,7 +3296,7 @@ function startDrawingUI(room) {
   setTimeout(() => {
     const winner = players[room.seekerUid];
     document.getElementById('drawResult').innerHTML = 
-      `<span style="color:#ff4757">🎯 ${winner?.nick || '?'}</span> 이(가) 술래!`;
+      `<span style="color:#ff4757">🎯 ${escHtml(sanitizeNick(winner?.nick || '?', 16))}</span> 이(가) 술래!`;
   }, 3800);
   
   // 게임 시작은 방장 tick 이 자동으로 함
@@ -3908,14 +3971,16 @@ function startFirebaseSync(room) {
       const minInterval = moved ? 100 : 500;
       if (!moved && now - _lastSyncTime < minInterval) return;
       _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck; _lastSyncTime = now;
+      // ★ 좌표 범위 클램핑 (맵 밖 이탈/텔레포트 방지, 최대 맵 크기 100)
+      const clamp = (v, mn, mx) => Math.max(mn, Math.min(mx, v));
       set(myRef, {
-        x: px,
-        y: py,
-        z: pz,
+        x: clamp(px, -100, 100),
+        y: clamp(py, -5, 30),
+        z: clamp(pz, -100, 100),
         r: pr,
-        n: myNick,
-        p: currentPose,
-        role: myRole,
+        n: sanitizeNick(myNick || '익명', 16),
+        p: currentPose === 'crouch' ? 'crouch' : 'stand', // 유효한 포즈만
+        role: (myRole === 'seeker' || myRole === 'hider') ? myRole : 'hider',
         stuck,
         t: now
       });
@@ -4198,6 +4263,7 @@ function startFirebaseSync(room) {
     };
 
     // ✅ 위치 수신 throttle: 100ms (10명 대회 기준 - Firebase 이벤트 폭증 방지)
+    // ★ 수신 데이터 검증: 범위 밖 좌표·비정상 포즈 무시
     let _posRecvThrottle = 0;
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
       const _now3 = Date.now();
@@ -4272,7 +4338,14 @@ function startFirebaseSync(room) {
           if (_cachedRoom?.seekerUid === uid) attachGunToOther(uid);
         }
         const ot = otherPlayers[uid];
-        ot.targetX = p.x; ot.targetY = p.y; ot.targetZ = p.z; ot.targetR = p.r;
+        // ★ 수신 좌표 검증: 숫자가 아니거나 범위 초과면 무시
+        const isNum = v => typeof v === 'number' && isFinite(v);
+        if (isNum(p.x) && isNum(p.y) && isNum(p.z)) {
+          ot.targetX = Math.max(-100, Math.min(100, p.x));
+          ot.targetY = Math.max(-5, Math.min(30, p.y));
+          ot.targetZ = Math.max(-100, Math.min(100, p.z));
+        }
+        if (isNum(p.r)) ot.targetR = p.r;
         ot.stuck = p.stuck ? 1 : 0;
         // 포즈 바뀌었으면 mesh 교체
         if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
@@ -4415,7 +4488,7 @@ const chatHint     = document.getElementById('chatHint');
 function addChatMsg(nick, text, isSystem) {
   const div = document.createElement('div');
   div.className = 'chat-msg' + (isSystem ? ' system' : '');
-  div.innerHTML = '<span class="chat-nick">' + (nick || '?') + '</span>' + escHtml(text);
+  div.innerHTML = '<span class="chat-nick">' + escHtml(nick || '?') + '</span>' + escHtml(text);
   chatMessages.appendChild(div);
   // 최대 30개 유지
   while (chatMessages.children.length > 30) chatMessages.children[0].remove();
@@ -4431,7 +4504,13 @@ function addChatMsg(nick, text, isSystem) {
 }
 
 function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+// 닉네임/방이름 sanitize: HTML 특수문자·제어문자 제거, 공백 정리, 길이 제한
+function sanitizeNick(s, maxLen) {
+  if (!s || typeof s !== 'string') return '익명';
+  const clean = s.replace(/[<>'"&\x00-\x1f\x7f]/g, '').trim();
+  return clean.slice(0, maxLen || 16) || '익명';
 }
 
 let _chatBoxTimer = null;
@@ -4468,17 +4547,26 @@ function closeChatInput() {
 }
 
 // 메시지 전송
+let _lastChatTime = 0;
+const CHAT_COOLDOWN = 1500; // 채팅 1.5초 쿨다운 (스팸 방지)
 async function sendChatMsg() {
   const text = chatInput.value.trim();
   if (!text || !myRoomId || !myUid) return;
+  // 채팅 rate limit
+  const nowChat = Date.now();
+  if (nowChat - _lastChatTime < CHAT_COOLDOWN) return;
+  _lastChatTime = nowChat;
+  // 내용 검증: 길이 제한 + 특수문자 필터
+  const safeText = text.slice(0, 60);
+  if (!safeText) return;
   chatInput.value = '';
   try {
     const chatRef = ref(fbDb, 'rooms/' + myRoomId + '/chat');
     await push(chatRef, {
       uid: myUid,
-      nick: myNick || '익명',
-      text: text,
-      at: Date.now()
+      nick: sanitizeNick(myNick || '익명', 16),
+      text: safeText,
+      at: nowChat
     });
   } catch(e) { console.warn('채팅 전송 실패:', e); }
 }
@@ -4493,7 +4581,7 @@ function subscribeChat(roomId) {
     if (!d) return;
     if (firstLoad) { firstLoad = false; return; } // 첫 로드 기존 메시지 스킵
     const isMine = d.uid === myUid;
-    addChatMsg(isMine ? '나' : (d.nick || '?'), d.text, false);
+    addChatMsg(isMine ? '나' : sanitizeNick(d.nick || '?', 16), d.text?.slice(0,200) || '', false);
   });
 }
 
