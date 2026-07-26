@@ -2485,9 +2485,10 @@ const MAPS = [
   {
     name: '마켓',
     url: './market.glb',
-    scale: 1,
+    scale: 1.5,
     hasWalls: false,
-    procedural: false
+    procedural: false,
+    spawnOffsetY: -3
   },
 ];
 let selectedMap = MAPS[0];
@@ -2683,8 +2684,8 @@ gltfLoader.load(
       const score = -topY + clear * 0.1;
       if (score > bestScore) { bestScore = score; best = {x:sx, y:topY+0.05, z:sz}; }
     }
-    if (best) player.position.set(best.x, best.y, best.z);
-    else player.position.set(center.x, 20, center.z);
+    if (best) player.position.set(best.x, best.y + (selectedMap.spawnOffsetY || 0), best.z);
+    else player.position.set(center.x, 20 + (selectedMap.spawnOffsetY || 0), center.z);
     velocityY = 0; isGrounded = true;
 
     document.getElementById('barFill').style.width = '100%';
