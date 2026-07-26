@@ -1480,7 +1480,7 @@ gltfLoader.load(GUN_URL, gltf => {
   const tempBox = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); tempBox.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z);
-  const gunScale = maxDim > 0 ? (1.2 / maxDim) : 1;
+  const gunScale = maxDim > 0 ? (1.8 / maxDim) : 1;
   glb.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
@@ -1563,12 +1563,22 @@ function attachGunToPlayer() {
   });
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
-  // 캐릭터 몸통 밖으로 확실히 (오른쪽 옆 + 앞으로)
-  attachedGun.position.set(0.7, 1.1, -0.5);
+  // ★ 3인칭 카메라 뒤에서 보이도록 위치 조정
+  // 캐릭터는 -Z 방향을 바라봄. 카메라는 뒤(+Z)에 있음.
+  // 총이 몸 앞(-Z)에 있으면 몸에 가려서 안 보임 → 오른쪽 옆(+X) + 약간 뒤(+Z)로
+  attachedGun.position.set(0.65, 1.0, 0.15);
+  // 총구가 앞을 향하도록 살짝 회전 (기본 X축 정렬 기준)
+  attachedGun.rotation.y = -Math.PI / 2; // -Z 방향(캐릭터 앞)을 총구가 향함
   player.add(attachedGun);
-  console.log('🔫 총 부착 - scale:', s.toFixed(3),
+  // 부착 직후 world 좌표 로그
+  attachedGun.updateMatrixWorld(true);
+  const worldPos = new THREE.Vector3();
+  attachedGun.getWorldPosition(worldPos);
+  console.log('🔫 총 부착 완료 - scale:', s.toFixed(3),
               '/ 원본bbox:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2),
-              '/ 위치: 캐릭터 오른쪽 옆');
+              '/ local pos:', attachedGun.position.x, attachedGun.position.y, attachedGun.position.z,
+              '/ world pos:', worldPos.x.toFixed(2), worldPos.y.toFixed(2), worldPos.z.toFixed(2),
+              '/ visible:', attachedGun.visible);
 }
 function detachGunFromPlayer() {
   if (attachedGun) { player.remove(attachedGun); attachedGun = null; }
@@ -1594,7 +1604,8 @@ function attachGunToOther(uid) {
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.7, 1.1, -0.5);
+  wrap.position.set(0.65, 1.0, 0.15);
+  wrap.rotation.y = -Math.PI / 2;
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -1921,10 +1932,24 @@ setInterval(async () => {
         console.log('▶ 인원 부족 → 라운드 종료');
         return;
       }
-      // ★ 살아있는 hider 0명이면 즉시 종료
-      // 감염 모드에서는 술래로 전환된 애들(room.seekers)도 hider 아님
+      // ★ hider 정리 판정
+      // 클래식: alive[uid]!==false 인 hider가 0명이면 즉시 종료
+      // 감염: hider가 아예 없으면(다 감염) 15초 카운트다운 후 종료 → 결과 화면 여유
       const aliveMap = room.round?.alive || {};
       const hiderUids = Object.keys(room.players || {}).filter(u => !isSeekerUid(u, room));
+      if (hiderUids.length === 0 && room.gameMode === 'infection') {
+        // 다 감염됨 → 15초 카운트다운
+        if (room.postInfectionCountdown == null) {
+          await update(roomRef, { postInfectionCountdown: 15 });
+          console.log('☣️ 전원 감염! 15초 후 라운드 종료');
+        } else if (room.postInfectionCountdown > 0) {
+          await update(roomRef, { postInfectionCountdown: room.postInfectionCountdown - 1 });
+        } else {
+          await update(roomRef, { state: 'ended', roundCountdown: null, postInfectionCountdown: null });
+          console.log('▶ 감염 카운트다운 종료 → 결과 화면');
+        }
+        return;
+      }
       if (hiderUids.length > 0) {
         const hidersAlive = hiderUids.filter(u => aliveMap[u] !== false).length;
         if (hidersAlive === 0) {
@@ -1995,6 +2020,12 @@ function updateHidePhase(room) {
 // 라운드 타이머 UI - Firebase roundCountdown 값 표시
 function updateRoundTimer(room) {
   const el = document.getElementById('roundTimer');
+  // 감염 카운트다운 (다 감염돼서 곧 종료)
+  if (room.postInfectionCountdown != null && room.postInfectionCountdown >= 0) {
+    el.textContent = '☣️ 종료까지 ' + room.postInfectionCountdown + '초';
+    el.style.color = '#7ee06a';
+    return;
+  }
   // 숨는 시간 동안엔 그 카운트다운 표시 (도망자한테 유용)
   if (room.hidePhaseCountdown != null && room.hidePhaseCountdown > 0) {
     const h = room.hidePhaseCountdown;
@@ -2480,6 +2511,7 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       seekerUid: null,
       seekers: null,         // 감염 목록 리셋
       gameMode: null,        // 게임 모드 리셋
+      postInfectionCountdown: null,  // 감염 카운트다운 리셋
       startRequested: null,
       catches: null,
       decoys: null,
