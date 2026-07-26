@@ -128,6 +128,55 @@
     0%,100% { box-shadow: var(--green-sh), 0 0 0 0 rgba(62,207,108,0); }
     50%      { box-shadow: var(--green-sh), 0 0 0 8px rgba(62,207,108,0); }
   }
+
+  /* ===== Skribbl 스타일 자글자글 웨이글 ===== */
+  /* 개별 transform 프로퍼티(rotate/scale) 써서 기존 .btn:hover 의 transform:translateY 와 겹쳐도 안 깨짐 */
+  @keyframes wiggle {
+    0%   { rotate: -1.4deg; scale: 1;      }
+    18%  { rotate:  1.1deg; scale: 1.015;  }
+    35%  { rotate: -0.6deg; scale: 0.992;  }
+    54%  { rotate:  1.5deg; scale: 1.01;   }
+    72%  { rotate: -1.0deg; scale: 0.996;  }
+    100% { rotate: -1.4deg; scale: 1;      }
+  }
+  /* 카드용 살짝 더 부드러움 */
+  @keyframes wiggleSoft {
+    0%   { rotate: -0.8deg; }
+    30%  { rotate:  0.7deg; }
+    55%  { rotate: -0.5deg; }
+    80%  { rotate:  0.6deg; }
+    100% { rotate: -0.8deg; }
+  }
+  /* 각 요소마다 시작 오프셋 다르게 → 다 같이 흔들리지 않고 하찮은 느낌 */
+  .btn, .cta {
+    animation: wiggle 2.6s ease-in-out infinite;
+    transform-origin: center 70%;
+  }
+  .btn:nth-of-type(2n),   .cta:nth-of-type(2n)   { animation-delay: -0.4s;  animation-duration: 3.0s; }
+  .btn:nth-of-type(3n),   .cta:nth-of-type(3n)   { animation-delay: -1.1s;  animation-duration: 2.4s; }
+  .btn:nth-of-type(4n+1), .cta:nth-of-type(4n+1) { animation-delay: -1.7s;  animation-duration: 2.8s; }
+  /* 인게임 뱃지/칩류 (실시간 타이머는 제외 → 읽어야 됨) */
+  #roleTag, #hudShootHint,
+  .vote-timer-pill, .deathBox, #infectionPopup > div {
+    animation: wiggleSoft 3.2s ease-in-out infinite;
+    transform-origin: center 60%;
+  }
+  #hudShootHint { animation-delay: -1.4s; animation-duration: 2.7s; }
+  .deathBox { animation-duration: 4s; } /* 사망 화면은 더 느리게 (분위기용) */
+  /* 호버/포커스/누를 때 잠깐 정지 → 잡으려니 안정되는 귀여운 반응 */
+  .btn:hover, .btn:focus, .btn:active,
+  .cta:hover, .cta:focus, .cta:active {
+    animation-play-state: paused;
+    rotate: 0deg;
+  }
+  /* 접근성: 모션 줄이기 설정한 사람은 웨이글 끔 */
+  @media (prefers-reduced-motion: reduce) {
+    .btn, .cta, .voteMap, #roleTag, #hudShootHint, .vote-timer-pill,
+    .deathBox, #infectionPopup > div {
+      animation: none !important; rotate: 0deg !important;
+    }
+  }
+
   .btn {
     display:inline-flex; align-items:center; justify-content:center; gap:8px;
     padding:12px 24px; border-radius:var(--radius-sm);
@@ -509,15 +558,18 @@
     transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
     box-shadow:0 6px 0 rgba(0,0,0,0.3);
     backdrop-filter:blur(10px);
-    animation:cardSlideUp .5s cubic-bezier(0.34,1.26,0.64,1) both;
+    animation:cardSlideUp .5s cubic-bezier(0.34,1.26,0.64,1) both, wiggleSoft 3.4s ease-in-out infinite;
+    transform-origin: center 60%;
   }
-  .voteMap:nth-child(2) { animation-delay:.08s; }
-  .voteMap:nth-child(3) { animation-delay:.16s; }
-  .voteMap:nth-child(4) { animation-delay:.24s; }
-  .voteMap:nth-child(5) { animation-delay:.32s; }
+  .voteMap:nth-child(2) { animation-delay:.08s, -0.7s; animation-duration:.5s, 3.8s; }
+  .voteMap:nth-child(3) { animation-delay:.16s, -1.9s; animation-duration:.5s, 3.1s; }
+  .voteMap:nth-child(4) { animation-delay:.24s, -2.6s; animation-duration:.5s, 3.6s; }
+  .voteMap:nth-child(5) { animation-delay:.32s, -1.3s; animation-duration:.5s, 2.9s; }
   .voteMap:hover {
     border-color:var(--green); transform:translateY(-8px) scale(1.03);
     box-shadow:0 16px 0 rgba(0,0,0,0.25), 0 0 30px rgba(62,207,108,0.2);
+    animation-play-state: running, paused;
+    rotate: 0deg;
   }
   .voteMap.voted { border-color:var(--green); background:rgba(62,207,108,0.12); }
   .voteMap .map-icon {
@@ -1421,35 +1473,77 @@ let myRole = 'hider';
 // 술래는 hider 모델 그대로 사용 (tager.glb 안 씀)
 
 // 총 로드 
-gltfLoader.load('./gun.glb', gltf => {
+const GUN_URL = './gun.glb';
+console.log('🔫 총 모델 로드 시도:', GUN_URL, '(현재 URL:', location.href, ')');
+gltfLoader.load(GUN_URL, gltf => {
   const glb = gltf.scene;
-  // 스케일 계산을 위해 임시로 scene에 추가해서 정확한 bbox 계산
   const tempBox = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); tempBox.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z);
   const gunScale = maxDim > 0 ? (1.2 / maxDim) : 1;
-  // 원본 모델에는 scale 안 건드리고, 재질만 정리해서 저장
   glb.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
       o.castShadow = false;
       o.frustumCulled = false;
-      // 재질 무조건 교체 (투명하거나 검거나 이상한 거 방지)
       o.material = new THREE.MeshLambertMaterial({ color: 0x888888 });
     }
   });
   seekerGunModel = glb;
   seekerGunModel.userData.gunScale = gunScale;
+  seekerGunModel.userData.isFallback = false;
   console.log('✅ 총 모델 로드 완료 / 원본 크기:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2), '→ scale:', gunScale.toFixed(3));
-  // 술래면 무조건 재부착
   if (myRole === 'seeker') { detachGunFromPlayer(); attachGunToPlayer(); }
   refreshOtherSeekerGuns();
-}, undefined, err => console.warn('총 모델 로드 실패 (gun.glb 없음):', err.message));
+}, evt => {
+  // 진행 상황 (있으면)
+  if (evt && evt.lengthComputable) {
+    console.log(`🔫 총 로딩... ${(evt.loaded/1024).toFixed(1)} / ${(evt.total/1024).toFixed(1)} KB`);
+  }
+}, err => {
+  console.error('❌ 총 모델 로드 실패:', GUN_URL);
+  console.error('   에러:', err?.message || err);
+  console.error('   → 절차적 폴백 총으로 대체 (박스+실린더 조립)');
+  seekerGunModel = makeFallbackGun();
+  seekerGunModel.userData.gunScale = 1.0;
+  seekerGunModel.userData.isFallback = true;
+  console.log('✅ 폴백 총 준비 완료 (회색 박스)');
+  if (myRole === 'seeker') { detachGunFromPlayer(); attachGunToPlayer(); }
+  refreshOtherSeekerGuns();
+});
+
+// 폴백 총: gun.glb 안 뜰 때 대체로 만드는 간단한 3D 총 모양
+function makeFallbackGun() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x333338 });
+  const matDark = new THREE.MeshLambertMaterial({ color: 0x1a1a20 });
+  // 몸체
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.22, 0.22), mat);
+  body.position.set(0.1, 0, 0);
+  g.add(body);
+  // 총열
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8), matDark);
+  barrel.rotation.z = Math.PI/2;
+  barrel.position.set(0.55, 0.03, 0);
+  g.add(barrel);
+  // 손잡이
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.32, 0.18), matDark);
+  grip.position.set(-0.05, -0.22, 0);
+  grip.rotation.z = 0.15;
+  g.add(grip);
+  // 조준경
+  const scope = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.08), matDark);
+  scope.position.set(0.15, 0.17, 0);
+  g.add(scope);
+  g.traverse(o => { if (o.isMesh) { o.frustumCulled = false; o.renderOrder = 10; } });
+  return g;
+}
 
 // 총 = player 그룹에 직접 붙임
 let attachedGun = null;
 function attachGunToPlayer() {
-  if (!seekerGunModel || attachedGun) return;
+  if (!seekerGunModel) { console.warn('🔫 attachGunToPlayer: seekerGunModel 없음'); return; }
+  if (attachedGun) { return; /* 이미 붙어있음, 조용히 리턴 */ }
   const cloned = seekerGunModel.clone(true);
   const s = seekerGunModel.userData.gunScale || 1;
   cloned.scale.setScalar(s);
@@ -1519,16 +1613,34 @@ function refreshOtherSeekerGuns() {
 
 // 매 프레임 안전망: 술래인데 총 안 붙었으면 붙임
 let _gunWatchdogSpam = 0;
+let _gunDiagLastLog = 0;
 function ensureGunAttached() {
-  if (!seekerGunModel) return;
   const room = _cachedRoom;
+  // 5초마다 상태 리포트 (술래인데 문제 있을 때만)
+  const now = Date.now();
+  if (now - _gunDiagLastLog > 5000) {
+    _gunDiagLastLog = now;
+    const iAmSeeker = room ? isSeekerUid(myUid, room) : (myRole === 'seeker');
+    if (iAmSeeker && !attachedGun) {
+      console.warn('🔫[진단] 술래인데 총 미부착:',
+        'seekerGunModel=', !!seekerGunModel,
+        '(fallback=' + (seekerGunModel?.userData?.isFallback ?? 'n/a') + ')',
+        '/ myRole=', myRole,
+        '/ Firebase 술래 uid=', room?.seekerUid,
+        '/ 감염됐음=', !!(room?.seekers?.[myUid]),
+        '/ myUid=', myUid);
+    }
+  }
+  if (!seekerGunModel) return;
   // myRole 기반으로도 체크
   if (myRole === 'seeker' && !attachedGun) {
+    console.log('🔫 watchdog → 내 총 재부착 시도 (myRole 기반)');
     attachGunToPlayer();
   }
   if (!room) return;
   // seekerUid or 감염 기반 이중 체크
   if (isSeekerUid(myUid, room) && !attachedGun) {
+    console.log('🔫 watchdog → 내 총 재부착 시도 (Firebase 기반)');
     attachGunToPlayer();
   }
   // 다른 술래들 (감염 포함)
@@ -1644,7 +1756,7 @@ function setRole(role) {
 // ============================================================
 // 라운드 시스템 (타이머, 슈팅, 점수, 사망)
 // ============================================================
-const ROUND_DURATION_MS = 60000; // 60초
+const ROUND_DURATION_MS = 180000; // 3분
 const SHOOT_RANGE = 40;
 const VISION_FOV_COS = Math.cos(THREE.MathUtils.degToRad(35)); // 시야 각도 35도
 
@@ -1786,8 +1898,8 @@ setInterval(async () => {
       } else {
         await update(roomRef, {
           state: 'playing',
-          hidePhaseCountdown: 60,
-          roundCountdown: 60,
+          hidePhaseCountdown: 120,
+          roundCountdown: 180,
           drawCountdown: null,
           round: {
             phase: 'hiding',
@@ -1893,7 +2005,7 @@ function updateRoundTimer(room) {
     return;
   }
   el.style.color = '';
-  const s = room.roundCountdown != null ? room.roundCountdown : 60;
+  const s = room.roundCountdown != null ? room.roundCountdown : 180;
   const mm = String(Math.floor(s/60)).padStart(2,'0');
   const ss = String(s%60).padStart(2,'0');
   el.textContent = mm + ':' + ss;
@@ -2006,62 +2118,79 @@ addEventListener('keydown', async e => {
 });
 
 function shootFromCamera() {
-  // ★ 보안: role + 게임상태 이중 검증 (클라이언트 조작 방지)
-  if (myRole !== 'seeker') return;
-  if (!myAlive) return;
-  if (currentScreen !== 'game') return;
-  if (!myRoomId || !_cachedRoom) return;
-  if (_cachedRoom.seekerUid !== myUid) return; // Firebase 기준 술래인지 재확인
-  if (_cachedRoom.state !== 'playing') return;
-  if (inHidePhase) { console.log('🙈 숨는 시간 - 발사 X'); return; }
-  // 카메라 중심에서 앞으로 raycast
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  shootRc.set(camera.position, dir);
-  shootRc.far = SHOOT_RANGE;
-  
-  // 모든 hider 플레이어 mesh 수집
-  const targets = [];
-  const uidByObj = new Map();
-  const decoyByObj = new Map();
-  Object.entries(otherPlayers).forEach(([uid, op]) => {
-    if (roundState.alive?.[uid] === false) return;
-    if (isSeekerUid(uid, _cachedRoom)) return; // 술래끼리 못 맞음 (감염 모드)
-    op.group.traverse(o => {
-      if (o.isMesh) {
-        targets.push(o);
-        uidByObj.set(o.id, uid);
-      }
-    });
-  });
-  // 분신도 타겟에 포함
-  if (window._decoys) {
-    Object.entries(window._decoys).forEach(([key, dec]) => {
-      dec.group.traverse(o => {
-        if (o.isMesh) {
-          targets.push(o);
-          decoyByObj.set(o.id, key);
-        }
-      });
-    });
-  }
-  
-  const hits = shootRc.intersectObjects(targets, false);
-  if (!hits.length) {
-    console.log('❌ 빗나감');
+  // ★ 보안: role + 게임상태 이중 검증
+  if (myRole !== 'seeker') { console.log('🔫 발사 취소: myRole=', myRole); return; }
+  if (!myAlive) { console.log('🔫 발사 취소: 사망 상태'); return; }
+  if (currentScreen !== 'game') { console.log('🔫 발사 취소: 스크린=', currentScreen); return; }
+  if (!myRoomId || !_cachedRoom) { console.log('🔫 발사 취소: 방 정보 없음'); return; }
+  // ★ 원조 술래 OR 감염된 술래여야 함
+  if (!isSeekerUid(myUid, _cachedRoom)) {
+    console.log('🔫 발사 취소: Firebase 기준 나는 술래 아님');
     return;
   }
-  const hitObjId = hits[0].object.id;
-  const decoyKey = decoyByObj.get(hitObjId);
-  if (decoyKey) {
-    console.log('🎭 분신 명중! 글리치');
+  if (_cachedRoom.state !== 'playing') { console.log('🔫 발사 취소: 게임 안 함'); return; }
+  if (inHidePhase) { console.log('🙈 숨는 시간 - 발사 X'); return; }
+
+  // 카메라 중심에서 앞으로
+  const camDir = new THREE.Vector3();
+  camera.getWorldDirection(camDir);
+  const camPos = camera.position;
+
+  // ★ 조준 완화 (aim-assist)
+  // - 정밀 mesh raycast 대신, 각 hider의 몸 중심까지의 "레이 수직 거리"를 재서
+  //   HITBOX_RADIUS 안이면 명중 처리. 캐릭터가 얇거나 팔다리 사이 빈틈이 있어도 안정적.
+  const HITBOX_RADIUS = 0.9; // 몸통 두께 + 여유
+  const HEAD_OFFSET_Y = 0.9; // 캐릭터 중심 보정 (몸 중앙 근처)
+  let best = null; // { uid?, decoyKey?, dist, side }
+
+  const check = (obj, uid, decoyKey) => {
+    const p = obj.position;
+    // 캐릭터 중심 좌표 (그룹 origin 이 발밑이면 살짝 위로)
+    const cx = p.x, cy = p.y + HEAD_OFFSET_Y, cz = p.z;
+    const dx = cx - camPos.x, dy = cy - camPos.y, dz = cz - camPos.z;
+    // 카메라 앞쪽 투영 거리 (레이 방향 위 사영)
+    const along = dx*camDir.x + dy*camDir.y + dz*camDir.z;
+    if (along <= 0) return; // 뒤에 있음
+    if (along > SHOOT_RANGE) return; // 너무 멀리
+    // 레이에서 수직으로 얼마나 벗어났는지
+    const projX = camDir.x*along, projY = camDir.y*along, projZ = camDir.z*along;
+    const sideX = dx - projX, sideY = dy - projY, sideZ = dz - projZ;
+    const side = Math.sqrt(sideX*sideX + sideY*sideY + sideZ*sideZ);
+    if (side > HITBOX_RADIUS) return; // 너무 옆으로 빗나감
+    // 더 가까이 조준된 대상(수직 거리 작은 쪽) 우선, 같으면 앞쪽 거리 우선
+    if (!best || side < best.side - 0.05 || (Math.abs(side - best.side) < 0.05 && along < best.along)) {
+      best = { uid, decoyKey, along, side };
+    }
+  };
+
+  // hider 후보
+  let hiderCount = 0, seekerSkip = 0, deadSkip = 0;
+  Object.entries(otherPlayers).forEach(([uid, op]) => {
+    if (roundState.alive?.[uid] === false) { deadSkip++; return; }
+    if (isSeekerUid(uid, _cachedRoom)) { seekerSkip++; return; }
+    hiderCount++;
+    check(op.group, uid, null);
+  });
+  // 분신
+  let decoyCount = 0;
+  if (window._decoys) {
+    Object.entries(window._decoys).forEach(([key, dec]) => {
+      decoyCount++;
+      check(dec.group, null, key);
+    });
+  }
+
+  if (!best) {
+    console.log(`❌ 빗나감 (hider ${hiderCount}명, 분신 ${decoyCount}개, 술래제외 ${seekerSkip}, 사망제외 ${deadSkip})`);
+    return;
+  }
+  if (best.decoyKey) {
+    console.log('🎭 분신 명중! 글리치 (수직거리 ' + best.side.toFixed(2) + 'm)');
     triggerGlitch();
     return;
   }
-  const hitUid = uidByObj.get(hitObjId);
-  if (!hitUid) return;
-  console.log('🎯 명중:', hitUid);
-  killPlayer(hitUid);
+  console.log(`🎯 명중: ${best.uid} (앞거리 ${best.along.toFixed(1)}m, 수직거리 ${best.side.toFixed(2)}m)`);
+  killPlayer(best.uid);
 }
 
 // 분신 맞았을 때 글리치 효과
