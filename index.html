@@ -2682,9 +2682,10 @@ gltfLoader.load(
       csray.set(new THREE.Vector3(center.x, 300, center.z), new THREE.Vector3(0,-1,0));
       csray.far = 600;
       const chits = csray.intersectObjects(collidableMeshes, false);
-      // 위에서부터 hit들 순회하며 머리 위 공간 충분한 첫 번째 바닥 선택
+      // 낮은 Y부터(1층) 순회하며 머리 위 공간 충분한 첫 번째 바닥 선택
       let spawnY = 20;
-      for (const h of chits) {
+      const chitsAsc = [...chits].sort((a,b) => a.point.y - b.point.y);
+      for (const h of chitsAsc) {
         const ty = h.point.y;
         const upray2 = new THREE.Raycaster();
         upray2.set(new THREE.Vector3(center.x, ty + 0.5, center.z), new THREE.Vector3(0,1,0));
