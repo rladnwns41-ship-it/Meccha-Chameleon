@@ -1567,15 +1567,6 @@ function attachGunToPlayer() {
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
 
-  // ★ 디버그: 부착 지점에 빨간 구 (총이 안 보이면 이거라도 봐야 위치 확인 가능)
-  const dbg = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 8, 6),
-    new THREE.MeshBasicMaterial({ color: 0xff2244, depthTest: false })
-  );
-  dbg.renderOrder = 999;
-  dbg.userData.isGunDebug = true;
-  attachedGun.add(dbg);
-
   // 캐릭터 오른쪽 옆구리 앞쪽, 손이 잡는 위치
   attachedGun.position.set(0.35, 1.0, -0.25);
   // 총구가 캐릭터 앞(-Z)을 향하도록. 원본이 +X 방향으로 눕혀있다고 가정 → 90° 돌림.
@@ -3875,12 +3866,12 @@ const _wallDirs = [
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
 ];
 function checkNearWall() {
-  if (!collidableMeshes || !collidableMeshes.length) return false;
+  if (!_nearbyColliders || !_nearbyColliders.length) return false;
   _wallOrigin.set(player.position.x, player.position.y + 1.0, player.position.z);
   for (const d of _wallDirs) {
     wallRc.set(_wallOrigin, d);
     wallRc.far = WALL_DETECT_DIST;
-    if (wallRc.intersectObjects(collidableMeshes, false).length > 0) return true;
+    if (wallRc.intersectObjects(_nearbyColliders, false).length > 0) return true;
   }
   return false;
 }
@@ -3893,13 +3884,13 @@ const _stuckDirs = [
 const _stuckRc = new THREE.Raycaster();
 const _stuckOrigin = new THREE.Vector3();
 function isStuckInWall() {
-  if (!collidableMeshes || !collidableMeshes.length) return false;
+  if (!_nearbyColliders || !_nearbyColliders.length) return false;
   _stuckOrigin.set(player.position.x, player.position.y + 0.9, player.position.z);
   let hitCount = 0;
   for (const d of _stuckDirs) {
     _stuckRc.set(_stuckOrigin, d);
-    _stuckRc.far = 0.35; // 매우 짧게 - 벽 안에 파묻힘
-    if (_stuckRc.intersectObjects(collidableMeshes, false).length > 0) hitCount++;
+    _stuckRc.far = 0.35;
+    if (_stuckRc.intersectObjects(_nearbyColliders, false).length > 0) hitCount++;
     if (hitCount >= 2) return true;
   }
   return false;
@@ -3914,14 +3905,14 @@ const _ceilOrigin = new THREE.Vector3();
 const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
-  // ★ 최적화: ray 시작점을 플레이어 바로 위로 단축 (200→player.y+6) → far도 단축
-  const _rayStartY = player.position.y + 6;
+  refreshNearbyColliders();
+  const _rayStartY = player.position.y + 0.5;
   _groundOrigin.set(x, _rayStartY, z);
   groundRay.set(_groundOrigin, downV);
-  groundRay.far = _rayStartY + 5;
-  const hits = groundRay.intersectObjects(_groundAndCollidable, false);
+  groundRay.far = _rayStartY + 30;
+  const hits = groundRay.intersectObjects(_nearbyWithGround, false);
   if (!hits.length) return 0;
-  const maxAllowed = player.position.y + 0.4; // 자동 계단 오르기 상한 (너무 높으면 지붕까지 텔레포트됨)
+  const maxAllowed = player.position.y + 0.4;
   let best = null;
   for (const h of hits) if (h.point.y <= maxAllowed) if (best===null || h.point.y > best) best = h.point.y;
   return best !== null ? best : 0;
@@ -3930,37 +3921,105 @@ function getGroundHeight(x, z) {
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const PR = 0.4; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
-// 캐릭터 몸통 여러 높이(발/허리/머리)에서 광선 검사 → 벽 뚫림 근본 방지
 const _tryMoveHeights = [0.35, 1.0, 1.7];
+const _safeDirs = [
+  new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+];
+const _safeRc = new THREE.Raycaster();
+const _safeOrigin = new THREE.Vector3();
+const SAFE_MARGIN = PR * 0.9;
+// 안전망은 발/허리 2개만 (머리는 벽 뚫리기 힘든 위치)
+const _safeHeights = [0.35, 1.0];
+
+// ★ 성능 최적화: 플레이어 근처 collider 만 캐시 (500ms 또는 3m 이동마다 갱신)
+//   맵에 collider 200개 있어도 근처 20개 정도만 검사 → 라이트하게
+let _nearbyColliders = [];
+let _nearbyWithGround = [ground]; // ground + nearby (지면/천장 체크용)
+let _lastNearbyUpdate = 0;
+let _lastNearbyPos = { x: Infinity, z: Infinity };
+const NEARBY_RANGE = 8; // 반경 8m
+const _tmpNearbyCenter = new THREE.Vector3();
+function refreshNearbyColliders() {
+  const now = performance.now();
+  const px = player.position.x, pz = player.position.z;
+  const movedFar = Math.hypot(px - _lastNearbyPos.x, pz - _lastNearbyPos.z) > 3;
+  if (now - _lastNearbyUpdate < 500 && !movedFar) return;
+  _lastNearbyUpdate = now;
+  _lastNearbyPos.x = px; _lastNearbyPos.z = pz;
+  _nearbyColliders.length = 0;
+  const rangeSq = NEARBY_RANGE * NEARBY_RANGE;
+  for (const m of collidableMeshes) {
+    if (!m.geometry) continue;
+    if (!m.geometry.boundingSphere) {
+      try { m.geometry.computeBoundingSphere(); } catch(e) { continue; }
+    }
+    const bs = m.geometry.boundingSphere;
+    if (!bs) continue;
+    _tmpNearbyCenter.copy(bs.center).applyMatrix4(m.matrixWorld);
+    const sc = Math.max(m.scale.x, m.scale.y, m.scale.z);
+    const worldR = bs.radius * sc;
+    const dx = _tmpNearbyCenter.x - px, dz = _tmpNearbyCenter.z - pz;
+    const r = NEARBY_RANGE + worldR;
+    if (dx*dx + dz*dz < r*r) _nearbyColliders.push(m);
+  }
+  // ground + nearby 리스트 재구성
+  _nearbyWithGround.length = 0;
+  _nearbyWithGround.push(ground);
+  for (const m of _nearbyColliders) _nearbyWithGround.push(m);
+}
+
+function isPositionSafe() {
+  if (!_nearbyColliders.length) return true;
+  for (const hY of _safeHeights) {
+    _safeOrigin.set(player.position.x, player.position.y + hY, player.position.z);
+    for (const dir of _safeDirs) {
+      _safeRc.set(_safeOrigin, dir);
+      _safeRc.far = SAFE_MARGIN;
+      if (_safeRc.intersectObjects(_nearbyColliders, false).length) return false;
+    }
+  }
+  return true;
+}
+
 function tryMove(dx, dz) {
-  const hasColl = collidableMeshes.length > 0;
+  if (!collidableMeshes.length) {
+    player.position.x += dx;
+    player.position.z += dz;
+    return;
+  }
+  refreshNearbyColliders();
   const check = (mx, mz) => {
     const d = Math.hypot(mx, mz);
     if (d < 0.0001) return true;
-    if (!hasColl) return true;
     rd.set(mx, 0, mz).normalize();
-    // ★ 3개 높이(발/허리/머리)에서 각각 광선 → 하나라도 걸리면 이동 차단
     for (const hY of _tryMoveHeights) {
       ro.set(player.position.x, player.position.y + hY, player.position.z);
       rc.set(ro, rd); rc.far = d + PR;
-      if (rc.intersectObjects(collidableMeshes, false).length) return false;
+      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
     }
     return true;
   };
-  // X 축 이동 - 벽 검사 통과해도 경계 넘으면 이동 안 함
+  const origX = player.position.x, origZ = player.position.z;
+  // X 축
   if (check(dx, 0)) {
     const nx = player.position.x + dx;
     if (!worldBounds || (nx >= worldBounds.minX && nx <= worldBounds.maxX)) {
       player.position.x = nx;
     }
-    // 넘으면 그냥 무시 (움직임 씹힘)
   }
-  // Z 축 이동
+  // Z 축
   if (check(0, dz)) {
     const nz = player.position.z + dz;
     if (!worldBounds || (nz >= worldBounds.minZ && nz <= worldBounds.maxZ)) {
       player.position.z = nz;
     }
+  }
+  // ★ 최종 위치에서 안전망 한 번만 (X/Z 각각 검사 안 함 → 광선 절반으로)
+  //   실제 이동이 있었을 때만
+  if ((player.position.x !== origX || player.position.z !== origZ) && !isPositionSafe()) {
+    player.position.x = origX;
+    player.position.z = origZ;
   }
 }
 
@@ -5123,6 +5182,37 @@ function animate() {
     if (!window._lastStuckCheck || now - window._lastStuckCheck > 500) {
       window._lastStuckCheck = now;
       window._myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
+      // ★ 파묻힘 감지: 조용히 옆으로 밀어냄 (튕기지 않게)
+      if (window._myStuck && currentScreen === 'game' && myAlive) {
+        window._unstickTries = (window._unstickTries || 0) + 1;
+        // 4방향 중 벽이 가장 먼 쪽을 찾아서 그 쪽으로 살짝 미는 방식
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        let bestDir = null, bestDist = -1;
+        for (const [dx, dz] of dirs) {
+          _stuckOrigin.set(player.position.x, player.position.y + 0.9, player.position.z);
+          _stuckRc.set(_stuckOrigin, new THREE.Vector3(dx, 0, dz));
+          _stuckRc.far = 2.0;
+          const h = _stuckRc.intersectObjects(_nearbyColliders, false);
+          const dist = h.length ? h[0].distance : 2.0;
+          if (dist > bestDist) { bestDist = dist; bestDir = [dx, dz]; }
+        }
+        if (bestDir && bestDist > 0.3) {
+          // 벽에서 먼 방향으로 0.15m 만큼 조용히 이동 (튕김 X)
+          player.position.x += bestDir[0] * 0.15;
+          player.position.z += bestDir[1] * 0.15;
+          cachedGroundY = null;
+          console.log('🧱 살짝 밀어냄 (방향 x' + bestDir[0] + ' z' + bestDir[1] + ', 여유 ' + bestDist.toFixed(2) + 'm)');
+        }
+        // 3초 이상 계속 갇혀 있으면 스폰으로 (최후 수단)
+        if (window._unstickTries > 6) {
+          console.warn('🧱 6회 시도 실패 → 스폰 복귀');
+          player.position.set(0, 20, 0);
+          velocityY = 0;
+          window._unstickTries = 0;
+        }
+      } else if (!window._myStuck) {
+        window._unstickTries = 0;
+      }
     }
     const shouldBlinkMe = window._myStuck || (isEnded && aliveMap[myUid] !== false);
     if (shouldBlinkMe || player._wasBlinking) {
@@ -5189,17 +5279,23 @@ function animate() {
   } else {
     velocityY += GRAVITY * dt;
   }
+  // ★ 벨로시티 캡: 이상값 방지 (갑작스런 튕김 방지)
+  if (velocityY > 15) velocityY = 15;
+  if (velocityY < -40) velocityY = -40;
   // ★ 천장 체크: 위로 이동 중일 때 머리 위 벽 있으면 상승 중단 (지붕 뚫림 방지)
-  if (velocityY > 0 && collidableMeshes.length > 0) {
+  if (velocityY > 0 && _nearbyColliders.length > 0) {
     _ceilOrigin.set(player.position.x, player.position.y + 1.7, player.position.z);
     _ceilRc.set(_ceilOrigin, _upV);
     _ceilRc.far = 0.4 + velocityY * dt;
-    if (_ceilRc.intersectObjects(collidableMeshes, false).length > 0) {
+    if (_ceilRc.intersectObjects(_nearbyColliders, false).length > 0) {
       velocityY = 0;
       isClimbing = false;
     }
   }
-  player.position.y += velocityY * dt;
+  // ★ Y 이동량 캡: 한 프레임에 최대 1m 만 이동 (프레임 스킵/버그로 인한 순간이동 방지)
+  const deltaY = velocityY * dt;
+  const clampedDeltaY = Math.max(-1.0, Math.min(1.0, deltaY));
+  player.position.y += clampedDeltaY;
   
   const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
   // ★ 착지+정지 시 raycast 완전 스킵, 공중이거나 이동 시만 갱신
@@ -5255,7 +5351,7 @@ function animate() {
       _camRc.set(_camFocusPt, _camToFocus);
       _camRc.near = 0.1;
       _camRc.far = _specDist + 0.5;
-      const _specHits = _camRc.intersectObjects(collidableMeshes, false);
+      const _specHits = _camRc.intersectObjects(_nearbyColliders, false);
       if (_specHits.length > 0) {
         const safeDist = Math.max(0, _specHits[0].distance - 0.3);
         camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, safeDist);
@@ -5288,7 +5384,7 @@ function animate() {
     _camRc.set(_camFocusPt, _camToFocus);
     _camRc.near = 0.1;
     _camRc.far = _camDist + 0.5;
-    const _camHits = _camRc.intersectObjects(collidableMeshes, false);
+    const _camHits = _camRc.intersectObjects(_nearbyColliders, false);
     if (_camHits.length > 0) {
       // 벽에 닿기 0.3m 앞에 카메라 배치 (안전 마진)
       const safeDist = Math.max(0, _camHits[0].distance - 0.3);
