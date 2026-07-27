@@ -935,7 +935,7 @@
   .pose-shop-card .btn-poor { background:rgba(200,60,60,0.3); color:#ff8888; cursor:not-allowed; }
 
 
-  /* ============ 포즈 휠 ============ */
+  /* ============ 포즈 휠 — 파이 차트 ============ */
   #poseWheel {
     position:fixed; inset:0; z-index:170; display:flex;
     align-items:center; justify-content:center;
@@ -944,92 +944,76 @@
   #poseWheel.hidden { display:none; }
   #poseWheelBg {
     position:absolute; inset:0;
-    background:rgba(10,12,20,0.55);
-    backdrop-filter:blur(8px) saturate(60%);
-    -webkit-backdrop-filter:blur(8px) saturate(60%);
+    background:rgba(8,10,18,0.65);
+    backdrop-filter:blur(10px) saturate(50%);
+    -webkit-backdrop-filter:blur(10px) saturate(50%);
     animation:poseFade .18s ease-out;
   }
   @keyframes poseFade { from { opacity:0; } to { opacity:1; } }
-  #poseWheelCenter {
-    position:relative; z-index:2; text-align:center;
-    animation:poseCenterIn .25s cubic-bezier(0.34,1.56,0.64,1);
+  #poseWheelStage {
+    position:relative; width:520px; height:520px; max-width:88vmin; max-height:88vmin;
+    animation:poseWheelIn .28s cubic-bezier(0.34,1.56,0.64,1);
   }
-  @keyframes poseCenterIn { from { transform:scale(0.6); opacity:0; } to { transform:scale(1); opacity:1; } }
-  #poseWheelRing {
-    width:110px; height:110px; border-radius:50%;
-    border:3px solid rgba(255,255,255,0.35);
-    background:rgba(20,26,44,0.6);
-    box-shadow:0 0 30px rgba(126,192,255,0.25) inset, 0 0 20px rgba(255,255,255,0.1);
-    margin:0 auto;
+  @keyframes poseWheelIn { from { transform:scale(0.5) rotate(-30deg); opacity:0; } to { transform:none; opacity:1; } }
+  #poseWheelSvg {
+    position:absolute; inset:0; width:100%; height:100%;
+    filter: drop-shadow(0 20px 40px rgba(0,0,0,0.6));
   }
-  #poseWheelHint {
-    color:#e5eaf5; font-family:'Nunito',sans-serif; font-weight:800; font-size:13px;
-    letter-spacing:0.3px; margin-bottom:14px;
-    text-shadow:0 2px 6px rgba(0,0,0,0.6);
+  .wedge {
+    transition:transform .12s, filter .12s;
+    transform-origin:0 0;
+    cursor:pointer;
+    pointer-events:all;
+    stroke:rgba(15,20,32,0.9);
+    stroke-width:3;
+  }
+  .wedge.hover {
+    filter: brightness(1.35) drop-shadow(0 0 10px rgba(255,207,60,0.7));
+  }
+  .wedge.current {
+    filter: brightness(0.55) saturate(0.6);
   }
   #poseWheelItems {
-    position:absolute; inset:0; z-index:3; pointer-events:none;
+    position:absolute; inset:0; pointer-events:none;
   }
   .poseSlot {
     position:absolute; transform:translate(-50%, -50%);
     display:flex; flex-direction:column; align-items:center;
-    padding:6px; border-radius:14px;
-    background:rgba(20,26,44,0.72);
-    border:2px solid rgba(255,255,255,0.15);
-    transition:transform .15s, border-color .15s, background .15s, opacity .15s;
-    animation:poseSlotIn .3s cubic-bezier(0.34,1.56,0.64,1) both;
+    pointer-events:none;
+    transition: transform .15s;
   }
-  @keyframes poseSlotIn { from { transform:translate(-50%, -50%) scale(0.3); opacity:0; } to { transform:translate(-50%, -50%) scale(1); opacity:1; } }
   .poseSlot canvas {
-    display:block; width:120px; height:120px;
+    display:block; width:110px; height:110px;
     background:transparent;
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
   }
-  .poseSlot .poseName {
-    color:#fff; font-family:'Nunito',sans-serif;
-    font-weight:900; font-size:15px;
-    margin-top:2px; padding:3px 10px;
-    background:rgba(0,0,0,0.4); border-radius:8px;
-    text-shadow:0 1px 2px rgba(0,0,0,0.7);
-  }
-  /* 현재 포즈 = 살짝 흐리게 */
-  .poseSlot.current {
-    opacity:0.45;
-    filter:grayscale(0.4);
-  }
-  .poseSlot.current::after {
-    content:'현재';
-    position:absolute; top:-8px; right:-8px;
-    background:var(--yellow); color:#000;
-    padding:2px 7px; border-radius:10px;
-    font-family:'Nunito',sans-serif; font-weight:900; font-size:10px;
-    box-shadow:0 2px 0 rgba(0,0,0,0.4);
-  }
-  /* 마우스 hover = 강조 (골드 테두리 + 크게) */
-  .poseSlot.hover {
-    transform:translate(-50%, -50%) scale(1.15);
-    border-color:var(--yellow);
-    background:rgba(60,50,20,0.8);
-    box-shadow:0 0 22px rgba(255,207,60,0.5);
-    opacity:1;
-    filter:none;
-  }
-  /* 잠금 포즈 = 어둡게 + 자물쇠 */
-  .poseSlot.locked {
-    opacity:0.3;
-    filter:grayscale(0.9) brightness(0.5);
-  }
-  .poseSlot.locked::before {
-    content:'🔒';
-    position:absolute; top:50%; left:50%;
+  .poseSlot.hover { transform:translate(-50%, -50%) scale(1.15); }
+  .poseSlot.current canvas { opacity:0.5; filter:grayscale(0.6); }
+  #poseWheelCenter {
+    position:absolute; left:50%; top:50%;
     transform:translate(-50%, -50%);
-    font-size:32px; z-index:5;
-    text-shadow:0 2px 8px rgba(0,0,0,0.8);
+    width:180px; height:180px; border-radius:50%;
+    background:radial-gradient(circle at center, #1e2540, #0a0d1a);
+    border:4px solid rgba(255,255,255,0.15);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    box-shadow: inset 0 0 25px rgba(0,0,0,0.5), 0 0 30px rgba(126,192,255,0.15);
+    pointer-events:none;
   }
-  .poseSlot.locked.hover {
-    opacity:0.5;
-    filter:grayscale(0.7) brightness(0.6);
-    border-color:var(--red);
+  #poseWheelLabel {
+    color:#fff; font-family:'Nunito',sans-serif;
+    font-weight:900; font-size:22px;
+    text-shadow:0 3px 8px rgba(0,0,0,0.8);
+    letter-spacing:0.5px;
+    margin-bottom:6px;
+    text-align:center; padding: 0 10px;
   }
+  #poseWheelHint {
+    color:#8b92a8; font-family:'Nunito',sans-serif;
+    font-weight:700; font-size:11px;
+    letter-spacing:0.3px; text-transform:uppercase;
+  }
+
 
   /* 플레이어 생존 목록 (게임 중) */
   #playerListHUD {
@@ -1438,12 +1422,10 @@
 </div>
 
 <div id="scr-vote" class="screen hidden">
-  <div class="screen-title">맵 & 모드 투표</div>
+  <div class="screen-title" id="voteTitle">맵 투표</div>
   <div class="vote-timer-pill" id="voteTimer">남은 시간: 15초</div>
   <div id="voteMaps" class="voteBox"></div>
-  <div style="height:8px;"></div>
-  <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:16px; color:var(--text-dim); margin:4px 0 8px;">게임 모드</div>
-  <div id="voteModes" class="voteBox"></div>
+  <div id="voteModes" class="voteBox" style="display:none;"></div>
 </div>
 
 <div id="scr-draw" class="screen hidden">
@@ -1512,14 +1494,17 @@
 
 <div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; Q 로 종료</div>
 
-<!-- ============ 포즈 휠 (P 홀드) ============ -->
+<!-- ============ 포즈 휠 (P 홀드) — 파이 차트 스타일 ============ -->
 <div id="poseWheel" class="hidden">
   <div id="poseWheelBg"></div>
-  <div id="poseWheelCenter">
-    <div id="poseWheelHint">P 홀드 · 마우스로 선택 · 놓으면 확정</div>
-    <div id="poseWheelRing"></div>
+  <div id="poseWheelStage">
+    <svg id="poseWheelSvg" viewBox="-220 -220 440 440"></svg>
+    <div id="poseWheelItems"></div>
+    <div id="poseWheelCenter">
+      <div id="poseWheelLabel">선택 해</div>
+      <div id="poseWheelHint">P 놓으면 확정</div>
+    </div>
   </div>
-  <div id="poseWheelItems"></div>
 </div>
 <div id="playerListHUD"></div>
 
@@ -1893,7 +1878,11 @@ function attachGunToPlayer() {
   //   총이 캐릭터 몸 안에 파묻히거나 이상한 곳에 뜸.
   //   여기선 gun 의 "왼쪽면(x=box.min.x)" + "아래(y=box.min.y)" + "뒤(z=box.max.z)" 를
   //   attachedGun 원점에 맞춤. 즉 총의 손잡이 뒤끝을 anchor 로 삼음 → 항상 예측 가능.
-  cloned.position.set(-box.min.x, -box.min.y, -box.max.z);
+  cloned.position.set(
+    -(box.min.x + box.max.x)/2,
+    -(box.min.y + box.max.y)/2,
+    -(box.min.z + box.max.z)/2
+  );
   cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
@@ -1904,10 +1893,10 @@ function attachGunToPlayer() {
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
 
-  // 캐릭터 오른쪽 옆구리 앞쪽, 손이 잡는 위치
-  attachedGun.position.set(0.35, 1.0, -0.25);
-  // 총구가 캐릭터 앞(-Z)을 향하도록. 원본이 +X 방향으로 눕혀있다고 가정 → 90° 돌림.
-  attachedGun.rotation.y = Math.PI / 2;
+  // 오른쪽 옆 허리 높이. 몸에서 좀 더 떨어뜨림 (0.35→0.55)
+  attachedGun.position.set(0.55, 0.95, -0.15);
+  // 총구가 앞(-Z)을 향하도록. 원본 barrel 이 +X 방향이라 가정 → -90° 돌림
+  attachedGun.rotation.y = -Math.PI / 2;
   player.add(attachedGun);
 
   // 부착 후 실제 렌더링 mesh 의 world 위치 확인
@@ -1944,7 +1933,11 @@ function attachGunToOther(uid) {
   cloned.scale.setScalar(s);
   cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
-  cloned.position.set(-box.min.x, -box.min.y, -box.max.z);
+  cloned.position.set(
+    -(box.min.x + box.max.x)/2,
+    -(box.min.y + box.max.y)/2,
+    -(box.min.z + box.max.z)/2
+  );
   cloned.traverse(o => {
     o.visible = true;
     if (o.isMesh) {
@@ -1954,8 +1947,8 @@ function attachGunToOther(uid) {
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.35, 1.0, -0.25);
-  wrap.rotation.y = Math.PI / 2;
+  wrap.position.set(0.55, 0.95, -0.15);
+  wrap.rotation.y = -Math.PI / 2;
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -2220,21 +2213,22 @@ setInterval(async () => {
       } else if (room.countdown > 0) {
         await update(roomRef, { countdown: room.countdown - 1 });
       } else {
-        await update(roomRef, { state: 'voting', voteCountdown: 15, countdown: null });
+        await update(roomRef, { state: 'voting', votePhase: 'map', voteCountdown: 15, countdown: null });
         const pl = room.players || {};
         for (const uid of Object.keys(pl)) {
-          await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null });
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null, modeVote: null });
         }
-        console.log('▶ lobby → voting');
+        console.log('▶ lobby → voting (map)');
       }
       _lastPlayerCount = count;
       
     } else if (state === 'voting') {
+      const phase = room.votePhase || 'map';
       if (room.voteCountdown > 0) {
         await update(roomRef, { voteCountdown: room.voteCountdown - 1 });
-      } else {
+      } else if (phase === 'map') {
+        // 맵 투표 집계 → 결과 저장 후 모드 투표로 전환
         const players = room.players || {};
-        // 맵 투표 집계
         const votes = {};
         Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
         let maxV = -1, winners = [];
@@ -2245,7 +2239,15 @@ setInterval(async () => {
         const chosen = winners.length > 0
           ? winners[Math.floor(Math.random()*winners.length)]
           : String(Math.floor(Math.random() * MAPS.length));
+        await update(roomRef, {
+          selectedMap: chosen,
+          votePhase: 'mode',
+          voteCountdown: 15
+        });
+        console.log('▶ 맵 투표 종료, 선정=', chosen, '→ 모드 투표 시작');
+      } else {
         // 모드 투표 집계
+        const players = room.players || {};
         const modeVotes = {};
         Object.values(players).forEach(p => { if (p.modeVote) modeVotes[p.modeVote] = (modeVotes[p.modeVote] || 0) + 1; });
         let mMax = -1, mWinners = [];
@@ -2256,18 +2258,27 @@ setInterval(async () => {
         const chosenMode = mWinners.length > 0
           ? mWinners[Math.floor(Math.random()*mWinners.length)]
           : 'classic';
+        // 술래 결정 — 팀 모드면 여러 명, 아니면 1명
         const uids = Object.keys(players);
-        const seekerUid = uids[Math.floor(Math.random() * uids.length)];
+        const shuffled = [...uids].sort(() => Math.random() - 0.5);
+        let seekerUid = shuffled[0];
+        let seekersMap = null;
+        if (chosenMode === 'team') {
+          const seekerCount = Math.max(1, Math.floor(uids.length / 2));
+          seekersMap = {};
+          shuffled.slice(0, seekerCount).forEach(u => { seekersMap[u] = true; });
+          seekerUid = shuffled[0];
+        }
         await update(roomRef, {
           state: 'drawing',
-          selectedMap: chosen,
           gameMode: chosenMode,
           seekerUid: seekerUid,
-          seekers: null,           // 새 라운드 시작 시 감염 리스트 초기화
+          seekers: seekersMap,
           drawCountdown: 5,
-          voteCountdown: null
+          voteCountdown: null,
+          votePhase: null
         });
-        console.log('▶ voting → drawing, 술래=', seekerUid, '모드=', chosenMode);
+        console.log('▶ voting → drawing, 술래=', seekerUid, '모드=', chosenMode, '팀시커=', seekersMap);
       }
       
     } else if (state === 'drawing') {
@@ -2889,6 +2900,7 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       round: null,
       countdown: null,
       voteCountdown: null,
+      votePhase: null,
       drawCountdown: null,
       roundCountdown: null,
       hidePhaseCountdown: null,
@@ -3123,49 +3135,70 @@ let poseWheelHover = null;
 const _poseWheelPreviews = new Map(); // pose → { canvas, renderer, scene, camera, obj, wrap, angle }
 const POSE_WHEEL_RADIUS = 180; // 중심에서 슬롯까지 px
 
+// 파이 조각 색 팔레트 (Meccha 스타일)
+const WHEEL_COLORS = ['#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#ff6b6b', '#4ecdc4'];
+
 function initPoseWheelSlots() {
+  const svg = document.getElementById('poseWheelSvg');
   const container = document.getElementById('poseWheelItems');
-  if (!container) return;
-  // 이미 초기화됐으면 스킵
-  if (container.childElementCount > 0) return;
+  if (!svg || !container) return;
+  if (svg.childElementCount > 0) return; // 이미 초기화됨
+
   const n = POSE_LIST.length;
+  const R_OUT = 210, R_IN = 92;   // 파이 외/내 반지름 (viewBox -220~220 기준)
+  const R_MID = (R_OUT + R_IN) / 2; // 캔버스 배치 반지름
+  const wedgeAngle = (Math.PI * 2) / n; // 조각 하나 각도
+  const startOffset = -Math.PI / 2 - wedgeAngle / 2; // 첫 조각이 위(-π/2) 중앙에 오도록
+
   POSE_LIST.forEach((poseName, i) => {
-    // 위(-90°)부터 시계방향
-    const angle = -Math.PI/2 + (i / n) * Math.PI * 2;
+    const a0 = startOffset + i * wedgeAngle;
+    const a1 = a0 + wedgeAngle;
+    // 파이 조각 path (도넛)
+    const x0o = Math.cos(a0) * R_OUT, y0o = Math.sin(a0) * R_OUT;
+    const x1o = Math.cos(a1) * R_OUT, y1o = Math.sin(a1) * R_OUT;
+    const x1i = Math.cos(a1) * R_IN,  y1i = Math.sin(a1) * R_IN;
+    const x0i = Math.cos(a0) * R_IN,  y0i = Math.sin(a0) * R_IN;
+    const largeArc = wedgeAngle > Math.PI ? 1 : 0;
+    const d = `M ${x0o} ${y0o} A ${R_OUT} ${R_OUT} 0 ${largeArc} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${R_IN} ${R_IN} 0 ${largeArc} 0 ${x0i} ${y0i} Z`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', WHEEL_COLORS[i % WHEEL_COLORS.length]);
+    path.classList.add('wedge');
+    path.dataset.pose = poseName;
+    svg.appendChild(path);
+
+    // 조각 중앙에 3D 프리뷰 캔버스 배치
+    const midAngle = (a0 + a1) / 2;
+    const cx = Math.cos(midAngle) * R_MID;
+    const cy = Math.sin(midAngle) * R_MID;
+    // viewBox 좌표 → % 로 변환 (viewBox -220~220 = 440 스팬)
+    const pctX = 50 + (cx / 440) * 100;
+    const pctY = 50 + (cy / 440) * 100;
     const wrap = document.createElement('div');
     wrap.className = 'poseSlot';
+    wrap.style.left = pctX + '%';
+    wrap.style.top = pctY + '%';
     wrap.dataset.pose = poseName;
-    const x = Math.cos(angle) * POSE_WHEEL_RADIUS;
-    const y = Math.sin(angle) * POSE_WHEEL_RADIUS;
-    wrap.style.left = `calc(50% + ${x}px)`;
-    wrap.style.top = `calc(50% + ${y}px)`;
-    // 3D 프리뷰 canvas
     const canvas = document.createElement('canvas');
-    canvas.width = 120; canvas.height = 120;
+    canvas.width = 110; canvas.height = 110;
     wrap.appendChild(canvas);
-    // 이름
-    const nm = document.createElement('div');
-    nm.className = 'poseName';
-    nm.textContent = POSE_DISPLAY[poseName]?.name || poseName;
-    wrap.appendChild(nm);
     container.appendChild(wrap);
-    // three.js 미니 씬
+
+    // three.js 프리뷰 씬
     try {
-      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:false });
       renderer.setPixelRatio(1);
-      renderer.setSize(120, 120, false);
+      renderer.setSize(110, 110, false);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       const scene = new THREE.Scene();
       scene.background = null;
-      scene.add(new THREE.AmbientLight(0xffffff, 1.15));
-      const dl = new THREE.DirectionalLight(0xfff2d0, 1.2);
-      dl.position.set(1, 2, 1.5); scene.add(dl);
-      const fl = new THREE.DirectionalLight(0xa0c8ff, 0.4);
-      fl.position.set(-1, 1, -1); scene.add(fl);
-      const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-      camera.position.set(0, 1.1, 4.2);
-      camera.lookAt(0, 0.95, 0);
-      _poseWheelPreviews.set(poseName, { canvas, renderer, scene, camera, wrap, angle, obj: null });
+      scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+      const dl = new THREE.DirectionalLight(0xffffff, 1.0);
+      dl.position.set(1, 2, 1); scene.add(dl);
+      const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
+      camera.position.set(0, 1.0, 4.5);
+      camera.lookAt(0, 0.9, 0);
+      _poseWheelPreviews.set(poseName, { canvas, renderer, scene, camera, wrap, angle: midAngle, path, obj: null });
     } catch (err) {
       console.warn('포즈 프리뷰 렌더러 생성 실패:', poseName, err);
     }
@@ -3207,9 +3240,15 @@ function openPoseWheel() {
   el.classList.remove('hidden');
   _poseWheelPreviews.forEach((prev, name) => {
     prev.wrap.classList.toggle('current', name === currentPose);
-    prev.wrap.classList.remove('locked');
     prev.wrap.classList.remove('hover');
+    if (prev.path) {
+      prev.path.classList.toggle('current', name === currentPose);
+      prev.path.classList.remove('hover');
+    }
   });
+  // 라벨 초기값
+  const lbl = document.getElementById('poseWheelLabel');
+  if (lbl) lbl.textContent = POSE_DISPLAY[currentPose]?.name || currentPose;
   poseWheelHover = null;
   if (document.pointerLockElement) document.exitPointerLock();
 }
@@ -3233,11 +3272,15 @@ addEventListener('mousemove', e => {
   const cx = innerWidth / 2, cy = innerHeight / 2;
   const dx = e.clientX - cx, dy = e.clientY - cy;
   const distSq = dx*dx + dy*dy;
-  if (distSq < 60*60) {
-    // 중앙 dead zone
+  if (distSq < 55*55) {
     if (poseWheelHover !== null) {
-      _poseWheelPreviews.forEach(prev => prev.wrap.classList.remove('hover'));
+      _poseWheelPreviews.forEach(prev => {
+        prev.wrap.classList.remove('hover');
+        if (prev.path) prev.path.classList.remove('hover');
+      });
       poseWheelHover = null;
+      const lbl = document.getElementById('poseWheelLabel');
+      if (lbl) lbl.textContent = POSE_DISPLAY[currentPose]?.name || currentPose;
     }
     return;
   }
@@ -3251,8 +3294,12 @@ addEventListener('mousemove', e => {
   if (best !== poseWheelHover) {
     poseWheelHover = best;
     _poseWheelPreviews.forEach((prev, name) => {
-      prev.wrap.classList.toggle('hover', name === best);
+      const isHover = name === best;
+      prev.wrap.classList.toggle('hover', isHover);
+      if (prev.path) prev.path.classList.toggle('hover', isHover);
     });
+    const lbl = document.getElementById('poseWheelLabel');
+    if (lbl) lbl.textContent = POSE_DISPLAY[best]?.name || best;
   }
 });
 
@@ -3431,7 +3478,8 @@ let mapLoaded = false;
 // ============ 게임 모드 ============
 const MODES = [
   { id: 'classic',   name: '클래식',  icon: '🎯', desc: '술래 1명이 다 잡음' },
-  { id: 'infection', name: '감염',    icon: '☣️', desc: '잡히면 술래 됨' }
+  { id: 'infection', name: '감염',    icon: '☣️', desc: '잡히면 술래 됨' },
+  { id: 'team',      name: '팀',      icon: '⚔️', desc: '술래팀 vs 도망팀' }
 ];
 // 모든 술래 uid 구하기 (원래 술래 + 감염된 애들)
 function getSeekerUids(room) {
@@ -4224,7 +4272,7 @@ function subscribeRoom(roomId) {
     // 상태별 화면 전환
     if (room.state === 'voting') {
       if (currentScreen !== 'vote') startVotingUI(room);
-      else { renderVoteMaps(room); renderVoteModes(room); }  // 다른 사람 투표하면 실시간 갱신
+      else updateVotePhaseUI(room);
       const timerEl = document.getElementById('voteTimer');
       if (timerEl) timerEl.textContent = '남은 시간: ' + (room.voteCountdown != null ? room.voteCountdown : 15) + '초';
     } else if (room.state === 'drawing' && currentScreen !== 'draw') {
@@ -4364,8 +4412,25 @@ let _lastVoteTime = 0;
 const VOTE_COOLDOWN = 1500; // 1.5초 쿨다운 (연속 스팸 방지)
 function startVotingUI(room) {
   showScreen('vote');
-  renderVoteMaps(room);
-  renderVoteModes(room);
+  updateVotePhaseUI(room);
+}
+
+function updateVotePhaseUI(room) {
+  const phase = room?.votePhase || 'map';
+  const title = document.getElementById('voteTitle');
+  const mapsBox = document.getElementById('voteMaps');
+  const modesBox = document.getElementById('voteModes');
+  if (phase === 'map') {
+    if (title) title.textContent = '맵 투표';
+    if (mapsBox) mapsBox.style.display = '';
+    if (modesBox) modesBox.style.display = 'none';
+    renderVoteMaps(room);
+  } else {
+    if (title) title.textContent = '모드 투표';
+    if (mapsBox) mapsBox.style.display = 'none';
+    if (modesBox) modesBox.style.display = '';
+    renderVoteModes(room);
+  }
 }
 
 function renderVoteMaps(room) {
