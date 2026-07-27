@@ -1587,6 +1587,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
 // BVH는 도쿄 mesh 인스턴스에만 개별 적용 (캐릭터 raycast 안 건드림)
 import { MeshBVH, acceleratedRaycast } from 'https://unpkg.com/three-mesh-bvh@0.7.8/build/index.module.js';
 
@@ -2948,8 +2949,13 @@ function processGlb(gltf, poseName) {
   const center = new THREE.Vector3(); box2.getCenter(center);
   glb.position.x = -center.x;
   glb.position.z = -center.z;
-  // 머리 y = 포즈별 고정값 (bbox는 스켈레톤 본까지 잡혀서 부정확)
-  poseHeadY[poseName] = poseName === 'crouch' ? 0.9 : 1.55;
+  // 머리 y = 포즈별 근사값 (bbox는 스켈레톤 본까지 잡혀서 부정확)
+  const HEAD_Y_MAP = {
+    stand: 1.55, crouch: 0.9,
+    Meditation: 1.05, greeting: 1.55, 'Doing-the-splits': 0.85,
+    driving: 1.1, 'Warm-up': 1.5, 'Leg-splits': 0.85,
+  };
+  poseHeadY[poseName] = HEAD_Y_MAP[poseName] ?? 1.55;
   console.log(`포즈 [${poseName}] 머리 Y:`, poseHeadY[poseName]);
   glb.traverse(o => {
     if (o.isMesh) {
@@ -2978,8 +2984,26 @@ function processGlb(gltf, poseName) {
   });
   // 로드 즉시 player 에 추가 (일단 숨김)
   glb.visible = false;
+  glb.userData.animations = gltf.animations || []; // ★ 애니메이션 클립 저장
   player.add(glb);
   return glb;
+}
+
+// 포즈별 애니메이션 mixer (자기 캐릭터 + 다른 플레이어)
+let selfMixer = null;
+const otherMixers = new Map(); // uid → { mixer, action }
+const _poseWheelMixers = new Map(); // pose → mixer (프리뷰용)
+
+function playSelfPoseAnim(poseName) {
+  const model = poseModels[poseName];
+  if (!model) return;
+  const anims = model.userData.animations;
+  if (selfMixer) { selfMixer.stopAllAction(); selfMixer.uncacheRoot(selfMixer.getRoot()); selfMixer = null; }
+  if (!anims || !anims.length) return;
+  selfMixer = new THREE.AnimationMixer(model);
+  const action = selfMixer.clipAction(anims[0]);
+  action.setLoop(THREE.LoopRepeat, Infinity);
+  action.reset().play();
 }
 
 // 포즈 전환 치지직 효과
@@ -3014,16 +3038,21 @@ function switchPose(poseName) {
     if (o.isMesh) characterMeshes.push(o);
   });
   console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
+  // 애니메이션 재생
+  playSelfPoseAnim(poseName);
   // 게임 중 R 키로 전환할 때만 효과 (로딩 초기화 때는 스킵)
   if (currentScreen === 'game') triggerPoseTransitionEffect();
 }
 
 // ================ 포즈 정의 (한 곳에서 관리) ================
 // 추가하려면: 여기에 { id, name } 넣고 pose/<id>.glb 파일 넣으면 끝. 휠에도 자동 표시.
-const POSE_LIST = ['stand', 'crouch'];
+const POSE_LIST = ['stand', 'crouch', 'Meditation', 'greeting', 'Doing-the-splits'];
 const POSE_DISPLAY = {
   stand:  { name: '기본' },
   crouch: { name: '앉기' },
+  Meditation: { name: '명상' },
+  greeting: { name: '인사' },
+  'Doing-the-splits': { name: '다리찢기' },
 };
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -3124,13 +3153,23 @@ function loadPoseWheelObjects() {
   _poseWheelPreviews.forEach((prev, name) => {
     const src = poseModels[name];
     if (!src || prev.obj) return;
-    const cloned = src.clone(true);
+    // SkeletonUtils clone → 애니메이션 가능
+    const cloned = SkeletonUtils.clone(src);
     cloned.traverse(o => {
       if (o.isMesh) o.frustumCulled = false;
     });
     cloned.visible = true;
     prev.scene.add(cloned);
     prev.obj = cloned;
+    // 애니메이션 mixer
+    const anims = src.userData.animations;
+    if (anims && anims.length) {
+      const mixer = new THREE.AnimationMixer(cloned);
+      const action = mixer.clipAction(anims[0]);
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.play();
+      prev.mixer = mixer;
+    }
   });
 }
 
@@ -3214,8 +3253,10 @@ addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
 function renderPoseWheel() {
   if (!poseWheelOpen) return;
   const t = performance.now() * 0.001;
+  const wheelDt = Math.min(0.05, 0.016); // 대략 1프레임
   _poseWheelPreviews.forEach(prev => {
-    if (prev.obj) prev.obj.rotation.y = t * 0.7; // 살짝 도는 애니메이션
+    if (prev.obj) prev.obj.rotation.y = t * 0.7;
+    if (prev.mixer) prev.mixer.update(wheelDt);
     try { prev.renderer.render(prev.scene, prev.camera); } catch(e) {}
   });
 }
@@ -5598,8 +5639,11 @@ function startFirebaseSync(room) {
         // 포즈 바뀌었으면 mesh 교체
         if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
           ot.group.remove(ot.charMesh);
-          const clone = poseModels[p.p].clone(true);
-          clone.visible = true; // 템플릿 visible=false 방어
+          // 이전 mixer 정리
+          if (otherMixers.has(uid)) { otherMixers.get(uid).mixer.stopAllAction(); otherMixers.delete(uid); }
+          // SkeletonUtils.clone: 스켈레톤 유지되는 clone (애니메이션 가능)
+          const clone = SkeletonUtils.clone(poseModels[p.p]);
+          clone.visible = true;
           clone.traverse(o => {
             o.visible = true;
             if (o.isMesh) {
@@ -5611,9 +5655,18 @@ function startFirebaseSync(room) {
               o.geometry.setAttribute('color', cAttr);
               o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
               o.castShadow = false;
-              o.frustumCulled = true; // ★ 컬링 활성
+              o.frustumCulled = true;
             }
           });
+          // 애니메이션 시작
+          const anims = poseModels[p.p].userData.animations;
+          if (anims && anims.length) {
+            const mixer = new THREE.AnimationMixer(clone);
+            const action = mixer.clipAction(anims[0]);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.play();
+            otherMixers.set(uid, { mixer, action });
+          }
           ot.group.add(clone);
           ot.charMesh = clone;
           ot._meshes = null;
@@ -5892,6 +5945,9 @@ function animate() {
   if (!_animRunning) return;
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+  // ★ 포즈 애니메이션 mixer 갱신
+  if (selfMixer) selfMixer.update(dt);
+  otherMixers.forEach(m => m.mixer.update(dt));
   const _frameNow = Date.now(); // 매 프레임 1회만 호출
   if (mixer) mixer.update(dt);
   // ★ 최적화: 게임 화면 아닐 때 물리/연산 완전 스킵
