@@ -1587,7 +1587,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 // BVH는 도쿄 mesh 인스턴스에만 개별 적용 (캐릭터 raycast 안 건드림)
 import { MeshBVH, acceleratedRaycast } from 'https://unpkg.com/three-mesh-bvh@0.7.8/build/index.module.js';
 
@@ -2994,6 +2994,11 @@ let selfMixer = null;
 const otherMixers = new Map(); // uid → { mixer, action }
 const _poseWheelMixers = new Map(); // pose → mixer (프리뷰용)
 
+// ★ 앉기 계열 포즈 발동 시 미끄러짐 (무빙 테크)
+let _slideVX = 0, _slideVZ = 0, _slideEndTime = 0;
+const SLIDE_DURATION_MS = 1500;
+const SLIDE_INITIAL_SPEED = 22; // m/s (뛰기 속도랑 같게 → 부드럽게 이어짐)
+
 function playSelfPoseAnim(poseName) {
   const model = poseModels[poseName];
   if (!model) return;
@@ -3004,6 +3009,22 @@ function playSelfPoseAnim(poseName) {
   const action = selfMixer.clipAction(anims[0]);
   action.setLoop(THREE.LoopRepeat, Infinity);
   action.reset().play();
+}
+
+// 앉기 계열 → 슬라이드 시작
+function triggerSlideIfSittable(poseName) {
+  const meta = POSE_DISPLAY[poseName];
+  if (!meta || !meta.sittable) return;
+  if (currentScreen !== 'game') return;
+  // 캐릭터가 바라보는 방향으로 슬라이드
+  // player.rotation.y = atan2(wx, wz) + PI (이동 방향 기준). 앞 방향 = (-sin(rot), -cos(rot))
+  const rot = player.rotation.y;
+  const fx = -Math.sin(rot);
+  const fz = -Math.cos(rot);
+  _slideVX = fx * SLIDE_INITIAL_SPEED;
+  _slideVZ = fz * SLIDE_INITIAL_SPEED;
+  _slideEndTime = performance.now() + SLIDE_DURATION_MS;
+  console.log('🛷 슬라이드 발동:', poseName, '방향(', fx.toFixed(2), fz.toFixed(2), ')');
 }
 
 // 포즈 전환 치지직 효과
@@ -3040,6 +3061,8 @@ function switchPose(poseName) {
   console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
   // 애니메이션 재생
   playSelfPoseAnim(poseName);
+  // 앉기 계열이면 슬라이드 발동
+  triggerSlideIfSittable(poseName);
   // 게임 중 R 키로 전환할 때만 효과 (로딩 초기화 때는 스킵)
   if (currentScreen === 'game') triggerPoseTransitionEffect();
 }
@@ -3049,10 +3072,10 @@ function switchPose(poseName) {
 const POSE_LIST = ['stand', 'crouch', 'Meditation', 'greeting', 'Doing-the-splits'];
 const POSE_DISPLAY = {
   stand:  { name: '기본' },
-  crouch: { name: '앉기' },
-  Meditation: { name: '명상' },
+  crouch: { name: '앉기', sittable: true },
+  Meditation: { name: '명상', sittable: true },
   greeting: { name: '인사' },
-  'Doing-the-splits': { name: '다리찢기' },
+  'Doing-the-splits': { name: '다리찢기', sittable: true },
 };
 
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
@@ -6108,6 +6131,14 @@ function animate() {
       while (d < -Math.PI) d += Math.PI*2;
       player.rotation.y += d * Math.min(1, dt*10);
     }
+  }
+
+  // ★ 슬라이드 적용 (앉기 계열 포즈 발동 시 1.5초 미끄러짐)
+  const nowMs = performance.now();
+  if (nowMs < _slideEndTime) {
+    const remaining = (_slideEndTime - nowMs) / SLIDE_DURATION_MS; // 1 → 0
+    const factor = remaining * remaining; // 처음 빠르고 뒤로 갈수록 느려짐
+    tryMove(_slideVX * factor * dt, _slideVZ * factor * dt);
   }
 
   // 벽 타기 판정 — 공중 상태에서 벽 근처면 붙어있음 (지속). 스페이스 = 위로 오름.
