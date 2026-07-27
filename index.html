@@ -960,18 +960,18 @@
     filter: drop-shadow(0 20px 40px rgba(0,0,0,0.6));
   }
   .wedge {
-    transition:transform .12s, filter .12s;
-    transform-origin:0 0;
+    transition:filter .12s;
     cursor:pointer;
     pointer-events:all;
-    stroke:rgba(15,20,32,0.9);
-    stroke-width:3;
+    stroke:rgba(15,20,32,0.85);
+    stroke-width:2;
   }
   .wedge.hover {
-    filter: brightness(1.35) drop-shadow(0 0 10px rgba(255,207,60,0.7));
+    fill:#c8a24a !important;
+    filter: brightness(1.15) drop-shadow(0 0 12px rgba(255,207,60,0.5));
   }
   .wedge.current {
-    filter: brightness(0.55) saturate(0.6);
+    filter: brightness(0.7) saturate(0.5);
   }
   #poseWheelItems {
     position:absolute; inset:0; pointer-events:none;
@@ -1893,10 +1893,11 @@ function attachGunToPlayer() {
   attachedGun = new THREE.Group();
   attachedGun.add(cloned);
 
-  // 오른쪽 옆 허리 높이. 몸에서 좀 더 떨어뜨림 (0.35→0.55)
-  attachedGun.position.set(0.55, 0.95, -0.15);
-  // 총구가 앞(-Z)을 향하도록. 원본 barrel 이 +X 방향이라 가정 → -90° 돌림
-  attachedGun.rotation.y = -Math.PI / 2;
+  // 튜닝 상수 (안 예쁘면 여기 조절)
+  const GUN_POS_X = 0.42, GUN_POS_Y = 0.85, GUN_POS_Z = -0.25;
+  const GUN_ROT_X = 0, GUN_ROT_Y = 0, GUN_ROT_Z = -Math.PI / 2; // 세워서 아래 방향
+  attachedGun.position.set(GUN_POS_X, GUN_POS_Y, GUN_POS_Z);
+  attachedGun.rotation.set(GUN_ROT_X, GUN_ROT_Y, GUN_ROT_Z);
   player.add(attachedGun);
 
   // 부착 후 실제 렌더링 mesh 의 world 위치 확인
@@ -1947,8 +1948,8 @@ function attachGunToOther(uid) {
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.55, 0.95, -0.15);
-  wrap.rotation.y = -Math.PI / 2;
+  wrap.position.set(0.42, 0.85, -0.25);
+  wrap.rotation.set(0, 0, -Math.PI / 2);
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -3135,8 +3136,8 @@ let poseWheelHover = null;
 const _poseWheelPreviews = new Map(); // pose → { canvas, renderer, scene, camera, obj, wrap, angle }
 const POSE_WHEEL_RADIUS = 180; // 중심에서 슬롯까지 px
 
-// 파이 조각 색 팔레트 (Meccha 스타일)
-const WHEEL_COLORS = ['#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#ff6b6b', '#4ecdc4'];
+// 파이 조각 색 팔레트 — 다크 네이비 톤 (튐 없이 깔끔)
+const WHEEL_COLORS = ['#2a3348', '#333c54', '#2e3850', '#374260', '#2c3548', '#333d55'];
 
 function initPoseWheelSlots() {
   const svg = document.getElementById('poseWheelSvg');
@@ -3209,7 +3210,6 @@ function loadPoseWheelObjects() {
   _poseWheelPreviews.forEach((prev, name) => {
     const src = poseModels[name];
     if (!src || prev.obj) return;
-    // SkeletonUtils clone → 애니메이션 가능
     const cloned = SkeletonUtils.clone(src);
     cloned.traverse(o => {
       if (o.isMesh) o.frustumCulled = false;
@@ -3217,14 +3217,16 @@ function loadPoseWheelObjects() {
     cloned.visible = true;
     prev.scene.add(cloned);
     prev.obj = cloned;
-    // 애니메이션 mixer
+    // ★ 애니메이션 중간 프레임에서 고정 (재생 X, 계속 그 포즈로 서있게)
     const anims = src.userData.animations;
     if (anims && anims.length) {
       const mixer = new THREE.AnimationMixer(cloned);
       const action = mixer.clipAction(anims[0]);
-      action.setLoop(THREE.LoopRepeat, Infinity);
       action.play();
-      prev.mixer = mixer;
+      // 중간 지점으로 이동 후 정지
+      mixer.setTime(anims[0].duration * 0.5);
+      action.paused = true;
+      prev.mixer = null; // update 안 함
     }
   });
 }
@@ -3322,11 +3324,8 @@ addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
 // 매 프레임 미니 씬 렌더 (열려있을 때만)
 function renderPoseWheel() {
   if (!poseWheelOpen) return;
-  const t = performance.now() * 0.001;
-  const wheelDt = Math.min(0.05, 0.016); // 대략 1프레임
   _poseWheelPreviews.forEach(prev => {
-    if (prev.obj) prev.obj.rotation.y = t * 0.7;
-    if (prev.mixer) prev.mixer.update(wheelDt);
+    // 회전/애니메이션 없이 정지 프레임만 렌더
     try { prev.renderer.render(prev.scene, prev.camera); } catch(e) {}
   });
 }
