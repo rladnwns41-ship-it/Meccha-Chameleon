@@ -773,6 +773,264 @@
   }
   #paintIndicator.on { display:block; animation:slideIn .2s; }
 
+  /* ============ 홈 (메인 로비) ============ */
+  #scr-home {
+    display:none; flex-direction:column;
+    padding:24px; gap:20px;
+    min-height:100vh; box-sizing:border-box;
+  }
+  #scr-home:not(.hidden) { display:flex; }
+  .home-topbar {
+    display:flex; justify-content:space-between; align-items:center;
+    gap:12px; flex-wrap:wrap;
+  }
+  .home-nickbox, .home-coinbox {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(30,38,60,0.7); border:2px solid rgba(255,255,255,0.1);
+    padding:8px 14px; border-radius:20px;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:15px;
+    color:#e5eaf5; backdrop-filter:blur(8px);
+  }
+  .home-coinbox .coin-icon { font-size:20px; }
+  .home-coinbox .coin-lbl { font-size:12px; opacity:0.7; }
+  #homeCoinCount { color:var(--yellow); font-size:18px; font-weight:900; }
+  .home-nickbox .nick-icon { font-size:20px; }
+  #changeNickBtn {
+    background:transparent; border:none; color:#8b92a8; cursor:pointer;
+    font-size:16px; padding:2px 6px; border-radius:6px;
+  }
+  #changeNickBtn:hover { background:rgba(255,255,255,0.08); color:#fff; }
+  .home-stage {
+    flex:1; position:relative;
+    background:radial-gradient(ellipse at center, rgba(90,120,180,0.25), rgba(15,20,32,0.6));
+    border:2px solid rgba(255,255,255,0.1);
+    border-radius:24px;
+    min-height:340px;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    box-shadow: inset 0 0 60px rgba(0,0,0,0.4);
+  }
+  .home-stage::before {
+    content:''; position:absolute; inset:0;
+    background:radial-gradient(ellipse at 50% 90%, rgba(255,207,60,0.15), transparent 60%);
+    pointer-events:none;
+  }
+  #homeCharCanvas {
+    width:100%; height:100%;
+    cursor:grab;
+  }
+  #homeCharCanvas:active { cursor:grabbing; }
+  .home-stage-hint {
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    color:rgba(255,255,255,0.4); font-size:12px; font-weight:700;
+    font-family:'Nunito',sans-serif;
+    pointer-events:none;
+  }
+  .home-actions {
+    display:flex; gap:16px; align-items:stretch;
+    flex-wrap:wrap;
+  }
+  .home-play-btn {
+    flex:1; min-width:260px;
+    padding:22px 28px;
+    background:linear-gradient(135deg, #3ecf6c, #2ea058);
+    color:#fff; border:none; border-radius:20px;
+    font-family:'Nunito',sans-serif;
+    cursor:pointer;
+    box-shadow:0 8px 0 #1e8a3e, 0 12px 30px rgba(62,207,108,0.35);
+    transition:transform .15s, box-shadow .15s;
+    display:flex; align-items:center; gap:16px;
+    text-align:left;
+  }
+  .home-play-btn:hover { transform:translateY(-2px); box-shadow:0 10px 0 #1e8a3e, 0 16px 40px rgba(62,207,108,0.45); }
+  .home-play-btn:active { transform:translateY(4px); box-shadow:0 4px 0 #1e8a3e; }
+  .home-play-btn .hpb-icon { font-size:40px; }
+  .home-play-btn .hpb-txt {
+    font-size:32px; font-weight:900; letter-spacing:0.5px;
+    text-shadow:0 3px 0 rgba(0,0,0,0.25);
+  }
+  .home-play-btn .hpb-sub {
+    font-size:12px; font-weight:700; opacity:0.85;
+    margin-top:2px;
+  }
+  .home-play-btn > span:nth-child(2) { display:flex; flex-direction:column; }
+  .home-side-actions {
+    display:flex; flex-direction:column; gap:10px;
+    min-width:180px;
+  }
+  .home-side-btn {
+    padding:12px 16px;
+    background:rgba(46,56,82,0.85); color:#e5eaf5;
+    border:2px solid rgba(255,255,255,0.12);
+    border-radius:14px;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:14px;
+    cursor:pointer;
+    display:flex; align-items:center; gap:10px;
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    transition:transform .15s, background .15s;
+  }
+  .home-side-btn:hover { background:rgba(60,72,100,0.9); transform:translateY(-2px); box-shadow:0 6px 0 rgba(0,0,0,0.3); }
+  .home-side-btn:active { transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,0.3); }
+  .home-side-btn > span:first-child { font-size:22px; }
+
+  /* 옷장/포즈샵 오버레이 */
+  #closetOverlay, #poseShopOverlay {
+    position:fixed; inset:0; z-index:160;
+    background:rgba(10,14,24,0.85); backdrop-filter:blur(8px);
+    display:flex; align-items:center; justify-content:center;
+    padding:20px;
+  }
+  #closetOverlay.hidden, #poseShopOverlay.hidden { display:none; }
+  .closet-panel {
+    background:rgba(30,38,60,0.95); border:2px solid rgba(255,255,255,0.15);
+    border-radius:20px; padding:24px;
+    max-width:520px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+    animation:cardSlideUp .3s cubic-bezier(0.34,1.56,0.64,1);
+    color:#e5eaf5; font-family:'Nunito',sans-serif;
+  }
+  .closet-title { font-size:22px; font-weight:900; margin-bottom:4px; }
+  .closet-sub { font-size:13px; color:#8b92a8; margin-bottom:16px; }
+  .closet-palette {
+    display:grid; grid-template-columns:repeat(6, 1fr); gap:10px;
+    margin-bottom:14px;
+  }
+  .palette-swatch {
+    aspect-ratio:1; border-radius:12px; cursor:pointer;
+    border:3px solid rgba(255,255,255,0.15);
+    transition:transform .1s, border-color .1s, box-shadow .1s;
+  }
+  .palette-swatch:hover { transform:scale(1.08); }
+  .palette-swatch.active {
+    border-color:var(--yellow);
+    box-shadow:0 0 20px rgba(255,207,60,0.6);
+    transform:scale(1.12);
+  }
+  .closet-hint {
+    font-size:12px; color:#8b92a8; margin-bottom:16px;
+    padding:10px 12px; background:rgba(0,0,0,0.25); border-radius:10px;
+    line-height:1.5;
+  }
+  .closet-buttons { display:flex; gap:10px; justify-content:space-between; }
+
+  .pose-shop-list {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+    gap:12px; margin-bottom:18px;
+  }
+  .pose-shop-card {
+    background:rgba(46,56,82,0.7); border:2px solid rgba(255,255,255,0.1);
+    border-radius:14px; padding:14px; text-align:center;
+  }
+  .pose-shop-card.owned { border-color:rgba(62,207,108,0.5); }
+  .pose-shop-card.locked { opacity:0.7; }
+  .pose-shop-card .psc-icon { font-size:38px; margin-bottom:6px; }
+  .pose-shop-card .psc-name { font-weight:900; font-size:15px; margin-bottom:8px; }
+  .pose-shop-card .psc-price { font-size:13px; color:var(--yellow); font-weight:800; margin-bottom:8px; }
+  .pose-shop-card button {
+    width:100%; padding:6px 8px; border-radius:8px; border:none;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; cursor:pointer;
+  }
+  .pose-shop-card .btn-buy { background:var(--yellow); color:#000; }
+  .pose-shop-card .btn-owned { background:rgba(62,207,108,0.3); color:#7ee06a; cursor:default; }
+  .pose-shop-card .btn-poor { background:rgba(200,60,60,0.3); color:#ff8888; cursor:not-allowed; }
+
+
+  /* ============ 포즈 휠 ============ */
+  #poseWheel {
+    position:fixed; inset:0; z-index:170; display:flex;
+    align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  #poseWheel.hidden { display:none; }
+  #poseWheelBg {
+    position:absolute; inset:0;
+    background:rgba(10,12,20,0.55);
+    backdrop-filter:blur(8px) saturate(60%);
+    -webkit-backdrop-filter:blur(8px) saturate(60%);
+    animation:poseFade .18s ease-out;
+  }
+  @keyframes poseFade { from { opacity:0; } to { opacity:1; } }
+  #poseWheelCenter {
+    position:relative; z-index:2; text-align:center;
+    animation:poseCenterIn .25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  @keyframes poseCenterIn { from { transform:scale(0.6); opacity:0; } to { transform:scale(1); opacity:1; } }
+  #poseWheelRing {
+    width:110px; height:110px; border-radius:50%;
+    border:3px solid rgba(255,255,255,0.35);
+    background:rgba(20,26,44,0.6);
+    box-shadow:0 0 30px rgba(126,192,255,0.25) inset, 0 0 20px rgba(255,255,255,0.1);
+    margin:0 auto;
+  }
+  #poseWheelHint {
+    color:#e5eaf5; font-family:'Nunito',sans-serif; font-weight:800; font-size:13px;
+    letter-spacing:0.3px; margin-bottom:14px;
+    text-shadow:0 2px 6px rgba(0,0,0,0.6);
+  }
+  #poseWheelItems {
+    position:absolute; inset:0; z-index:3; pointer-events:none;
+  }
+  .poseSlot {
+    position:absolute; transform:translate(-50%, -50%);
+    display:flex; flex-direction:column; align-items:center;
+    padding:6px; border-radius:14px;
+    background:rgba(20,26,44,0.72);
+    border:2px solid rgba(255,255,255,0.15);
+    transition:transform .15s, border-color .15s, background .15s, opacity .15s;
+    animation:poseSlotIn .3s cubic-bezier(0.34,1.56,0.64,1) both;
+  }
+  @keyframes poseSlotIn { from { transform:translate(-50%, -50%) scale(0.3); opacity:0; } to { transform:translate(-50%, -50%) scale(1); opacity:1; } }
+  .poseSlot canvas {
+    display:block; width:120px; height:120px;
+    background:transparent;
+  }
+  .poseSlot .poseName {
+    color:#fff; font-family:'Nunito',sans-serif;
+    font-weight:900; font-size:15px;
+    margin-top:2px; padding:3px 10px;
+    background:rgba(0,0,0,0.4); border-radius:8px;
+    text-shadow:0 1px 2px rgba(0,0,0,0.7);
+  }
+  /* 현재 포즈 = 살짝 흐리게 */
+  .poseSlot.current {
+    opacity:0.45;
+    filter:grayscale(0.4);
+  }
+  .poseSlot.current::after {
+    content:'현재';
+    position:absolute; top:-8px; right:-8px;
+    background:var(--yellow); color:#000;
+    padding:2px 7px; border-radius:10px;
+    font-family:'Nunito',sans-serif; font-weight:900; font-size:10px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.4);
+  }
+  /* 마우스 hover = 강조 (골드 테두리 + 크게) */
+  .poseSlot.hover {
+    transform:translate(-50%, -50%) scale(1.15);
+    border-color:var(--yellow);
+    background:rgba(60,50,20,0.8);
+    box-shadow:0 0 22px rgba(255,207,60,0.5);
+    opacity:1;
+    filter:none;
+  }
+  /* 잠금 포즈 = 어둡게 + 자물쇠 */
+  .poseSlot.locked {
+    opacity:0.3;
+    filter:grayscale(0.9) brightness(0.5);
+  }
+  .poseSlot.locked::before {
+    content:'🔒';
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%, -50%);
+    font-size:32px; z-index:5;
+    text-shadow:0 2px 8px rgba(0,0,0,0.8);
+  }
+  .poseSlot.locked.hover {
+    opacity:0.5;
+    filter:grayscale(0.7) brightness(0.6);
+    border-color:var(--red);
+  }
+
   /* 플레이어 생존 목록 (게임 중) */
   #playerListHUD {
     position:fixed; top:60px; right:14px; z-index:20;
@@ -1063,7 +1321,7 @@
   </div>
 
   <div class="ui-card">
-    <div class="screen-sub">닉네임</div>
+    <div class="screen-sub">닉네임 입력</div>
     <div class="nick">
       <input id="nickInput" placeholder="시그마보이" maxlength="16" autocomplete="off" spellcheck="false">
     </div>
@@ -1072,6 +1330,71 @@
     </div>
   </div>
   <div class="version-tag">WEBCHA CHAMELEON · v1.0</div>
+</div>
+
+<!-- ============ 홈 (메인 로비) ============ -->
+<div id="scr-home" class="screen hidden">
+  <div class="home-topbar">
+    <div class="home-nickbox">
+      <span class="nick-icon">🦎</span>
+      <span id="homeNickLabel">닉네임</span>
+      <button id="changeNickBtn" title="닉 바꾸기">✎</button>
+    </div>
+    <div class="home-coinbox">
+      <span class="coin-icon">🪙</span>
+      <span id="homeCoinCount">0</span>
+      <span class="coin-lbl">코인</span>
+    </div>
+  </div>
+
+  <div class="home-stage">
+    <canvas id="homeCharCanvas"></canvas>
+    <div class="home-stage-hint">드래그해서 회전</div>
+  </div>
+
+  <div class="home-actions">
+    <button class="home-play-btn" id="homePlayBtn">
+      <span class="hpb-icon">🎮</span>
+      <span class="hpb-txt">유희를 하다!</span>
+      <span class="hpb-sub">방 선택하러 가기</span>
+    </button>
+    <div class="home-side-actions">
+      <button class="home-side-btn" id="homeClosetBtn">
+        <span>🎨</span>
+        <span>옷장 · 색 칠하기</span>
+      </button>
+      <button class="home-side-btn" id="homePoseBtn">
+        <span>🕺</span>
+        <span>포즈 잠금해제</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 옷장 오버레이 -->
+<div id="closetOverlay" class="hidden">
+  <div class="closet-panel">
+    <div class="closet-title">🎨 색 칠하기 · 옷장</div>
+    <div class="closet-sub">캐릭터를 예쁘게 꾸며봐</div>
+    <div class="closet-palette" id="closetPalette"></div>
+    <div class="closet-hint">색을 선택 후 캐릭터를 클릭하다 → 그 부분의 색이 변하다</div>
+    <div class="closet-buttons">
+      <button id="closetResetBtn" class="btn btn-ghost">초기화</button>
+      <button id="closetCloseBtn" class="btn btn-green">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 포즈 잠금해제 오버레이 -->
+<div id="poseShopOverlay" class="hidden">
+  <div class="closet-panel" style="max-width:640px;">
+    <div class="closet-title">🕺 포즈 상점</div>
+    <div class="closet-sub">코인으로 새로운 포즈 구매</div>
+    <div id="poseShopList" class="pose-shop-list"></div>
+    <div class="closet-buttons" style="justify-content:flex-end;">
+      <button id="poseShopCloseBtn" class="btn btn-green">닫기</button>
+    </div>
+  </div>
 </div>
 
 <div id="scr-rooms" class="screen hidden">
@@ -1090,6 +1413,9 @@
       <input id="newRoomName" placeholder="새 방 이름..." maxlength="20">
       <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
     </div>
+    <div style="margin-top:10px; text-align:center;">
+      <button id="roomsBackBtn" class="btn btn-ghost">← 홈으로</button>
+    </div>
   </div>
 </div>
 
@@ -1106,7 +1432,7 @@
     <div id="lobbyPlayers" class="playerList" style="margin-top:12px;width:100%;"></div>
     <div style="margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
       <button class="btn btn-ghost" id="leaveRoomBtn">← 나가기</button>
-      <button class="btn btn-green" id="startGameBtn" style="display:none;">🎮 게임 시작</button>
+      <button class="btn btn-green" id="startGameBtn" style="display:none;">🎮 즉시 시작</button>
     </div>
   </div>
 </div>
@@ -1129,7 +1455,7 @@
 
 <div id="hud">
   <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 &nbsp;<b>P</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <b>마우스</b> 시점 &nbsp;<b>Q</b> 페인트 &nbsp;<b>P</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
   &nbsp; <span style="color:#ffe066;">👍 <span id="myLikeCount">0</span></span>
   &nbsp; <span style="color:#ff8b8b;">🔍 <span id="myCatchCount">0</span></span>
@@ -1177,14 +1503,24 @@
     </div>
     <div id="scoreList" class="playerList" style="width:100%;"></div>
     <div style="margin-top:14px;display:flex;justify-content:center;">
-      <button class="btn btn-green" id="backToLobbyBtn">방으로 돌아가기</button>
+      <button class="btn btn-green" id="backToLobbyBtn">대기실로 이동을 하다</button>
     </div>
   </div>
 </div>
 
 <div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 &nbsp;·&nbsp; <span id="mapName">-</span></div>
 
-<div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; P 로 종료</div>
+<div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; Q 로 종료</div>
+
+<!-- ============ 포즈 휠 (P 홀드) ============ -->
+<div id="poseWheel" class="hidden">
+  <div id="poseWheelBg"></div>
+  <div id="poseWheelCenter">
+    <div id="poseWheelHint">P 홀드 · 마우스로 선택 · 놓으면 확정</div>
+    <div id="poseWheelRing"></div>
+  </div>
+  <div id="poseWheelItems"></div>
+</div>
 <div id="playerListHUD"></div>
 
 <div id="chatBox">
@@ -2052,7 +2388,7 @@ function updateRoundTimer(room) {
   const el = document.getElementById('roundTimer');
   // 감염 카운트다운 (다 감염돼서 곧 종료)
   if (room.postInfectionCountdown != null && room.postInfectionCountdown >= 0) {
-    el.textContent = '☣️ 종료까지 ' + room.postInfectionCountdown + '초';
+    el.textContent = '☣️ 종료까지의 시간을 하다 ' + room.postInfectionCountdown + '초';
     el.style.color = '#7ee06a';
     return;
   }
@@ -2484,6 +2820,24 @@ async function showScoreboard() {
     isSeeker: uid === room.seekerUid
   }));
   rows.sort((a, b) => b.score - a.score);
+
+  // ★ 코인(코인) 지급 — 내 점수 비례 (한 라운드당 1회만)
+  const myRow = rows.find(r => r.uid === myUid);
+  const roundKey = 'wc_paid_' + myRoomId + '_' + (round?.startTs || 0);
+  if (myRow && !sessionStorage.getItem(roundKey)) {
+    sessionStorage.setItem(roundKey, '1');
+    // 점수 100당 코인 10 + 완주 보너스 (술래거나 살아남으면 +30)
+    let earned = Math.floor((myRow.score || 0) / 10);
+    if (myRow.alive || myRow.isSeeker) earned += 30;
+    // 1등 보너스
+    if (rows[0]?.uid === myUid) earned += 50;
+    if (earned > 0) {
+      addCoins(earned);
+      console.log('🪙 코인 획득:', earned, '(총:', getCoins(), ')');
+      // 스코어보드 상단에 획득 알림 잠깐 (있으면)
+      showCoinEarned(earned);
+    }
+  }
   
   const box = document.getElementById('scoreList');
   box.innerHTML = '';
@@ -2664,37 +3018,208 @@ function switchPose(poseName) {
   if (currentScreen === 'game') triggerPoseTransitionEffect();
 }
 
+// ================ 포즈 정의 (한 곳에서 관리) ================
+// 추가하려면: 여기에 { id, name } 넣고 pose/<id>.glb 파일 넣으면 끝. 휠에도 자동 표시.
+const POSE_LIST = ['stand', 'crouch'];
+const POSE_DISPLAY = {
+  stand:  { name: '기본' },
+  crouch: { name: '앉기' },
+};
+
 // 두 포즈 병렬 로드 (URL 기반, 훨씬 빠름)
-const loadProgress = { stand: 0, crouch: 0, tokyo: 0 };
+const loadProgress = { tokyo: 0 };
+POSE_LIST.forEach(id => { loadProgress[id] = 0; });
 function updateLoadingText() {
   const t = document.getElementById('loadStat');
-  if (t) t.textContent = `캐릭터: ${loadProgress.stand}% / ${loadProgress.crouch}% · 맵: ${loadProgress.tokyo}%`;
+  if (!t) return;
+  const poseTxt = Object.keys(loadProgress).filter(k => k !== 'tokyo').map(k => `${k} ${loadProgress[k]}%`).join(' / ');
+  t.textContent = `캐릭터: ${poseTxt} · 맵: ${loadProgress.tokyo}%`;
 }
 
-gltfLoader.load('./stand.glb', gltf => {
-  poseModels.stand = processGlb(gltf, 'stand');
-  console.log('✅ 서있는 포즈 로드 완료');
-  if (!currentPoseGlb) switchPose('stand');
-  characterTemplate = poseModels.stand;
-  loadProgress.stand = 100; updateLoadingText();
-}, xhr => {
-  if (xhr.total) { loadProgress.stand = Math.round(xhr.loaded/xhr.total*100); updateLoadingText(); }
-}, err => console.error('서있는 포즈 실패:', err));
-
-gltfLoader.load('./crouch.glb', gltf => {
-  poseModels.crouch = processGlb(gltf, 'crouch');
-  console.log('✅ 숙인 포즈 로드 완료');
-  loadProgress.crouch = 100; updateLoadingText();
-}, xhr => {
-  if (xhr.total) { loadProgress.crouch = Math.round(xhr.loaded/xhr.total*100); updateLoadingText(); }
-}, err => console.error('숙인 포즈 실패:', err));
+// 각 포즈 자동 로드 (./pose/<id>.glb)
+POSE_LIST.forEach(poseId => {
+  const url = `./pose/${poseId}.glb`;
+  console.log('🎭 포즈 로드 시도:', url);
+  gltfLoader.load(url, gltf => {
+    poseModels[poseId] = processGlb(gltf, poseId);
+    console.log('✅ 포즈 로드 완료:', poseId);
+    // 첫 번째 (stand) 로드되면 기본 포즈 세팅 + 캐릭터 템플릿 설정
+    if (poseId === 'stand') {
+      if (!currentPoseGlb) switchPose('stand');
+      characterTemplate = poseModels.stand;
+    }
+    if (poseId in loadProgress) { loadProgress[poseId] = 100; updateLoadingText(); }
+  }, xhr => {
+    if (xhr.total && poseId in loadProgress) {
+      loadProgress[poseId] = Math.round(xhr.loaded/xhr.total*100);
+      updateLoadingText();
+    }
+  }, err => console.error('❌ 포즈 로드 실패:', url, err?.message || err));
+});
 
 // R 키로 포즈 토글
 addEventListener('keydown', e => {
-  if (e.code === 'KeyR' && !paintMode) {
+  if (e.code === 'KeyR' && !paintMode && !poseWheelOpen) {
     switchPose(currentPose === 'stand' ? 'crouch' : 'stand');
   }
 });
+
+// ================ 포즈 휠 (P 홀드) ================
+// POSE_LIST / POSE_DISPLAY 는 상단 포즈 로더 근처에서 정의됨
+let poseWheelOpen = false;
+let poseWheelHover = null;
+const _poseWheelPreviews = new Map(); // pose → { canvas, renderer, scene, camera, obj, wrap, angle }
+const POSE_WHEEL_RADIUS = 180; // 중심에서 슬롯까지 px
+
+function initPoseWheelSlots() {
+  const container = document.getElementById('poseWheelItems');
+  if (!container) return;
+  // 이미 초기화됐으면 스킵
+  if (container.childElementCount > 0) return;
+  const n = POSE_LIST.length;
+  POSE_LIST.forEach((poseName, i) => {
+    // 위(-90°)부터 시계방향
+    const angle = -Math.PI/2 + (i / n) * Math.PI * 2;
+    const wrap = document.createElement('div');
+    wrap.className = 'poseSlot';
+    wrap.dataset.pose = poseName;
+    const x = Math.cos(angle) * POSE_WHEEL_RADIUS;
+    const y = Math.sin(angle) * POSE_WHEEL_RADIUS;
+    wrap.style.left = `calc(50% + ${x}px)`;
+    wrap.style.top = `calc(50% + ${y}px)`;
+    // 3D 프리뷰 canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 120; canvas.height = 120;
+    wrap.appendChild(canvas);
+    // 이름
+    const nm = document.createElement('div');
+    nm.className = 'poseName';
+    nm.textContent = POSE_DISPLAY[poseName]?.name || poseName;
+    wrap.appendChild(nm);
+    container.appendChild(wrap);
+    // three.js 미니 씬
+    try {
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+      renderer.setPixelRatio(1);
+      renderer.setSize(120, 120, false);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      const scene = new THREE.Scene();
+      scene.background = null;
+      scene.add(new THREE.AmbientLight(0xffffff, 1.15));
+      const dl = new THREE.DirectionalLight(0xfff2d0, 1.2);
+      dl.position.set(1, 2, 1.5); scene.add(dl);
+      const fl = new THREE.DirectionalLight(0xa0c8ff, 0.4);
+      fl.position.set(-1, 1, -1); scene.add(fl);
+      const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+      camera.position.set(0, 1.1, 4.2);
+      camera.lookAt(0, 0.95, 0);
+      _poseWheelPreviews.set(poseName, { canvas, renderer, scene, camera, wrap, angle, obj: null });
+    } catch (err) {
+      console.warn('포즈 프리뷰 렌더러 생성 실패:', poseName, err);
+    }
+  });
+}
+
+function loadPoseWheelObjects() {
+  _poseWheelPreviews.forEach((prev, name) => {
+    const src = poseModels[name];
+    if (!src || prev.obj) return;
+    const cloned = src.clone(true);
+    cloned.traverse(o => {
+      if (o.isMesh) o.frustumCulled = false;
+    });
+    cloned.visible = true;
+    prev.scene.add(cloned);
+    prev.obj = cloned;
+  });
+}
+
+function openPoseWheel() {
+  if (poseWheelOpen) return;
+  if (currentScreen !== 'game') return;
+  if (paintMode) return;
+  poseWheelOpen = true;
+  initPoseWheelSlots();
+  loadPoseWheelObjects();
+  const el = document.getElementById('poseWheel');
+  el.classList.remove('hidden');
+  _poseWheelPreviews.forEach((prev, name) => {
+    prev.wrap.classList.toggle('current', name === currentPose);
+    prev.wrap.classList.remove('locked');
+    prev.wrap.classList.remove('hover');
+  });
+  poseWheelHover = null;
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+function closePoseWheel(commitSelection) {
+  if (!poseWheelOpen) return;
+  poseWheelOpen = false;
+  document.getElementById('poseWheel').classList.add('hidden');
+  if (commitSelection && poseWheelHover && poseWheelHover !== currentPose) {
+    switchPose(poseWheelHover);
+  }
+  poseWheelHover = null;
+  if (currentScreen === 'game' && !paintMode) {
+    setTimeout(() => renderer.domElement.requestPointerLock(), 30);
+  }
+}
+
+// 마우스 위치 → 어느 슬롯이 hover 상태인지 계산
+addEventListener('mousemove', e => {
+  if (!poseWheelOpen) return;
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const dx = e.clientX - cx, dy = e.clientY - cy;
+  const distSq = dx*dx + dy*dy;
+  if (distSq < 60*60) {
+    // 중앙 dead zone
+    if (poseWheelHover !== null) {
+      _poseWheelPreviews.forEach(prev => prev.wrap.classList.remove('hover'));
+      poseWheelHover = null;
+    }
+    return;
+  }
+  const mouseAngle = Math.atan2(dy, dx);
+  let best = null, bestDiff = Infinity;
+  _poseWheelPreviews.forEach((prev, name) => {
+    let d = Math.abs(mouseAngle - prev.angle);
+    if (d > Math.PI) d = Math.PI*2 - d;
+    if (d < bestDiff) { bestDiff = d; best = name; }
+  });
+  if (best !== poseWheelHover) {
+    poseWheelHover = best;
+    _poseWheelPreviews.forEach((prev, name) => {
+      prev.wrap.classList.toggle('hover', name === best);
+    });
+  }
+});
+
+// P 홀드/릴리즈
+addEventListener('keydown', e => {
+  if (e.code === 'KeyP' && !e.repeat && !paintMode && currentScreen === 'game') {
+    e.preventDefault();
+    openPoseWheel();
+  }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'KeyP' && poseWheelOpen) {
+    e.preventDefault();
+    closePoseWheel(true);
+  }
+});
+// 창 blur 되면 안전하게 닫음 (P 놓은거 놓침 방지)
+addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
+
+// 매 프레임 미니 씬 렌더 (열려있을 때만)
+function renderPoseWheel() {
+  if (!poseWheelOpen) return;
+  const t = performance.now() * 0.001;
+  _poseWheelPreviews.forEach(prev => {
+    if (prev.obj) prev.obj.rotation.y = t * 0.7; // 살짝 도는 애니메이션
+    try { prev.renderer.render(prev.scene, prev.camera); } catch(e) {}
+  });
+}
+
 
 // 다른 플레이어용 원본 (Template = 서있는 포즈 클론)
 let characterTemplate = null;
@@ -2819,7 +3344,7 @@ const MAPS = [
   },
   {
     name: '마켓',
-    url: './market.glb',
+    url: './map/market.glb',
     scale: 2.5,
     hasWalls: true,
     procedural: false,
@@ -2827,7 +3352,7 @@ const MAPS = [
   },
   {
     name: '쇼핑몰',
-    url: './shopping-mall.glb',
+    url: './map/shopping-mall.glb',
     scale: 2.5,
     hasWalls: true,
     procedural: false,
@@ -3142,6 +3667,46 @@ function showScreen(name) {
   }
 }
 
+// ============ 코인(코인) 시스템 + 세션 저장 ============
+const STORAGE_NICK = 'wc_nick_v1';
+const STORAGE_COIN = 'wc_coin_v1';
+const STORAGE_POSES = 'wc_owned_poses_v1';
+const STORAGE_TINT = 'wc_body_tint_v1';
+
+function saveNick(n) { try { localStorage.setItem(STORAGE_NICK, n); } catch(e){} }
+function loadNick() { try { return localStorage.getItem(STORAGE_NICK) || ''; } catch(e){ return ''; } }
+function getCoins() { try { return parseInt(localStorage.getItem(STORAGE_COIN) || '0', 10) || 0; } catch(e){ return 0; } }
+function addCoins(n) {
+  const c = getCoins() + n;
+  try { localStorage.setItem(STORAGE_COIN, String(c)); } catch(e){}
+  updateHomeCoinDisplay();
+  return c;
+}
+function updateHomeCoinDisplay() {
+  const el = document.getElementById('homeCoinCount');
+  if (el) el.textContent = getCoins();
+}
+function getOwnedPoses() {
+  try {
+    const raw = localStorage.getItem(STORAGE_POSES);
+    if (!raw) return ['stand', 'crouch'];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return ['stand', 'crouch'];
+    if (!arr.includes('stand')) arr.push('stand');
+    if (!arr.includes('crouch')) arr.push('crouch');
+    return arr;
+  } catch(e){ return ['stand', 'crouch']; }
+}
+function ownPose(id) {
+  const owned = getOwnedPoses();
+  if (!owned.includes(id)) owned.push(id);
+  try { localStorage.setItem(STORAGE_POSES, JSON.stringify(owned)); } catch(e){}
+}
+function isPoseOwned(id) { return getOwnedPoses().includes(id); }
+
+function saveBodyTint(hex) { try { localStorage.setItem(STORAGE_TINT, hex); } catch(e){} }
+function loadBodyTint() { try { return localStorage.getItem(STORAGE_TINT) || null; } catch(e){ return null; } }
+
 // 1단계: 닉네임 입력 완료 → 방 목록으로
 document.getElementById('nickNext').addEventListener('click', () => {
   const rawNick = document.getElementById('nickInput').value.trim();
@@ -3153,6 +3718,222 @@ document.getElementById('nickNext').addEventListener('click', () => {
 document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('nickNext').click();
 });
+
+// 홈 화면 버튼들
+document.getElementById('homePlayBtn').addEventListener('click', () => {
+  showScreen('rooms');
+  subscribeRoomList();
+});
+document.getElementById('changeNickBtn').addEventListener('click', () => {
+  try { localStorage.removeItem(STORAGE_NICK); } catch(e){}
+  showScreen('nick');
+  const inp = document.getElementById('nickInput');
+  if (inp) { inp.value = myNick || ''; inp.focus(); }
+});
+document.getElementById('roomsBackBtn').addEventListener('click', () => {
+  if (roomListUnsub) { try { roomListUnsub(); } catch(e){} roomListUnsub = null; }
+  goHome();
+});
+document.getElementById('homeClosetBtn').addEventListener('click', openCloset);
+document.getElementById('homePoseBtn').addEventListener('click', openPoseShop);
+
+// ============ 홈 3D 캐릭터 프리뷰 ============
+let _homeRenderer = null, _homeScene = null, _homeCamera = null, _homeObj = null;
+let _homeDrag = { active:false, lastX:0, rotY:0 };
+function initHomeCharPreview() {
+  const canvas = document.getElementById('homeCharCanvas');
+  if (!canvas) return;
+  const box = canvas.getBoundingClientRect();
+  const w = Math.max(200, box.width|0), h = Math.max(200, box.height|0);
+  if (!_homeRenderer) {
+    _homeRenderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
+    _homeRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    _homeScene = new THREE.Scene();
+    _homeScene.background = null;
+    _homeScene.add(new THREE.AmbientLight(0xffffff, 1.0));
+    const dl = new THREE.DirectionalLight(0xfff2d0, 1.4);
+    dl.position.set(1, 2, 1.5); _homeScene.add(dl);
+    const fl = new THREE.DirectionalLight(0x9fb8d8, 0.4);
+    fl.position.set(-1, 1, -1); _homeScene.add(fl);
+    _homeCamera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+    _homeCamera.position.set(0, 1.15, 4.5);
+    _homeCamera.lookAt(0, 0.95, 0);
+    // 드래그 회전
+    canvas.addEventListener('pointerdown', e => {
+      _homeDrag.active = true; _homeDrag.lastX = e.clientX;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointerup', e => {
+      _homeDrag.active = false;
+      try { canvas.releasePointerCapture(e.pointerId); } catch(err){}
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!_homeDrag.active) return;
+      const dx = e.clientX - _homeDrag.lastX;
+      _homeDrag.lastX = e.clientX;
+      _homeDrag.rotY += dx * 0.01;
+    });
+    canvas.addEventListener('click', e => {
+      // 옷장 열려있을 때 클릭 = 색 칠하기
+      if (!closetOpen || !_selectedColor || !_homeObj) return;
+      const rect = canvas.getBoundingClientRect();
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const rc2 = new THREE.Raycaster();
+      rc2.setFromCamera({ x: nx, y: ny }, _homeCamera);
+      const hits = rc2.intersectObject(_homeObj, true);
+      if (hits.length && hits[0].object.material) {
+        hits[0].object.material.color.set(_selectedColor);
+        // 저장 — 부위별 색 저장은 복잡하니 body tint 전체로 저장
+        saveBodyTint(_selectedColor);
+      }
+    });
+  }
+  _homeRenderer.setSize(w, h, false);
+  _homeCamera.aspect = w / h;
+  _homeCamera.updateProjectionMatrix();
+  loadHomeCharObject();
+}
+function loadHomeCharObject() {
+  if (!poseModels.stand) {
+    // 아직 로딩 중이면 잠시 후 재시도
+    setTimeout(loadHomeCharObject, 400);
+    return;
+  }
+  if (_homeObj) { _homeScene.remove(_homeObj); _homeObj = null; }
+  const cloned = poseModels.stand.clone(true);
+  cloned.traverse(o => {
+    if (o.isMesh) {
+      o.frustumCulled = false;
+      if (o.material) o.material = o.material.clone(); // 프리뷰 색 독립
+    }
+  });
+  // 저장된 색 적용
+  const tint = loadBodyTint();
+  if (tint) {
+    cloned.traverse(o => { if (o.isMesh && o.material?.color) o.material.color.set(tint); });
+  }
+  _homeScene.add(cloned);
+  _homeObj = cloned;
+}
+function renderHomePreview() {
+  if (currentScreen !== 'home' || !_homeRenderer || !_homeObj) return;
+  _homeObj.rotation.y = _homeDrag.rotY + performance.now() * 0.0003; // 살짝 자동 회전
+  _homeRenderer.render(_homeScene, _homeCamera);
+}
+
+// ============ 옷장 (색 칠하기) ============
+let closetOpen = false;
+let _selectedColor = null;
+const PALETTE = [
+  '#ff5757', '#ff8c42', '#ffcf3c', '#7ee06a', '#4bc0e0', '#7b8cff',
+  '#b872ff', '#ff72c6', '#ffffff', '#8a8a8a', '#3a3a3a', '#5a3a1e'
+];
+function openCloset() {
+  closetOpen = true;
+  const overlay = document.getElementById('closetOverlay');
+  overlay.classList.remove('hidden');
+  const pal = document.getElementById('closetPalette');
+  pal.innerHTML = '';
+  PALETTE.forEach(hex => {
+    const sw = document.createElement('div');
+    sw.className = 'palette-swatch';
+    sw.style.background = hex;
+    sw.addEventListener('click', () => {
+      _selectedColor = hex;
+      pal.querySelectorAll('.palette-swatch').forEach(s => s.classList.toggle('active', s === sw));
+    });
+    pal.appendChild(sw);
+  });
+}
+function closeCloset() {
+  closetOpen = false;
+  _selectedColor = null;
+  document.getElementById('closetOverlay').classList.add('hidden');
+}
+document.getElementById('closetCloseBtn').addEventListener('click', closeCloset);
+document.getElementById('closetResetBtn').addEventListener('click', () => {
+  try { localStorage.removeItem(STORAGE_TINT); } catch(e){}
+  loadHomeCharObject();
+});
+
+// ============ 포즈 상점 ============
+// 각 포즈에 cost 정의. stand/crouch 는 기본 무료.
+const POSE_COSTS = {
+  stand: 0,
+  crouch: 0,
+  // 예: lie: 200, dance: 500 — 나중에 추가
+};
+function openPoseShop() {
+  const overlay = document.getElementById('poseShopOverlay');
+  overlay.classList.remove('hidden');
+  const list = document.getElementById('poseShopList');
+  list.innerHTML = '';
+  const owned = getOwnedPoses();
+  const coins = getCoins();
+  POSE_LIST.forEach(id => {
+    const cost = POSE_COSTS[id] ?? 100;
+    const displayName = POSE_DISPLAY[id]?.name || id;
+    const isOwned = owned.includes(id);
+    const canBuy = !isOwned && coins >= cost;
+    const card = document.createElement('div');
+    card.className = 'pose-shop-card ' + (isOwned ? 'owned' : 'locked');
+    card.innerHTML = `
+      <div class="psc-icon">${isOwned ? '✅' : '🔒'}</div>
+      <div class="psc-name">${displayName}</div>
+      <div class="psc-price">${isOwned ? '보유중' : ('🪙 ' + cost)}</div>
+    `;
+    const btn = document.createElement('button');
+    if (isOwned) {
+      btn.className = 'btn-owned'; btn.textContent = '이미 보유';
+    } else if (canBuy) {
+      btn.className = 'btn-buy'; btn.textContent = '구매';
+      btn.addEventListener('click', () => {
+        addCoins(-cost);
+        ownPose(id);
+        openPoseShop();
+      });
+    } else {
+      btn.className = 'btn-poor'; btn.textContent = '코인 부족';
+    }
+    card.appendChild(btn);
+    list.appendChild(card);
+  });
+}
+document.getElementById('poseShopCloseBtn').addEventListener('click', () => {
+  document.getElementById('poseShopOverlay').classList.add('hidden');
+});
+
+// 코인 획득 알림 (스코어보드에서 잠깐 뜸)
+function showCoinEarned(amount) {
+  const toast = document.createElement('div');
+  toast.textContent = '🪙 +' + amount + ' 코인 획득을 하다!';
+  toast.style.cssText = `
+    position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+    background:linear-gradient(135deg, #ffcf3c, #ff9838);
+    color:#000; font-family:'Nunito',sans-serif;
+    font-weight:900; font-size:22px; padding:16px 28px;
+    border-radius:20px; z-index:1000;
+    box-shadow:0 0 40px rgba(255,207,60,0.7), 0 8px 30px rgba(0,0,0,0.4);
+    animation: coinToast 3s ease-out forwards;
+    pointer-events:none;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+// coinToast keyframes 동적 삽입
+(() => {
+  const st = document.createElement('style');
+  st.textContent = `@keyframes coinToast {
+    0% { transform:translate(-50%, -80%) scale(0.6); opacity:0; }
+    15% { transform:translate(-50%, -50%) scale(1.1); opacity:1; }
+    30% { transform:translate(-50%, -50%) scale(1); opacity:1; }
+    100% { transform:translate(-50%, -30%) scale(0.9); opacity:0; }
+  }`;
+  document.head.appendChild(st);
+})();
+
+
 
 // ============ 방 목록 ============
 function subscribeRoomList() {
@@ -3828,9 +4609,9 @@ document.addEventListener('mousemove', e => {
   cameraPitch = Math.max(-1.3, Math.min(1.3, cameraPitch));
 });
 
-// 페인트 모드 토글 (P)
+// 페인트 모드 토글 (Q) — P 는 포즈 휠에 사용
 addEventListener('keydown', e => {
-  if (e.code === 'KeyP') {
+  if (e.code === 'KeyQ' && !poseWheelOpen) {
     paintMode = !paintMode;
     document.getElementById('paintIndicator').classList.toggle('on', paintMode);
     document.getElementById('crosshair').classList.toggle('on', paintMode);
@@ -3876,7 +4657,8 @@ function checkNearWall() {
   return false;
 }
 
-// 벽에 몸이 파묻힌 상태 판정 (2방향 이상 초근접 → 벽 안에 박힘)
+// 벽에 몸이 파묻힌 상태 판정 — 진짜 안쪽에 파묻힌 경우만
+// (근처에 벽 있다고 그냥 stuck 처리하면 착지 시 튐 버그)
 const _stuckDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
@@ -3889,9 +4671,9 @@ function isStuckInWall() {
   let hitCount = 0;
   for (const d of _stuckDirs) {
     _stuckRc.set(_stuckOrigin, d);
-    _stuckRc.far = 0.35;
+    _stuckRc.far = 0.18; // ★ 0.35→0.18 (진짜 안쪽에 파묻힌 경우만, 벽 옆 서있는 건 X)
     if (_stuckRc.intersectObjects(_nearbyColliders, false).length > 0) hitCount++;
-    if (hitCount >= 2) return true;
+    if (hitCount >= 3) return true; // ★ 2→3 (3방향 이상 초근접해야 진짜 파묻힘)
   }
   return false;
 }
@@ -4992,7 +5774,7 @@ function showChatBox() {
 
 // 채팅 입력창 열기/닫기
 function openChatInput() {
-  if (!myRoomId || currentScreen !== 'game') return;
+  if (!myRoomId || !isChatAllowedScreen()) return;
   chatInputOpen = true;
   chatBox.classList.add('visible');
   chatInputWrap.classList.add('active');
@@ -5073,9 +5855,16 @@ chatInput.addEventListener('keydown', e => {
 chatInput.addEventListener('keyup', e => e.stopPropagation());
 chatInput.addEventListener('keypress', e => e.stopPropagation());
 
-// Enter 키로 채팅 열기 (게임 중 + 인풋 닫혀있을 때)
+// 채팅 가능한 화면 (게임/방/투표/뽑기)
+const CHAT_ALLOWED_SCREENS = ['game', 'lobby', 'vote', 'draw'];
+function isChatAllowedScreen() { return CHAT_ALLOWED_SCREENS.includes(currentScreen); }
+
+// Enter 키로 채팅 열기 (허용 화면 + 인풋 닫혀있을 때)
 addEventListener('keydown', e => {
-  if (e.key === 'Enter' && currentScreen === 'game' && !chatInputOpen && !paintMode) {
+  if (e.key === 'Enter' && isChatAllowedScreen() && !chatInputOpen && !paintMode) {
+    // 방목록/닉입력에서는 그 화면의 Enter 로직이 우선
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
     e.preventDefault();
     openChatInput();
   }
@@ -5181,7 +5970,9 @@ function animate() {
     const now = _frameNow;
     if (!window._lastStuckCheck || now - window._lastStuckCheck > 500) {
       window._lastStuckCheck = now;
-      window._myStuck = collidableMeshes && collidableMeshes.length ? isStuckInWall() : false;
+      // ★ 착지 후 400ms 는 stuck 검사 스킵 (물리 값 안정화 시간)
+      const justLanded = window._justLandedAt && (now - window._justLandedAt < 400);
+      window._myStuck = (!justLanded && collidableMeshes && collidableMeshes.length) ? isStuckInWall() : false;
       // ★ 파묻힘 감지: 조용히 옆으로 밀어냄 (튕기지 않게)
       if (window._myStuck && currentScreen === 'game' && myAlive) {
         window._unstickTries = (window._unstickTries || 0) + 1;
@@ -5263,19 +6054,23 @@ function animate() {
     }
   }
 
-  // 벽 타기 판정 (스페이스 홀드 + 벽 근처 + 벽 높이 이하)
+  // 벽 타기 판정 — 공중 상태에서 벽 근처면 붙어있음 (지속). 스페이스 = 위로 오름.
   const MAX_CLIMB_Y = 12;
   const spaceHeld = keys['Space'];
-  const nearWall = spaceHeld && !paintMode && player.position.y < MAX_CLIMB_Y ? checkNearWall() : false;
-  if (nearWall && !isGrounded && spaceHeld) {
+  const nearWall = !isGrounded && !paintMode && player.position.y < MAX_CLIMB_Y ? checkNearWall() : false;
+  if (nearWall) {
     isClimbing = true;
   } else {
     isClimbing = false;
   }
-  
+
   // 물리
   if (isClimbing) {
-    velocityY = CLIMB_SPEED;
+    if (spaceHeld) {
+      velocityY = CLIMB_SPEED; // 스페이스 홀드 시 위로 오름
+    } else {
+      velocityY = 0; // ★ 벽에 붙어만 있음 (안 떨어짐)
+    }
   } else {
     velocityY += GRAVITY * dt;
   }
@@ -5304,7 +6099,12 @@ function animate() {
     lastGroundX = player.position.x; lastGroundZ = player.position.z;
   }
   const gY = cachedGroundY;
-  if (player.position.y <= gY) { player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false; }
+  const wasAirborne = !isGrounded;
+  if (player.position.y <= gY) {
+    player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false;
+    // ★ 착지 순간 기록: 잠깐 stuck 검사 유예 (착지 직후 튀는 버그 방지)
+    if (wasAirborne) window._justLandedAt = performance.now();
+  }
   else if (player.position.y > gY + 0.1) isGrounded = false;
   
   // 안전망: 지면 이상 낮이 되거나 맵 밖으로 떨어지면 복귀
@@ -5404,6 +6204,8 @@ function animate() {
 
   // 게임 화면(인게임)일 때만 렌더
   if (currentScreen === 'game') renderer.render(scene, camera);
+  renderPoseWheel();
+  renderHomePreview();
 }
 
 // ===== 마우스 휠 줌 =====
