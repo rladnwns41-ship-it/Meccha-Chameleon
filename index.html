@@ -5353,7 +5353,7 @@ function startFirebaseSync(room) {
         z: clamp(pz, -100, 100),
         r: pr,
         n: sanitizeNick(myNick || '익명', 16),
-        p: currentPose === 'crouch' ? 'crouch' : 'stand', // 유효한 포즈만
+        p: (POSE_LIST.includes(currentPose) ? currentPose : 'stand'), // 유효한 포즈만
         role: (myRole === 'seeker' || myRole === 'hider') ? myRole : 'hider',
         stuck,
         t: now
