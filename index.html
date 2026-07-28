@@ -1894,8 +1894,9 @@ function attachGunToPlayer() {
   attachedGun.add(cloned);
 
   // 튜닝 상수 (안 예쁘면 여기 조절)
-  const GUN_POS_X = 0.42, GUN_POS_Y = 0.85, GUN_POS_Z = -0.25;
-  const GUN_ROT_X = 0, GUN_ROT_Y = 0, GUN_ROT_Z = -Math.PI / 2; // 세워서 아래 방향
+  // ★ 총을 캐릭터 오른손/가슴 높이에 두고 총구(+X)가 정면(-Z)을 향하게
+  const GUN_POS_X = 0.32, GUN_POS_Y = 1.1, GUN_POS_Z = -0.35;
+  const GUN_ROT_X = 0, GUN_ROT_Y = Math.PI / 2, GUN_ROT_Z = 0; // 총구 앞으로
   attachedGun.position.set(GUN_POS_X, GUN_POS_Y, GUN_POS_Z);
   attachedGun.rotation.set(GUN_ROT_X, GUN_ROT_Y, GUN_ROT_Z);
   player.add(attachedGun);
@@ -1948,8 +1949,9 @@ function attachGunToOther(uid) {
   });
   const wrap = new THREE.Group();
   wrap.add(cloned);
-  wrap.position.set(0.42, 0.85, -0.25);
-  wrap.rotation.set(0, 0, -Math.PI / 2);
+  // ★ 자기 캐릭터와 동일하게: 오른손/가슴 높이 + 총구 앞으로
+  wrap.position.set(0.32, 1.1, -0.35);
+  wrap.rotation.set(0, Math.PI / 2, 0);
   ot.group.add(wrap);
   ot.gun = wrap;
 }
@@ -1968,8 +1970,8 @@ function refreshOtherSeekerGuns() {
 
 // 게임 진행 중(찾기 페이즈)에는 닉/따봉 숨김 — 하이더 위치 노출 방지
 function updateNickLikeLabels(room) {
-  const hide = room?.state === 'playing'
-    && (room.hidePhaseCountdown == null || room.hidePhaseCountdown <= 0);
+  // ★ 숨기 시간 + 찾기 시간 내내 숨김 → 라운드가 끝난('ended') 뒤에만 표시
+  const hide = room?.state === 'playing';
   Object.values(otherPlayers).forEach(ot => {
     if (ot.nickSprite) ot.nickSprite.visible = !hide;
     if (ot.likeSprite) ot.likeSprite.visible = !hide;
@@ -2779,7 +2781,7 @@ function showSpectatorHUD() {
   if (!hud) {
     hud = document.createElement('div');
     hud.id = 'spectatorHUD';
-    hud.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,0,0,0.7);color:#fff;padding:8px 20px;border-radius:20px;font-family:Nunito,sans-serif;font-weight:800;font-size:13px;pointer-events:none;text-align:center;border:2px solid rgba(255,255,255,0.2);';
+    hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,0,0,0.7);color:#fff;padding:8px 20px;border-radius:20px;font-family:Nunito,sans-serif;font-weight:800;font-size:13px;pointer-events:none;text-align:center;border:2px solid rgba(255,255,255,0.2);';
     document.body.appendChild(hud);
   }
   hud.style.display = 'block';
@@ -3531,6 +3533,8 @@ function resetMap() {
     _currentMapMixer = null;
   }
   mixer = null;
+  // ★ 보이지 않는 경계 케이지 제거 (다음 맵에서 새로 생성)
+  if (typeof clearBoundaryCage === 'function') clearBoundaryCage();
   // 충돌체 배열 비우기
   collidableMeshes.length = 0;
   _groundAndCollidable.length = 0;
@@ -3550,6 +3554,53 @@ function resetMap() {
   selectedMap = MAPS[0];
   const mn = document.getElementById('mapName');
   if (mn) mn.textContent = '-';
+}
+
+// ★ 보이지 않는 경계 케이지 (바닥 + 4면 벽)
+//   - 바닥: 맵 밑으로 빠지거나 모델 아래에 숨는 것 방지 (추락 시 여기서 잡힘)
+//   - 벽: 월드 보더를 실제 콜라이더로 막아서 꼼수로 뚫고 나갈 수 없게
+let _cageMeshes = [];
+function clearBoundaryCage() {
+  for (const m of _cageMeshes) {
+    if (m.parent) m.parent.remove(m);
+    const ci = collidableMeshes.indexOf(m);
+    if (ci >= 0) collidableMeshes.splice(ci, 1);
+    const gi = _groundAndCollidable.indexOf(m);
+    if (gi >= 0) _groundAndCollidable.splice(gi, 1);
+    if (m.geometry) { m.geometry.boundsTree = null; m.geometry.dispose(); }
+    if (m.material) m.material.dispose();
+  }
+  _cageMeshes = [];
+}
+function buildBoundaryCage(b, floorTopY, wallHeight) {
+  clearBoundaryCage();
+  if (!b) return;
+  const invisMat = new THREE.MeshBasicMaterial({ visible: false });
+  const T = 4; // 벽 두께 (두껍게 → 어떤 속도로도 못 뚫음)
+  const w = b.maxX - b.minX;
+  const d = b.maxZ - b.minZ;
+  const cx = (b.minX + b.maxX) / 2;
+  const cz = (b.minZ + b.maxZ) / 2;
+  const wallCY = floorTopY + wallHeight / 2;
+  const add = (geo, x, y, z, isFloor) => {
+    const m = new THREE.Mesh(geo, invisMat);
+    m.position.set(x, y, z);
+    m.castShadow = false; m.receiveShadow = false;
+    m.updateMatrixWorld(true);
+    try { geo.boundsTree = new MeshBVH(geo); m.raycast = acceleratedRaycast; } catch(e){}
+    scene.add(m);
+    collidableMeshes.push(m);
+    if (isFloor) _groundAndCollidable.push(m); // 바닥은 getGroundHeight 검사에도 포함
+    _cageMeshes.push(m);
+  };
+  // 바닥 (경계보다 넉넉히 크게 → 가장자리 추락도 확실히 잡음)
+  add(new THREE.BoxGeometry(w + T * 2 + 20, 1.0, d + T * 2 + 20), cx, floorTopY - 0.5, cz, true);
+  // 4면 벽 (경계 바로 바깥에 세움)
+  add(new THREE.BoxGeometry(w + T * 2, wallHeight, T), cx, wallCY, b.minZ - T / 2, false);
+  add(new THREE.BoxGeometry(w + T * 2, wallHeight, T), cx, wallCY, b.maxZ + T / 2, false);
+  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2), b.minX - T / 2, wallCY, cz, false);
+  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2), b.maxX + T / 2, wallCY, cz, false);
+  console.log('🧱 경계 케이지 생성 (바닥 top=' + floorTopY.toFixed(2) + ', 벽높이=' + wallHeight + ')');
 }
 
 function loadSelectedMap(mapIdx) {
@@ -3618,8 +3669,12 @@ gltfLoader.load(
         collidableMeshes.push(o);
       }
     });
-    // ★ 최적화: 정적 맵은 행렬 자동 업데이트 끄기
-    model.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+    // ★ 최적화: 정적 맵만 행렬 자동 업데이트 끄기
+    //   (애니메이션 있는 맵-도쿄 기차 등-을 얼리면 mixer 가 돌아도 화면에 반영 안 됨!)
+    const _hasAnim = !!(gltf.animations && gltf.animations.length);
+    if (!_hasAnim) {
+      model.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+    }
     scene.add(model);
     _currentMapModel = model;  // ★ 리셋용 트래킹
     // _groundAndCollidable 동기화 (getGroundHeight 매 프레임 스프레드 방지)
@@ -3671,6 +3726,17 @@ gltfLoader.load(
       indoorLight.position.set(center.x, 15, center.z);
       scene.add(indoorLight);
       _currentMapLights.push(indoorLight);  // ★ 리셋용 트래킹
+    }
+
+    // ★ 보이지 않는 경계 케이지 세우기 (모든 맵)
+    //   - 벽 없는 맵: 바닥을 지면 바로 아래에 깔아서 모델 밑으로 못 숨게
+    //   - 벽 있는 맵: 자체 바닥보다 훨씬 아래에 안전 바닥 (추락 방지용), 경계 벽 추가
+    {
+      const modelFloorY = finalBox.min.y; // 모델 재배치 후 대략 0
+      // 벽 있는 맵: 자체 바닥/스폰과 간섭 안 하게 깊은 안전 바닥(추락만 잡음)
+      // 벽 없는 맵: 지면 바로 아래에 깔아 모델 밑으로 못 숨게
+      const floorTopY = selectedMap.hasWalls ? (modelFloorY - 5) : (modelFloorY - 0.05);
+      buildBoundaryCage(worldBounds, floorTopY, 40);
     }
 
     // 스폰 찾기 (지붕 위 스폰 방지 - 머리 위 최소 3유닛 여유 필요)
@@ -5192,14 +5258,62 @@ function _renderPickerScene(clientX, clientY) {
   return hex;
 }
 
+// ★ 스포이드: 정점 색(vertex color)을 직접 읽어 정확히 추출
+//   (기존 오프스크린 렌더 방식은 톤매핑/색공간 때문에 색이 틀어졌음)
+const _pickColorTmp = new THREE.Color();
+function _pickColorAt(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mv = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1
+  );
+  paintRc.camera = camera; // 스프라이트 raycast 경고 방지
+  paintRc.setFromCamera(mv, camera);
+
+  // 1) 캐릭터/분신 먼저
+  let hit = null;
+  const charTargets = _getPickerTargets();
+  if (charTargets.length) {
+    const hits = paintRc.intersectObjects(charTargets, false);
+    if (hits.length) hit = hits[0];
+  }
+  // 2) 없으면 씬 전체 메쉬(맵 등) — Mesh 만 담긴 캐시 사용
+  if (!hit) {
+    if (!window._pickerMeshCache || window._pickerMeshCacheDirty) {
+      window._pickerMeshCache = [];
+      scene.traverse(o => { if (o.isMesh && o.visible) window._pickerMeshCache.push(o); });
+      window._pickerMeshCacheDirty = false;
+    }
+    const hits = paintRc.intersectObjects(window._pickerMeshCache, false);
+    for (const h of hits) { if (h.object.isMesh) { hit = h; break; } }
+  }
+  if (!hit) return null;
+
+  const mesh = hit.object;
+  // 정점 색이 있으면 직접 읽기 → 조명/톤매핑 영향 없이 항상 정확
+  if (mesh.geometry && mesh.geometry.attributes && mesh.geometry.attributes.color) {
+    const s = _sampleVertexColor(mesh, hit);
+    if (s) {
+      // color attribute 는 리니어 워킹스페이스 값 → paint 의 .set(hex) 를 정확히 역변환
+      _pickColorTmp.r = Math.min(1, Math.max(0, s.r));
+      _pickColorTmp.g = Math.min(1, Math.max(0, s.g));
+      _pickColorTmp.b = Math.min(1, Math.max(0, s.b));
+      return '#' + _pickColorTmp.getHexString(); // 기본 SRGB 변환
+    }
+  }
+  // 정점 색 없으면 재질 색
+  const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  if (mat && mat.color) return '#' + mat.color.getHexString();
+  return null;
+}
+
 function pickColor(clientX, clientY) {
-  // ★ 오프스크린 렌더링으로 조명 없는 순수 버텍스 컬러 추출
-  const hex = _renderPickerScene(clientX, clientY);
-  if (!hex) { console.log('🎯 스포이드 - 색 없음'); return; }
+  const hex = _pickColorAt(clientX, clientY);
+  if (!hex) { console.log('🎯 스포이드 - 색 없음 (빈 곳 클릭?)'); return; }
   currentColor = hex;
   document.getElementById('preview').style.background = hex;
   document.getElementById('hexInput').value = hex;
-  console.log('🎯 스포이드 색 (조명제거):', hex);
+  console.log('🎯 스포이드 색 추출:', hex);
   setTool('brush');
 }
 
