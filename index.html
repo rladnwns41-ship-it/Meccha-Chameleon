@@ -5318,97 +5318,129 @@ function _sampleVertexColor(mesh, hit) {
   };
 }
 
-// ★ 스포이드 오프스크린 렌더타겟 (조명 없이 순수 vertex color만 추출)
+// ★ 스포이드 오프스크린 렌더타겟 (1×1 - 단 1픽셀만 렌더해서 색 추출)
 let _pickerRenderTarget = null;
-let _pickerMaterialMap = new WeakMap(); // mesh → original material (복원용)
 
 function _renderPickerScene(clientX, clientY) {
-  // 1. 먼저 캐릭터 레이캐스트로 타겟 확인
+  // 1. 레이캐스트로 히트 메쉬 찾기
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1
   );
-  // ★ 스프라이트 raycast에 camera 필요 → 반드시 설정
   paintRc.camera = camera;
   paintRc.setFromCamera(mv, camera);
 
-  // ★ 스프라이트·라인 등 Mesh 아닌 오브젝트 제외한 씬 메쉬 목록 (캐시)
   if (!window._pickerMeshCache || window._pickerMeshCacheDirty) {
     window._pickerMeshCache = [];
-    scene.traverse(o => { if (o.isMesh) window._pickerMeshCache.push(o); });
+    scene.traverse(o => { if (o.isMesh && o.visible) window._pickerMeshCache.push(o); });
     window._pickerMeshCacheDirty = false;
   }
 
   const charTargets = _getPickerTargets();
   let hitMesh = null;
   if (charTargets.length) {
-    // charTargets는 Mesh만 있으므로 안전
     const hits = paintRc.intersectObjects(charTargets, false);
     if (hits.length) hitMesh = hits[0].object;
   }
   if (!hitMesh) {
-    // ★ 씬 전체 대신 Mesh만 담긴 캐시 배열 사용 (스프라이트 완전 배제)
     const allHits = paintRc.intersectObjects(window._pickerMeshCache, false);
     for (const h of allHits) { if (h.object.isMesh) { hitMesh = h.object; break; } }
   }
   if (!hitMesh) return null;
 
-  // 2. 순수 vertex color (조명 없음) 오프스크린 렌더링
-  //    해당 메쉬만 MeshBasicMaterial로 임시 교체 → 렌더 → 복원
-  const origMat = hitMesh.material;
-  let basicMat;
-  if (hitMesh.geometry?.attributes?.color && hitMesh.material?.vertexColors) {
-    basicMat = new THREE.MeshBasicMaterial({
-      vertexColors: true,
-      side: THREE.DoubleSide,
-    });
-  } else if (hitMesh.material?.color) {
-    // vertex color 없는 메쉬 → 그냥 material color 반환
-    return '#' + hitMesh.material.color.getHexString();
-  } else {
-    return null;
+  // vertex color 없는 메쉬 → material color 직접 반환
+  const hasVC = hitMesh.geometry?.attributes?.color && hitMesh.material?.vertexColors;
+  if (!hasVC) {
+    const mat = Array.isArray(hitMesh.material) ? hitMesh.material[0] : hitMesh.material;
+    return mat?.color ? '#' + mat.color.getHexString() : null;
   }
-  hitMesh.material = basicMat;
 
-  // 픽셀 좌표 계산
+  // 2. 1×1 렌더타겟 (lazy 생성, 크기 고정 1px)
+  if (!_pickerRenderTarget) {
+    _pickerRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      type: THREE.UnsignedByteType,
+    });
+  }
+
+  // 픽셀 좌표 계산 (canvas 실제 픽셀 기준, WebGL Y 반전)
   const canvasW = renderer.domElement.width;
   const canvasH = renderer.domElement.height;
-  const dpr = renderer.getPixelRatio ? renderer.getPixelRatio() : 1;
   const px = Math.round((clientX - rect.left) / rect.width * canvasW);
-  const py = Math.round((1 - (clientY - rect.top) / rect.height) * canvasH); // WebGL Y 반전
+  const py = Math.round((1 - (clientY - rect.top) / rect.height) * canvasH);
 
-  // 1×1 렌더타겟으로 단 1픽셀만 읽기
-  if (!_pickerRenderTarget) {
-    _pickerRenderTarget = new THREE.WebGLRenderTarget(canvasW, canvasH, {
-      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter
-    });
-  } else if (_pickerRenderTarget.width !== canvasW || _pickerRenderTarget.height !== canvasH) {
-    _pickerRenderTarget.setSize(canvasW, canvasH);
-  }
+  // 3. 해당 mesh만 MeshBasicMaterial로 교체 (조명/toneMapping 영향 제거)
+  const origMat = hitMesh.material;
+  const basicMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  });
+  hitMesh.material = basicMat;
 
-  // 현재 렌더타겟 저장 → 오프스크린 렌더 → 복원 (화면 깜빡임 방지)
-  const _prevRT = renderer.getRenderTarget();
-  const _prevAutoClear = renderer.autoClear;
-  renderer.autoClear = true;
+  // 4. 렌더러 상태 저장 → 오프스크린 설정
+  const prevRT       = renderer.getRenderTarget();
+  const prevTone     = renderer.toneMapping;
+  const prevCS       = renderer.outputColorSpace;
+  const prevAutoClear = renderer.autoClear;
+  const prevScissorTest = renderer.getScissorTest();
+
+  // toneMapping / colorSpace 끄기: 순수 vertex color 값 그대로 픽셀에 박히게
+  renderer.toneMapping        = THREE.NoToneMapping;
+  renderer.outputColorSpace   = THREE.LinearSRGBColorSpace;
+  renderer.autoClear          = true;
+
+  // scissor + viewport를 1픽셀로 제한해 해당 픽셀만 렌더 (극도로 빠름)
+  renderer.setScissorTest(true);
+  renderer.setScissor(px, py, 1, 1);
+  renderer.setViewport(px, py, 1, 1);
   renderer.setRenderTarget(_pickerRenderTarget);
+
+  // ★ 히트 메쉬만 visible 설정해서 렌더 (다른 오브젝트 완전 제외)
+  //    → 배경이 깔리지 않아 픽셀 alpha로 히트 여부 판별
+  const prevVisible = hitMesh.visible;
+  hitMesh.visible = true;
+  // 다른 오브젝트 전부 숨기기
+  const hiddenObjs = [];
+  scene.traverse(o => {
+    if (o !== hitMesh && o.visible && o.isMesh) {
+      o.visible = false;
+      hiddenObjs.push(o);
+    }
+  });
+
   renderer.render(scene, camera);
-  renderer.setRenderTarget(_prevRT);
-  renderer.autoClear = _prevAutoClear;
 
-  // 픽셀 읽기
-  const pixelBuf = new Uint8Array(4);
-  renderer.readRenderTargetPixels(_pickerRenderTarget, px, py, 1, 1, pixelBuf);
-
-  // 재질 복원
+  // 5. 복원
+  hitMesh.visible = prevVisible;
+  hiddenObjs.forEach(o => { o.visible = true; });
   hitMesh.material = origMat;
   basicMat.dispose();
 
-  if (pixelBuf[3] < 10) return null; // 투명(배경)이면 패스
+  renderer.setRenderTarget(prevRT);
+  renderer.setScissorTest(prevScissorTest);
+  renderer.setScissor(0, 0, canvasW, canvasH);
+  renderer.setViewport(0, 0, canvasW, canvasH);
+  renderer.toneMapping        = prevTone;
+  renderer.outputColorSpace   = prevCS;
+  renderer.autoClear          = prevAutoClear;
 
-  const hex = '#' + [pixelBuf[0], pixelBuf[1], pixelBuf[2]]
-    .map(v => v.toString(16).padStart(2, '0')).join('');
-  return hex;
+  // 6. 1×1 RT에서 픽셀 읽기
+  const pixelBuf = new Uint8Array(4);
+  renderer.readRenderTargetPixels(_pickerRenderTarget, 0, 0, 1, 1, pixelBuf);
+
+  if (pixelBuf[3] < 10) return null; // 완전 투명이면 빈 곳
+
+  // LinearSRGB로 렌더했으므로 sRGB로 변환 (화면 표시 색과 일치)
+  const lin2srgb = v => {
+    v = Math.max(0, Math.min(1, v / 255));
+    return Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1/2.4) - 0.055) * 255);
+  };
+  const r = lin2srgb(pixelBuf[0]);
+  const g = lin2srgb(pixelBuf[1]);
+  const b = lin2srgb(pixelBuf[2]);
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
 // ★ 스포이드: 정점 색(vertex color)을 직접 읽어 정확히 추출
@@ -5463,7 +5495,9 @@ function _pickColorAt(clientX, clientY) {
 }
 
 function pickColor(clientX, clientY) {
-  const hex = _pickColorAt(clientX, clientY);
+  // ★ 1차: 오프스크린 렌더 방식 (조명·toneMapping 반영된 실제 화면 색과 일치)
+  // ★ 2차: vertex color 직접 읽기 (폴백)
+  const hex = _renderPickerScene(clientX, clientY) || _pickColorAt(clientX, clientY);
   if (!hex) { console.log('🎯 스포이드 - 색 없음 (빈 곳 클릭?)'); return; }
   currentColor = hex;
   document.getElementById('preview').style.background = hex;
