@@ -1638,19 +1638,10 @@ renderer.toneMappingExposure = 0.85; // 과노출 방지
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
-// ★ 포즈 휠용 공유 오프스크린 렌더러 (WebGL 컨텍스트를 1개만 사용)
-//   - 각 포즈 슬롯마다 별도 WebGLRenderer를 만들면 브라우저 컨텍스트 한도(8~16개) 초과 →
-//     기존 컨텍스트가 강제 소멸 → Shader Error 1282 + 텍스처 blob 오류의 원인
-const _poseWheelSharedRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false });
-_poseWheelSharedRenderer.setPixelRatio(1);
-_poseWheelSharedRenderer.setSize(110, 110, false);
-_poseWheelSharedRenderer.outputColorSpace = THREE.SRGBColorSpace;
-// 이 렌더러의 canvas는 DOM에 붙이지 않음 (오프스크린)
-const _poseWheelRT = new THREE.WebGLRenderTarget(110, 110, {
-  format: THREE.RGBAFormat,
-  type: THREE.UnsignedByteType,
-  samples: 0
-});
+// ★ 포즈 휠 / 홈 미리보기는 메인 renderer를 재활용 (추가 WebGL 컨텍스트 0개)
+//   → WebGLRenderer를 1개만 유지해 "context loss / was blocked" 오류 근본 차단
+// 오프스크린 렌더 타겟 (110x110) - 포즈 휠 슬롯 픽셀 복사용, 첫 사용 시 lazy 생성
+let _poseWheelRT = null;
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 320);
 
@@ -3384,21 +3375,45 @@ addEventListener('keyup', e => {
 // 창 blur 되면 안전하게 닫음 (P 놓은거 놓침 방지)
 addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
 
-// 매 프레임 미니 씬 렌더 (열려있을 때만) — 공유 렌더러 사용
+// 매 프레임 미니 씬 렌더 (열려있을 때만)
+// ★ 메인 renderer 재활용: 추가 WebGL 컨텍스트 0개
 function renderPoseWheel() {
   if (!poseWheelOpen) return;
+  // RenderTarget lazy 생성 (첫 호출 시 1회)
+  if (!_poseWheelRT) {
+    _poseWheelRT = new THREE.WebGLRenderTarget(110, 110, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      samples: 0
+    });
+  }
+  const prevTarget = renderer.getRenderTarget();
+  const prevClearAlpha = renderer.getClearAlpha();
+  renderer.setRenderTarget(_poseWheelRT);
+  renderer.setClearColor(0x000000, 0);
   _poseWheelPreviews.forEach(prev => {
-    if (!prev.obj) return; // 모델 아직 안 로드됨
+    if (!prev.obj) return;
     try {
-      // 공유 렌더러로 오프스크린 렌더 후 슬롯 canvas에 복사
-      _poseWheelSharedRenderer.render(prev.scene, prev.camera);
+      renderer.clear();
+      renderer.render(prev.scene, prev.camera);
+      // GPU 픽셀 → CPU → 2D canvas 복사
+      const buf = new Uint8Array(110 * 110 * 4);
+      renderer.readRenderTargetPixels(_poseWheelRT, 0, 0, 110, 110, buf);
       const ctx = prev.canvas.getContext('2d');
       if (ctx) {
-        ctx.clearRect(0, 0, 110, 110);
-        ctx.drawImage(_poseWheelSharedRenderer.domElement, 0, 0, 110, 110);
+        const id = ctx.createImageData(110, 110);
+        // WebGL UV는 Y 뒤집혀 있음 — 행 단위로 플립
+        for (let row = 0; row < 110; row++) {
+          const src = (109 - row) * 110 * 4;
+          const dst = row * 110 * 4;
+          id.data.set(buf.subarray(src, src + 110 * 4), dst);
+        }
+        ctx.putImageData(id, 0, 0);
       }
     } catch(e) {}
   });
+  renderer.setRenderTarget(prevTarget);
+  renderer.setClearAlpha(prevClearAlpha);
 }
 
 
@@ -4007,16 +4022,20 @@ document.getElementById('homeClosetBtn').addEventListener('click', openCloset);
 document.getElementById('homePoseBtn').addEventListener('click', openPoseShop);
 
 // ============ 홈 3D 캐릭터 프리뷰 ============
-let _homeRenderer = null, _homeScene = null, _homeCamera = null, _homeObj = null;
+// ★ 홈 캐릭터 미리보기 — 메인 renderer 재활용 (별도 WebGL 컨텍스트 생성 안 함)
+//   렌더 타겟 → CPU 픽셀 읽기 → canvas 2D putImageData 방식
+let _homeRT = null;       // WebGLRenderTarget (lazy)
+let _homeRTW = 0, _homeRTH = 0;  // 현재 RT 크기 (리사이즈 감지용)
+let _homeScene = null, _homeCamera = null, _homeObj = null;
 let _homeDrag = { active:false, lastX:0, rotY:0 };
+// homeCharCanvas 자체는 2D canvas 로만 사용 (WebGL context 부여 안 함)
+
 function initHomeCharPreview() {
   const canvas = document.getElementById('homeCharCanvas');
   if (!canvas) return;
   const box = canvas.getBoundingClientRect();
   const w = Math.max(200, box.width|0), h = Math.max(200, box.height|0);
-  if (!_homeRenderer) {
-    _homeRenderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
-    _homeRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  if (!_homeScene) {
     _homeScene = new THREE.Scene();
     _homeScene.background = null;
     _homeScene.add(new THREE.AmbientLight(0xffffff, 1.0));
@@ -4043,7 +4062,6 @@ function initHomeCharPreview() {
       _homeDrag.rotY += dx * 0.01;
     });
     canvas.addEventListener('click', e => {
-      // 옷장 열려있을 때 클릭 = 색 칠하기
       if (!closetOpen || !_selectedColor || !_homeObj) return;
       const rect = canvas.getBoundingClientRect();
       const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -4053,12 +4071,12 @@ function initHomeCharPreview() {
       const hits = rc2.intersectObject(_homeObj, true);
       if (hits.length && hits[0].object.material) {
         hits[0].object.material.color.set(_selectedColor);
-        // 저장 — 부위별 색 저장은 복잡하니 body tint 전체로 저장
         saveBodyTint(_selectedColor);
       }
     });
   }
-  _homeRenderer.setSize(w, h, false);
+  // 캔버스 크기 동기화
+  canvas.width = w; canvas.height = h;
   _homeCamera.aspect = w / h;
   _homeCamera.updateProjectionMatrix();
   loadHomeCharObject();
@@ -4086,9 +4104,40 @@ function loadHomeCharObject() {
   _homeObj = cloned;
 }
 function renderHomePreview() {
-  if (currentScreen !== 'home' || !_homeRenderer || !_homeObj) return;
-  _homeObj.rotation.y = _homeDrag.rotY + performance.now() * 0.0003; // 살짝 자동 회전
-  _homeRenderer.render(_homeScene, _homeCamera);
+  if (currentScreen !== 'home' || !_homeScene || !_homeObj) return;
+  const canvas = document.getElementById('homeCharCanvas');
+  if (!canvas) return;
+  const w = canvas.width || 200, h = canvas.height || 200;
+  // RenderTarget 크기 변경 감지 시 재생성
+  if (!_homeRT || _homeRTW !== w || _homeRTH !== h) {
+    if (_homeRT) _homeRT.dispose();
+    _homeRT = new THREE.WebGLRenderTarget(w, h, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      samples: 0
+    });
+    _homeRTW = w; _homeRTH = h;
+  }
+  _homeObj.rotation.y = _homeDrag.rotY + performance.now() * 0.0003;
+  const prevTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(_homeRT);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(_homeScene, _homeCamera);
+  // GPU → CPU → 2D canvas
+  const buf = new Uint8Array(w * h * 4);
+  renderer.readRenderTargetPixels(_homeRT, 0, 0, w, h, buf);
+  renderer.setRenderTarget(prevTarget);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const id = ctx.createImageData(w, h);
+    for (let row = 0; row < h; row++) {
+      const src = (h - 1 - row) * w * 4;
+      const dst = row * w * 4;
+      id.data.set(buf.subarray(src, src + w * 4), dst);
+    }
+    ctx.putImageData(id, 0, 0);
+  }
 }
 
 // ============ 옷장 (색 칠하기) ============
@@ -6694,10 +6743,10 @@ document.addEventListener('visibilitychange', () => {
   else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
 });
 
-// ★ 페이지 언로드 시 공유 포즈 휠 렌더러 해제 (WebGL 컨텍스트 누수 방지)
+// ★ 페이지 언로드 시 렌더 타겟 해제
 window.addEventListener('beforeunload', () => {
-  try { _poseWheelSharedRenderer.dispose(); } catch(e) {}
-  try { _poseWheelRT.dispose(); } catch(e) {}
+  try { if (_poseWheelRT) _poseWheelRT.dispose(); } catch(e) {}
+  try { if (_homeRT) _homeRT.dispose(); } catch(e) {}
 });
 
 let _resizeTimer = null;
