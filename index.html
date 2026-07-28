@@ -1638,6 +1638,20 @@ renderer.toneMappingExposure = 0.85; // 과노출 방지
 renderer.shadowMap.enabled = false; // 그림자 완전 끄기 (성능 최대화)
 document.body.appendChild(renderer.domElement);
 
+// ★ 포즈 휠용 공유 오프스크린 렌더러 (WebGL 컨텍스트를 1개만 사용)
+//   - 각 포즈 슬롯마다 별도 WebGLRenderer를 만들면 브라우저 컨텍스트 한도(8~16개) 초과 →
+//     기존 컨텍스트가 강제 소멸 → Shader Error 1282 + 텍스처 blob 오류의 원인
+const _poseWheelSharedRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false });
+_poseWheelSharedRenderer.setPixelRatio(1);
+_poseWheelSharedRenderer.setSize(110, 110, false);
+_poseWheelSharedRenderer.outputColorSpace = THREE.SRGBColorSpace;
+// 이 렌더러의 canvas는 DOM에 붙이지 않음 (오프스크린)
+const _poseWheelRT = new THREE.WebGLRenderTarget(110, 110, {
+  format: THREE.RGBAFormat,
+  type: THREE.UnsignedByteType,
+  samples: 0
+});
+
 const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 320);
 
 // 하늘 그라디언트 (셰이더 안 쓰고 canvas 텍스처 하나 — 렉 X)
@@ -1776,7 +1790,26 @@ let characterMeshes = []; // paintable meshes
 // GLB 로드 (base64 → ArrayBuffer)
 const draco = new DRACOLoader();
 draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/gltf/');
-const gltfLoader = new GLTFLoader();
+// ★ crossOrigin 설정: 외부 GLB 텍스처를 blob URL로 처리할 때 CORS 오류 방지
+//   (threejs.org, jsdelivr 등 CDN 모델의 텍스처가 Couldn't load texture blob: 에러를 냄)
+// LoadingManager: 텍스처 로드 실패 시 빈 1×1 흰색 텍스처로 대체
+//   → "THREE.WebGLProgram: Shader Error 1282 - VALIDATE_STATUS false" 방지
+//     (텍스처 슬롯이 null 이면 셰이더 컴파일은 되지만 검증 단계에서 1282 뱉음)
+const _gltfManager = new THREE.LoadingManager();
+_gltfManager.onError = url => {
+  console.warn('⚠️ 에셋 로드 실패 (무시 처리):', url);
+};
+// 텍스처 핸들러: blob/external URL 실패 시 1px 흰 텍스처로 폴백
+const _fallbackTexture = (() => {
+  const cv = document.createElement('canvas'); cv.width = 1; cv.height = 1;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 1, 1);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const gltfLoader = new GLTFLoader(_gltfManager);
+gltfLoader.crossOrigin = 'anonymous';
 gltfLoader.setDRACOLoader(draco);
 
 // 두 포즈 저장 (모델 + 머리 y 위치)
@@ -3218,12 +3251,8 @@ function initPoseWheelSlots() {
     wrap.appendChild(canvas);
     container.appendChild(wrap);
 
-    // three.js 프리뷰 씬
+    // three.js 프리뷰 씬 (공유 렌더러 사용 - WebGL 컨텍스트 초과 방지)
     try {
-      const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:false });
-      renderer.setPixelRatio(1);
-      renderer.setSize(110, 110, false);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
       const scene = new THREE.Scene();
       scene.background = null;
       scene.add(new THREE.AmbientLight(0xffffff, 1.4));
@@ -3232,9 +3261,10 @@ function initPoseWheelSlots() {
       const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
       camera.position.set(0, 1.0, 4.5);
       camera.lookAt(0, 0.9, 0);
-      _poseWheelPreviews.set(poseName, { canvas, renderer, scene, camera, wrap, angle: midAngle, path, obj: null });
+      // canvas는 copyTexImage2D 대상으로만 사용 (렌더 타겟에서 읽어옴)
+      _poseWheelPreviews.set(poseName, { canvas, scene, camera, wrap, angle: midAngle, path, obj: null });
     } catch (err) {
-      console.warn('포즈 프리뷰 렌더러 생성 실패:', poseName, err);
+      console.warn('포즈 프리뷰 씬 생성 실패:', poseName, err);
     }
   });
 }
@@ -3354,12 +3384,20 @@ addEventListener('keyup', e => {
 // 창 blur 되면 안전하게 닫음 (P 놓은거 놓침 방지)
 addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
 
-// 매 프레임 미니 씬 렌더 (열려있을 때만)
+// 매 프레임 미니 씬 렌더 (열려있을 때만) — 공유 렌더러 사용
 function renderPoseWheel() {
   if (!poseWheelOpen) return;
   _poseWheelPreviews.forEach(prev => {
-    // 회전/애니메이션 없이 정지 프레임만 렌더
-    try { prev.renderer.render(prev.scene, prev.camera); } catch(e) {}
+    if (!prev.obj) return; // 모델 아직 안 로드됨
+    try {
+      // 공유 렌더러로 오프스크린 렌더 후 슬롯 canvas에 복사
+      _poseWheelSharedRenderer.render(prev.scene, prev.camera);
+      const ctx = prev.canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, 110, 110);
+        ctx.drawImage(_poseWheelSharedRenderer.domElement, 0, 0, 110, 110);
+      }
+    } catch(e) {}
   });
 }
 
@@ -3472,8 +3510,9 @@ function buildPolygonMap(type) {
 
 const MAPS = [
   {
+    // ★ threejs.org 직접 참조는 blob 텍스처 CORS 오류 발생 → jsdelivr CDN 미러 사용
     name: '도쿄 뒷골목',
-    url: 'https://threejs.org/examples/models/gltf/LittlestTokyo.glb',
+    url: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/LittlestTokyo.glb',
     scale: 0.18,
     hasWalls: false,
     procedural: false
@@ -3690,6 +3729,20 @@ gltfLoader.load(
         o.castShadow = false;
         o.receiveShadow = false;
         o.frustumCulled = true;
+        // ★ 텍스처 폴백: blob URL 실패로 null이 된 텍스처 슬롯을 1px 흰 텍스처로 채움
+        //   → 셰이더 검증(VALIDATE_STATUS) 오류(1282) 방지
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const mat of mats) {
+          if (!mat) continue;
+          const slots = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap',
+                         'aoMap','alphaMap','envMap','lightMap','bumpMap','displacementMap'];
+          for (const slot of slots) {
+            if (mat[slot] === null && mat.defines && mat.defines['USE_' + slot.toUpperCase()]) {
+              mat[slot] = _fallbackTexture;
+              mat.needsUpdate = true;
+            }
+          }
+        }
         // 도쿄 mesh에만 BVH 트리 + 이 인스턴스만 accelerated raycast
         if (o.geometry) {
           o.geometry.boundsTree = new MeshBVH(o.geometry);
@@ -6638,6 +6691,12 @@ animate();
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _animRunning = false; }
   else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
+});
+
+// ★ 페이지 언로드 시 공유 포즈 휠 렌더러 해제 (WebGL 컨텍스트 누수 방지)
+window.addEventListener('beforeunload', () => {
+  try { _poseWheelSharedRenderer.dispose(); } catch(e) {}
+  try { _poseWheelRT.dispose(); } catch(e) {}
 });
 
 let _resizeTimer = null;
