@@ -3473,14 +3473,14 @@ function buildPolygonMap(type) {
 const MAPS = [
   {
     name: '도쿄 뒷골목',
-    url: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/LittlestTokyo.glb',
+    url: 'https://threejs.org/examples/models/gltf/LittlestTokyo.glb',
     scale: 0.18,
     hasWalls: false,
     procedural: false
   },
   {
     name: 'Sponza 궁전',
-    url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Sponza/glTF/Sponza.gltf',
+    url: 'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Sponza/glTF/Sponza.gltf',
     scale: 3,
     hasWalls: true,
     procedural: false
@@ -3767,45 +3767,54 @@ gltfLoader.load(
 
     // 스폰 찾기 (지붕 위 스폰 방지 - 머리 위 최소 3유닛 여유 필요)
     if (selectedMap.forceSpawnCenter) {
-      // 중앙 위에서 아래로 레이캐스트 → 가장 높은 열린 바닥에 스폰
+      // 중앙 위에서 아래로 레이캐스트 → 낮은 층 중 머리 공간 충분한 첫 번째 바닥
       const csray = new THREE.Raycaster();
-      csray.set(new THREE.Vector3(center.x, 300, center.z), new THREE.Vector3(0,-1,0));
-      csray.far = 600;
+      csray.set(new THREE.Vector3(center.x, 500, center.z), new THREE.Vector3(0,-1,0));
+      csray.far = 1000;
       const chits = csray.intersectObjects(collidableMeshes, false);
-      // 낮은 Y부터(1층) 순회하며 머리 위 공간 충분한 첫 번째 바닥 선택
-      let spawnY = 20;
+      let spawnY = 5;
       const chitsAsc = [...chits].sort((a,b) => a.point.y - b.point.y);
+      const upray2 = new THREE.Raycaster();
       for (const h of chitsAsc) {
+        // 바닥 법선 위쪽인 면만 허용 (천장 제외)
+        if (h.face && h.face.normal.y < 0.5) continue;
         const ty = h.point.y;
-        const upray2 = new THREE.Raycaster();
-        upray2.set(new THREE.Vector3(center.x, ty + 0.5, center.z), new THREE.Vector3(0,1,0));
+        upray2.set(new THREE.Vector3(center.x, ty + 0.3, center.z), new THREE.Vector3(0,1,0));
         upray2.far = 30;
         const uh = upray2.intersectObjects(collidableMeshes, false);
         const clearance = uh.length ? uh[0].distance : 999;
-        if (clearance >= 4) { spawnY = ty + 0.05; break; }
+        if (clearance >= 2.2) { spawnY = ty + 0.02; break; }
       }
       player.position.set(center.x, spawnY + (selectedMap.spawnOffsetY || 0), center.z);
     } else {
     const spawnCandidates = [];
     const R = Math.min(halfX, halfZ) * 0.6;
-    for (let dx=-R; dx<=R; dx+=3) for (let dz=-R; dz<=R; dz+=3) spawnCandidates.push([center.x+dx, center.z+dz]);
+    for (let dx=-R; dx<=R; dx+=2.5) for (let dz=-R; dz<=R; dz+=2.5) spawnCandidates.push([center.x+dx, center.z+dz]);
     const sray = new THREE.Raycaster();
+    const upray = new THREE.Raycaster();
     let best = null, bestScore = -Infinity;
     for (const [sx, sz] of spawnCandidates) {
-      sray.set(new THREE.Vector3(sx, 300, sz), new THREE.Vector3(0,-1,0));
-      sray.far = 600;
+      sray.set(new THREE.Vector3(sx, 500, sz), new THREE.Vector3(0,-1,0));
+      sray.far = 1000;
       const hits = sray.intersectObjects(collidableMeshes, false);
       if (!hits.length) continue;
-      // Sponza / 도쿄: 가장 위 hit 기준, 머리 위 여유 확인
-      const topY = hits[0].point.y;
-      const upray = new THREE.Raycaster();
-      upray.set(new THREE.Vector3(sx, topY+0.5, sz), new THREE.Vector3(0,1,0));
-      upray.far = 30;
-      const uphits = upray.intersectObjects(collidableMeshes, false);
-      const clear = uphits.length ? uphits[0].distance : 999;
-      if (clear < 3) continue;
-      const score = -topY + clear * 0.1;
-      if (score > bestScore) { bestScore = score; best = {x:sx, y:topY+0.05, z:sz}; }
+      // ★ 핵심 수정: Y 오름차순(낮은 층 먼저) 정렬 후, 머리 위 공간 충분한 첫 번째 바닥 선택
+      // 가장 위 hit(=지붕)를 바닥으로 착각하는 문제 해결
+      const sorted = [...hits].sort((a, b) => a.point.y - b.point.y);
+      for (const h of sorted) {
+        const ty = h.point.y;
+        // 바닥 법선이 위쪽(Y>0.5)인 면만 "바닥"으로 인정 → 천장/벽 제외
+        if (h.face && h.face.normal.y < 0.5) continue;
+        upray.set(new THREE.Vector3(sx, ty + 0.3, sz), new THREE.Vector3(0,1,0));
+        upray.far = 30;
+        const uphits = upray.intersectObjects(collidableMeshes, false);
+        const clear = uphits.length ? uphits[0].distance : 999;
+        if (clear < 2.2) continue; // 머리 공간 최소 2.2m
+        // 낮은 층 우선(score 높을수록 좋음), 여유 공간 보너스
+        const score = -ty + clear * 0.05;
+        if (score > bestScore) { bestScore = score; best = {x:sx, y:ty+0.02, z:sz}; }
+        break; // 이 후보 좌표에서 첫 번째 유효 바닥 찾으면 다음 후보로
+      }
     }
     if (best) player.position.set(best.x, best.y + (selectedMap.spawnOffsetY || 0), best.z);
     else player.position.set(center.x, 20 + (selectedMap.spawnOffsetY || 0), center.z);
@@ -4914,24 +4923,27 @@ const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
   refreshNearbyColliders();
-  // ★ 파묻힘 방지: 광선을 발 살짝 위(+0.5)에서 시작 (검증된 값)
-  //   위에서 시작(+2.0 등)하면 실내 맵에서 위쪽 구조물/상위층을 먼저 맞아 그 위로 스냅 → 파묻힘
-  const _rayStartY = player.position.y + 0.5;
-  _groundOrigin.set(x, _rayStartY, z);
+  // 머리 위 2유닛에서 아래로 충분히(50) 쏨
+  _groundOrigin.set(x, player.position.y + 2.0, z);
   groundRay.set(_groundOrigin, downV);
-  groundRay.far = _rayStartY + 30;
+  groundRay.far = 50;
   const hits = groundRay.intersectObjects(_nearbyWithGround, false);
-  if (!hits.length) return null;               // 못 찾음 → null (호출부에서 이전 바닥 유지)
-  const maxAllowed = player.position.y + 0.4;
+  if (!hits.length) return null;
+  // 현재 발 위치보다 0.6 이상 높은 hit는 천장/위층 구조물 → 제외
+  const maxAllowed = player.position.y + 0.6;
   let best = null;
-  for (const h of hits) if (h.point.y <= maxAllowed) if (best===null || h.point.y > best) best = h.point.y;
-  return best;                                  // 유효 바닥 없으면 null
+  for (const h of hits) {
+    if (h.point.y <= maxAllowed) {
+      if (best === null || h.point.y > best) best = h.point.y;
+    }
+  }
+  return best;
 }
 
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
-const PR = 0.4; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
-const _tryMoveHeights = [0.35, 1.0, 1.7];
+const PR = 0.45; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
+const _tryMoveHeights = [0.2, 0.6, 1.1, 1.6]; // 발/무릎/허리/어깨 4단계로 촘촘히
 const _safeDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
@@ -4940,7 +4952,7 @@ const _safeRc = new THREE.Raycaster();
 const _safeOrigin = new THREE.Vector3();
 const SAFE_MARGIN = PR * 0.9;
 // 안전망은 발/허리 2개만 (머리는 벽 뚫리기 힘든 위치)
-const _safeHeights = [0.35, 1.0];
+const _safeHeights = [0.2, 0.7, 1.4]; // 발/허리/어깨 3단계 (벽 파묻힘 정밀 탐지)
 
 // ★ 성능 최적화: 플레이어 근처 collider 만 캐시 (500ms 또는 3m 이동마다 갱신)
 //   맵에 collider 200개 있어도 근처 20개 정도만 검사 → 라이트하게
@@ -4948,7 +4960,7 @@ let _nearbyColliders = [];
 let _nearbyWithGround = [ground]; // ground + nearby (지면/천장 체크용)
 let _lastNearbyUpdate = 0;
 let _lastNearbyPos = { x: Infinity, z: Infinity };
-const NEARBY_RANGE = 8; // 반경 8m
+const NEARBY_RANGE = 14; // 반경 14m (편의점 같은 작은 실내 맵 전체 커버)
 const _tmpNearbyCenter = new THREE.Vector3();
 function refreshNearbyColliders() {
   const now = performance.now();
@@ -5005,7 +5017,7 @@ function tryMove(dx, dz) {
     rd.set(mx, 0, mz).normalize();
     for (const hY of _tryMoveHeights) {
       ro.set(player.position.x, player.position.y + hY, player.position.z);
-      rc.set(ro, rd); rc.far = d + PR;
+      rc.set(ro, rd); rc.far = d + PR * 1.5; // 얇은 벽/구조물도 검출
       if (rc.intersectObjects(_nearbyColliders, false).length) return false;
     }
     return true;
@@ -6499,46 +6511,28 @@ function animate() {
   }
   // ★ Y 이동량 캡: 한 프레임에 최대 1m 만 이동 (프레임 스킵/버그로 인한 순간이동 방지)
   const deltaY = velocityY * dt;
-  const clampedDeltaY = Math.max(-1.0, Math.min(1.0, deltaY));
+  const clampedDeltaY = Math.max(-0.6, Math.min(0.6, deltaY)); // 한 프레임 최대 이동량 줄여 바닥 통과 방지
   player.position.y += clampedDeltaY;
   
-  const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
-  // ★ 착지+정지 시 raycast 완전 스킵, 공중이거나 이동 시만 갱신
-  if (cachedGroundY === null || moved || (!isGrounded && Math.abs(velocityY) > 0.5)) {
-    const rawGY = getGroundHeight(player.position.x, player.position.z);
-    if (rawGY === null) {
-      // 바닥 감지 실패 → 마지막 확실한 바닥이 있으면 그걸 유지(추락 방지),
-      // 아직 한 번도 착지 안 했으면(-9999) 정상적으로 낙하하게 둠
-      cachedGroundY = (_lastSolidGroundY !== null) ? _lastSolidGroundY : -9999;
-    } else if (isGrounded && _lastSolidGroundY !== null && rawGY < _lastSolidGroundY - 1.0) {
-      // 서 있는데 바닥이 갑자기 1유닛 이상 뚝 떨어짐 → 레이캐스트 글리치 의심
-      // 3프레임 연속으로 낮게 잡혀야 진짜 낭떠러지로 인정 (순간적 튐은 무시 → 안 떨어짐)
-      _groundDropStreak++;
-      cachedGroundY = (_groundDropStreak >= 3) ? rawGY : _lastSolidGroundY;
-    } else {
-      _groundDropStreak = 0;
-      cachedGroundY = rawGY;
-    }
-    lastGroundX = player.position.x; lastGroundZ = player.position.z;
-  }
+  // 매 프레임 바닥 감지 (단순: null이면 이전값 유지)
+  const rawGY = getGroundHeight(player.position.x, player.position.z);
+  if (rawGY !== null) cachedGroundY = rawGY;
+  if (cachedGroundY === null) cachedGroundY = -9999;
   const gY = cachedGroundY;
   const wasAirborne = !isGrounded;
   if (player.position.y <= gY) {
     player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false;
-    _lastSolidGroundY = gY; // ★ 마지막으로 밟은 확실한 바닥 기억
-    // 착지 순간 기록: 잠깐 stuck 검사 유예 (착지 직후 튀는 버그 방지)
+    _lastSolidGroundY = gY;
     if (wasAirborne) window._justLandedAt = performance.now();
   }
   else if (player.position.y > gY + 0.1) isGrounded = false;
   
-  // 안전망: 지면 이상 낮이 되거나 맵 밖으로 떨어지면 복귀
-  if (player.position.y < -20 || !isFinite(player.position.y)) {
-    console.warn('추락 감지 → 복귀');
-    player.position.set(0, 20, 0);
+  // 안전망: 너무 낮이 지면 마지막 바닥 위로 복귀
+  if (player.position.y < -50 || !isFinite(player.position.y)) {
+    const safeY = (_lastSolidGroundY !== null) ? _lastSolidGroundY + 3 : 10;
+    player.position.y = safeY;
     velocityY = 0;
     cachedGroundY = null;
-    _lastSolidGroundY = null;   // 바닥 기억 초기화
-    _groundDropStreak = 0;
   }
 
   // ★ 끼임 자동 탈출: 오래 끼어있으면 위로 순간이동
