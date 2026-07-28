@@ -1920,7 +1920,7 @@ function attachGunToPlayer() {
   // 튜닝 상수 (안 예쁘면 여기 조절)
   // ★ 총을 캐릭터 오른손/가슴 높이에 두고 총구(+X)가 정면(-Z)을 향하게
   const GUN_POS_X = 0.32, GUN_POS_Y = 1.1, GUN_POS_Z = -0.35;
-  const GUN_ROT_X = 0, GUN_ROT_Y = Math.PI / 2, GUN_ROT_Z = 0; // 총구 앞으로
+  const GUN_ROT_X = 0, GUN_ROT_Y = -Math.PI / 2, GUN_ROT_Z = 0; // 총구 앞으로 (왼쪽 90도)
   attachedGun.position.set(GUN_POS_X, GUN_POS_Y, GUN_POS_Z);
   attachedGun.rotation.set(GUN_ROT_X, GUN_ROT_Y, GUN_ROT_Z);
   player.add(attachedGun);
@@ -5356,83 +5356,57 @@ function _renderPickerScene(clientX, clientY) {
     return mat?.color ? '#' + mat.color.getHexString() : null;
   }
 
-  // 2. 1×1 렌더타겟 (lazy 생성, 크기 고정 1px)
-  if (!_pickerRenderTarget) {
-    _pickerRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
+  // 2. 픽셀 좌표 계산 (canvas 실제 픽셀 기준, WebGL Y 반전)
+  const canvasW = renderer.domElement.width;
+  const canvasH = renderer.domElement.height;
+  const px = Math.round((clientX - rect.left) / rect.width  * canvasW);
+  const py = Math.round((1 - (clientY - rect.top) / rect.height) * canvasH);
+
+  // 3. 풀사이즈 렌더타겟 (캔버스와 동일 크기, lazy 생성/resize)
+  if (!_pickerRenderTarget ||
+      _pickerRenderTarget.width  !== canvasW ||
+      _pickerRenderTarget.height !== canvasH) {
+    if (_pickerRenderTarget) _pickerRenderTarget.dispose();
+    _pickerRenderTarget = new THREE.WebGLRenderTarget(canvasW, canvasH, {
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
-      type: THREE.UnsignedByteType,
     });
   }
 
-  // 픽셀 좌표 계산 (canvas 실제 픽셀 기준, WebGL Y 반전)
-  const canvasW = renderer.domElement.width;
-  const canvasH = renderer.domElement.height;
-  const px = Math.round((clientX - rect.left) / rect.width * canvasW);
-  const py = Math.round((1 - (clientY - rect.top) / rect.height) * canvasH);
-
-  // 3. 해당 mesh만 MeshBasicMaterial로 교체 (조명/toneMapping 영향 제거)
+  // 4. 해당 mesh만 MeshBasicMaterial로 교체 (조명 영향 제거)
   const origMat = hitMesh.material;
-  const basicMat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    side: THREE.DoubleSide,
-  });
+  const basicMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
   hitMesh.material = basicMat;
 
-  // 4. 렌더러 상태 저장 → 오프스크린 설정
-  const prevRT       = renderer.getRenderTarget();
-  const prevTone     = renderer.toneMapping;
-  const prevCS       = renderer.outputColorSpace;
+  // 5. 렌더러 상태 저장
+  const prevRT        = renderer.getRenderTarget();
+  const prevTone      = renderer.toneMapping;
+  const prevCS        = renderer.outputColorSpace;
   const prevAutoClear = renderer.autoClear;
-  const prevScissorTest = renderer.getScissorTest();
 
-  // toneMapping / colorSpace 끄기: 순수 vertex color 값 그대로 픽셀에 박히게
-  renderer.toneMapping        = THREE.NoToneMapping;
-  renderer.outputColorSpace   = THREE.LinearSRGBColorSpace;
-  renderer.autoClear          = true;
-
-  // scissor + viewport를 1픽셀로 제한해 해당 픽셀만 렌더 (극도로 빠름)
-  renderer.setScissorTest(true);
-  renderer.setScissor(px, py, 1, 1);
-  renderer.setViewport(px, py, 1, 1);
+  // toneMapping / colorSpace 끄기 → vertex color 값이 픽셀에 그대로
+  renderer.toneMapping      = THREE.NoToneMapping;
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.autoClear        = true;
   renderer.setRenderTarget(_pickerRenderTarget);
 
-  // ★ 히트 메쉬만 visible 설정해서 렌더 (다른 오브젝트 완전 제외)
-  //    → 배경이 깔리지 않아 픽셀 alpha로 히트 여부 판별
-  const prevVisible = hitMesh.visible;
-  hitMesh.visible = true;
-  // 다른 오브젝트 전부 숨기기
-  const hiddenObjs = [];
-  scene.traverse(o => {
-    if (o !== hitMesh && o.visible && o.isMesh) {
-      o.visible = false;
-      hiddenObjs.push(o);
-    }
-  });
+  renderer.render(scene, camera);  // 씬 전체 렌더 (hitMesh만 basicMat, 나머지 원래대로)
 
-  renderer.render(scene, camera);
-
-  // 5. 복원
-  hitMesh.visible = prevVisible;
-  hiddenObjs.forEach(o => { o.visible = true; });
+  // 6. 복원
   hitMesh.material = origMat;
   basicMat.dispose();
-
   renderer.setRenderTarget(prevRT);
-  renderer.setScissorTest(prevScissorTest);
-  renderer.setScissor(0, 0, canvasW, canvasH);
-  renderer.setViewport(0, 0, canvasW, canvasH);
-  renderer.toneMapping        = prevTone;
-  renderer.outputColorSpace   = prevCS;
-  renderer.autoClear          = prevAutoClear;
+  renderer.toneMapping      = prevTone;
+  renderer.outputColorSpace = prevCS;
+  renderer.autoClear        = prevAutoClear;
 
-  // 6. 1×1 RT에서 픽셀 읽기
+  // 7. 해당 픽셀 읽기 (풀사이즈 RT에서 정확한 좌표)
   const pixelBuf = new Uint8Array(4);
-  renderer.readRenderTargetPixels(_pickerRenderTarget, 0, 0, 1, 1, pixelBuf);
+  renderer.readRenderTargetPixels(_pickerRenderTarget, px, py, 1, 1, pixelBuf);
 
-  if (pixelBuf[3] < 10) return null; // 완전 투명이면 빈 곳
+  if (pixelBuf[3] < 10) return null; // 투명 = 빈 곳
 
-  // LinearSRGB로 렌더했으므로 sRGB로 변환 (화면 표시 색과 일치)
+  // LinearSRGB → sRGB 변환 (IEC 61966-2-1 정밀식)
   const lin2srgb = v => {
     v = Math.max(0, Math.min(1, v / 255));
     return Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1/2.4) - 0.055) * 255);
