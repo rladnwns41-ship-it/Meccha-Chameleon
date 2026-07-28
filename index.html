@@ -1437,7 +1437,7 @@
 
 <div id="hud">
   <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
-  <b>마우스</b> 시점 &nbsp;<b>Q</b> 페인트 &nbsp;<b>P</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <b>마우스</b> 시점 &nbsp;<b>Q</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
   <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
   &nbsp; <span style="color:#ffe066;">👍 <span id="myLikeCount">0</span></span>
   &nbsp; <span style="color:#ff8b8b;">🔍 <span id="myCatchCount">0</span></span>
@@ -1494,7 +1494,7 @@
 
 <div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; Q 로 종료</div>
 
-<!-- ============ 포즈 휠 (P 홀드) — 파이 차트 스타일 ============ -->
+<!-- ============ 포즈 휠 (R 홀드) — 파이 차트 스타일 ============ -->
 <div id="poseWheel" class="hidden">
   <div id="poseWheelBg"></div>
   <div id="poseWheelStage">
@@ -3179,12 +3179,7 @@ POSE_LIST.forEach(poseId => {
   }, err => console.error('❌ 포즈 로드 실패:', url, err?.message || err));
 });
 
-// R 키로 포즈 토글
-addEventListener('keydown', e => {
-  if (e.code === 'KeyR' && !paintMode && !poseWheelOpen) {
-    switchPose(currentPose === 'stand' ? 'crouch' : 'stand');
-  }
-});
+
 
 // ================ 포즈 휠 (P 홀드) ================
 // POSE_LIST / POSE_DISPLAY 는 상단 포즈 로더 근처에서 정의됨
@@ -3359,15 +3354,15 @@ addEventListener('mousemove', e => {
   }
 });
 
-// P 홀드/릴리즈
+// R 홀드/릴리즈 → 포즈 휠
 addEventListener('keydown', e => {
-  if (e.code === 'KeyP' && !e.repeat && !paintMode && currentScreen === 'game') {
+  if (e.code === 'KeyR' && !e.repeat && !paintMode && currentScreen === 'game') {
     e.preventDefault();
     openPoseWheel();
   }
 });
 addEventListener('keyup', e => {
-  if (e.code === 'KeyP' && poseWheelOpen) {
+  if (e.code === 'KeyR' && poseWheelOpen) {
     e.preventDefault();
     closePoseWheel(true);
   }
