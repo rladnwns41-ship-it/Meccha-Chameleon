@@ -3541,6 +3541,7 @@ function resetMap() {
   _groundAndCollidable.push(ground);
   // 경계 리셋
   worldBounds = null;
+  cachedGroundY = null; _lastSolidGroundY = null; _groundDropStreak = 0;
   // 바닥 원위치
   if (ground) {
     ground.visible = true;
@@ -3572,17 +3573,18 @@ function clearBoundaryCage() {
   }
   _cageMeshes = [];
 }
-function buildBoundaryCage(b, floorTopY, wallHeight) {
+function buildBoundaryCage(b, baseY, wallHeight) {
   clearBoundaryCage();
   if (!b) return;
   const invisMat = new THREE.MeshBasicMaterial({ visible: false });
-  const T = 4; // 벽 두께 (두껍게 → 어떤 속도로도 못 뚫음)
+  const T = 4;       // 벽 두께 (두껍게 → 어떤 속도로도 못 뚫음)
+  const GAP = 1.0;   // 경계(클램프)에서 살짝 바깥에 세움 → 가장자리에서 안 끼임
   const w = b.maxX - b.minX;
   const d = b.maxZ - b.minZ;
   const cx = (b.minX + b.maxX) / 2;
   const cz = (b.minZ + b.maxZ) / 2;
-  const wallCY = floorTopY + wallHeight / 2;
-  const add = (geo, x, y, z, isFloor) => {
+  const wallCY = baseY + wallHeight / 2;
+  const add = (geo, x, y, z) => {
     const m = new THREE.Mesh(geo, invisMat);
     m.position.set(x, y, z);
     m.castShadow = false; m.receiveShadow = false;
@@ -3590,17 +3592,15 @@ function buildBoundaryCage(b, floorTopY, wallHeight) {
     try { geo.boundsTree = new MeshBVH(geo); m.raycast = acceleratedRaycast; } catch(e){}
     scene.add(m);
     collidableMeshes.push(m);
-    if (isFloor) _groundAndCollidable.push(m); // 바닥은 getGroundHeight 검사에도 포함
     _cageMeshes.push(m);
   };
-  // 바닥 (경계보다 넉넉히 크게 → 가장자리 추락도 확실히 잡음)
-  add(new THREE.BoxGeometry(w + T * 2 + 20, 1.0, d + T * 2 + 20), cx, floorTopY - 0.5, cz, true);
-  // 4면 벽 (경계 바로 바깥에 세움)
-  add(new THREE.BoxGeometry(w + T * 2, wallHeight, T), cx, wallCY, b.minZ - T / 2, false);
-  add(new THREE.BoxGeometry(w + T * 2, wallHeight, T), cx, wallCY, b.maxZ + T / 2, false);
-  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2), b.minX - T / 2, wallCY, cz, false);
-  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2), b.maxX + T / 2, wallCY, cz, false);
-  console.log('🧱 경계 케이지 생성 (바닥 top=' + floorTopY.toFixed(2) + ', 벽높이=' + wallHeight + ')');
+  // 4면 벽만 (바닥은 만들지 않음 → 땅 감지에 영향 X, 갑작스런 추락 없음)
+  // 벽은 클램프 경계보다 GAP 만큼 바깥에 → 정상 이동엔 안 걸리고, 꼼수로 뚫고 나갈 때만 막음
+  add(new THREE.BoxGeometry(w + T * 2 + GAP * 2, wallHeight, T), cx, wallCY, b.minZ - GAP - T / 2);
+  add(new THREE.BoxGeometry(w + T * 2 + GAP * 2, wallHeight, T), cx, wallCY, b.maxZ + GAP + T / 2);
+  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2 + GAP * 2), b.minX - GAP - T / 2, wallCY, cz);
+  add(new THREE.BoxGeometry(T, wallHeight, d + T * 2 + GAP * 2), b.maxX + GAP + T / 2, wallCY, cz);
+  console.log('🧱 경계 벽 생성 (벽높이=' + wallHeight + ', baseY=' + baseY.toFixed(2) + ')');
 }
 
 function loadSelectedMap(mapIdx) {
@@ -3728,15 +3728,12 @@ gltfLoader.load(
       _currentMapLights.push(indoorLight);  // ★ 리셋용 트래킹
     }
 
-    // ★ 보이지 않는 경계 케이지 세우기 (모든 맵)
-    //   - 벽 없는 맵: 바닥을 지면 바로 아래에 깔아서 모델 밑으로 못 숨게
-    //   - 벽 있는 맵: 자체 바닥보다 훨씬 아래에 안전 바닥 (추락 방지용), 경계 벽 추가
+    // ★ 보이지 않는 경계 벽 세우기 (모든 맵)
+    //   월드 보더를 실제 벽으로 막아서 꼼수로 뚫고 나가거나 모델 밑으로 못 숨게.
+    //   바닥은 만들지 않음 → 땅 감지/중력에 영향 없음(갑작스런 추락 방지).
     {
-      const modelFloorY = finalBox.min.y; // 모델 재배치 후 대략 0
-      // 벽 있는 맵: 자체 바닥/스폰과 간섭 안 하게 깊은 안전 바닥(추락만 잡음)
-      // 벽 없는 맵: 지면 바로 아래에 깔아 모델 밑으로 못 숨게
-      const floorTopY = selectedMap.hasWalls ? (modelFloorY - 5) : (modelFloorY - 0.05);
-      buildBoundaryCage(worldBounds, floorTopY, 40);
+      const baseY = finalBox.min.y - 10; // 벽 아래쪽 시작(넉넉히 아래)
+      buildBoundaryCage(worldBounds, baseY, 60);
     }
 
     // 스폰 찾기 (지붕 위 스폰 방지 - 머리 위 최소 3유닛 여유 필요)
@@ -3785,6 +3782,7 @@ gltfLoader.load(
     else player.position.set(center.x, 20 + (selectedMap.spawnOffsetY || 0), center.z);
     }
     velocityY = 0; isGrounded = true;
+    cachedGroundY = null; _lastSolidGroundY = null; _groundDropStreak = 0; // 새 맵 바닥 기억 초기화
 
     document.getElementById('barFill').style.width = '100%';
     document.getElementById('pct').textContent = '100%';
@@ -4831,6 +4829,9 @@ addEventListener('keydown', e => {
 let velocityY = 0, isGrounded = true;
 const GRAVITY = -30, JUMP_V = 16;
 let cachedGroundY = null, lastGroundX = 0, lastGroundZ = 0;
+// ★ 갑작스런 추락 방지용: 마지막으로 밟은 확실한 바닥 + 하강 연속 감지 카운터
+let _lastSolidGroundY = null;
+let _groundDropStreak = 0;
 
 // 벽 타기 (스페이스 길게)
 let isClimbing = false;
@@ -4884,16 +4885,17 @@ const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
   refreshNearbyColliders();
-  const _rayStartY = player.position.y + 0.5;
+  // ★ 레이를 머리 위에서 시작 → 얇은 바닥/살짝 파묻힘도 위에서 확실히 감지
+  const _rayStartY = player.position.y + 2.0;
   _groundOrigin.set(x, _rayStartY, z);
   groundRay.set(_groundOrigin, downV);
-  groundRay.far = _rayStartY + 30;
+  groundRay.far = 90;
   const hits = groundRay.intersectObjects(_nearbyWithGround, false);
-  if (!hits.length) return 0;
+  if (!hits.length) return null;               // 못 찾음 → null (호출부에서 이전 바닥 유지)
   const maxAllowed = player.position.y + 0.4;
   let best = null;
   for (const h of hits) if (h.point.y <= maxAllowed) if (best===null || h.point.y > best) best = h.point.y;
-  return best !== null ? best : 0;
+  return best;                                  // 유효 바닥 없으면 null
 }
 
 const rc = new THREE.Raycaster();
@@ -6473,14 +6475,28 @@ function animate() {
   const moved = Math.abs(player.position.x - lastGroundX) > 0.3 || Math.abs(player.position.z - lastGroundZ) > 0.3;
   // ★ 착지+정지 시 raycast 완전 스킵, 공중이거나 이동 시만 갱신
   if (cachedGroundY === null || moved || (!isGrounded && Math.abs(velocityY) > 0.5)) {
-    cachedGroundY = getGroundHeight(player.position.x, player.position.z);
+    const rawGY = getGroundHeight(player.position.x, player.position.z);
+    if (rawGY === null) {
+      // 바닥 감지 실패 → 마지막 확실한 바닥이 있으면 그걸 유지(추락 방지),
+      // 아직 한 번도 착지 안 했으면(-9999) 정상적으로 낙하하게 둠
+      cachedGroundY = (_lastSolidGroundY !== null) ? _lastSolidGroundY : -9999;
+    } else if (isGrounded && _lastSolidGroundY !== null && rawGY < _lastSolidGroundY - 1.0) {
+      // 서 있는데 바닥이 갑자기 1유닛 이상 뚝 떨어짐 → 레이캐스트 글리치 의심
+      // 3프레임 연속으로 낮게 잡혀야 진짜 낭떠러지로 인정 (순간적 튐은 무시 → 안 떨어짐)
+      _groundDropStreak++;
+      cachedGroundY = (_groundDropStreak >= 3) ? rawGY : _lastSolidGroundY;
+    } else {
+      _groundDropStreak = 0;
+      cachedGroundY = rawGY;
+    }
     lastGroundX = player.position.x; lastGroundZ = player.position.z;
   }
   const gY = cachedGroundY;
   const wasAirborne = !isGrounded;
   if (player.position.y <= gY) {
     player.position.y = gY; velocityY = 0; isGrounded = true; isClimbing = false;
-    // ★ 착지 순간 기록: 잠깐 stuck 검사 유예 (착지 직후 튀는 버그 방지)
+    _lastSolidGroundY = gY; // ★ 마지막으로 밟은 확실한 바닥 기억
+    // 착지 순간 기록: 잠깐 stuck 검사 유예 (착지 직후 튀는 버그 방지)
     if (wasAirborne) window._justLandedAt = performance.now();
   }
   else if (player.position.y > gY + 0.1) isGrounded = false;
@@ -6491,14 +6507,16 @@ function animate() {
     player.position.set(0, 20, 0);
     velocityY = 0;
     cachedGroundY = null;
+    _lastSolidGroundY = null;   // 바닥 기억 초기화
+    _groundDropStreak = 0;
   }
 
   // ★ 끼임 자동 탈출: 오래 끼어있으면 위로 순간이동
   if (!window._stuckSince) window._stuckSince = 0;
   if (window._myStuck) {
     if (!window._stuckSince) window._stuckSince = _frameNow;
-    else if (_frameNow - window._stuckSince > 2000) {
-      // 2초 이상 끼임 → 위로 탈출
+    else if (_frameNow - window._stuckSince > 1200) {
+      // 1.2초 이상 끼임 → 위로 탈출 (빠르게 풀어줌)
       player.position.y += 3;
       velocityY = 5;
       cachedGroundY = null;
