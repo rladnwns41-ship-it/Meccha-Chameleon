@@ -5301,13 +5301,15 @@ function _sampleVertexColor(mesh, hit) {
   const barySum = bary.x + bary.y + bary.z;
   let wa, wb, wc;
   if (!isFinite(barySum) || barySum < 0.0001) {
+    // 폴백: 역거리 가중치
     const da = pA.distanceToSquared(localPt) || 0.0001;
     const db = pB.distanceToSquared(localPt) || 0.0001;
     const dc = pC.distanceToSquared(localPt) || 0.0001;
     const s = 1/da + 1/db + 1/dc;
     wa = (1/da)/s; wb = (1/db)/s; wc = (1/dc)/s;
   } else {
-    wa = bary.x; wb = bary.y; wc = bary.z;
+    // ★ 정규화: 합이 1이 되도록 보정해 float 오차 제거 (정확도 극대화)
+    wa = bary.x / barySum; wb = bary.y / barySum; wc = bary.z / barySum;
   }
   return {
     r: colors.getX(a)*wa + colors.getX(b)*wb + colors.getX(c)*wc,
@@ -5385,10 +5387,14 @@ function _renderPickerScene(clientX, clientY) {
     _pickerRenderTarget.setSize(canvasW, canvasH);
   }
 
-  // 현재 렌더타겟 저장 → 오프스크린 렌더 → 복원
+  // 현재 렌더타겟 저장 → 오프스크린 렌더 → 복원 (화면 깜빡임 방지)
+  const _prevRT = renderer.getRenderTarget();
+  const _prevAutoClear = renderer.autoClear;
+  renderer.autoClear = true;
   renderer.setRenderTarget(_pickerRenderTarget);
   renderer.render(scene, camera);
-  renderer.setRenderTarget(null);
+  renderer.setRenderTarget(_prevRT);
+  renderer.autoClear = _prevAutoClear;
 
   // 픽셀 읽기
   const pixelBuf = new Uint8Array(4);
@@ -5441,14 +5447,16 @@ function _pickColorAt(clientX, clientY) {
   if (mesh.geometry && mesh.geometry.attributes && mesh.geometry.attributes.color) {
     const s = _sampleVertexColor(mesh, hit);
     if (s) {
-      // color attribute 는 리니어 워킹스페이스 값 → paint 의 .set(hex) 를 정확히 역변환
+      // ★ color attribute는 linear 색공간 → sRGB로 정밀 변환해야 실제 보이는 색과 일치
+      // Three.js Color.convertLinearToSRGB() 사용 (감마 2.2 근사가 아닌 IEC 61966-2-1 정확식)
       _pickColorTmp.r = Math.min(1, Math.max(0, s.r));
       _pickColorTmp.g = Math.min(1, Math.max(0, s.g));
       _pickColorTmp.b = Math.min(1, Math.max(0, s.b));
-      return '#' + _pickColorTmp.getHexString(); // 기본 SRGB 변환
+      _pickColorTmp.convertLinearToSRGB(); // linear → sRGB 정밀 변환
+      return '#' + _pickColorTmp.getHexString();
     }
   }
-  // 정점 색 없으면 재질 색
+  // 정점 색 없으면 재질 색 (material.color는 이미 sRGB)
   const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
   if (mat && mat.color) return '#' + mat.color.getHexString();
   return null;
