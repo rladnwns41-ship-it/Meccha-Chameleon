@@ -3078,10 +3078,39 @@ function switchPose(poseName) {
   console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
   // 애니메이션 재생
   playSelfPoseAnim(poseName);
+  // ★ 발 정렬: 애니메이션이 적용된 뒤 모델 최저점을 재서 발이 바닥에 딱 닿게 보정
+  //   (포즈/애니에 따라 모델이 발 기준점보다 아래로 튀어나와 땅에 파묻히는 것 방지)
+  _schedulePoseFeetAlign();
   // 앉기 계열이면 슬라이드 발동
   triggerSlideIfSittable(poseName);
   // 게임 중 R 키로 전환할 때만 효과 (로딩 초기화 때는 스킵)
   if (currentScreen === 'game') triggerPoseTransitionEffect();
+}
+
+// ★ 포즈 모델의 실제 최저점을 측정해 발이 바닥(player 원점)에 닿도록 y 오프셋 보정
+const _poseAlignBox = new THREE.Box3();
+function _alignCurrentPoseFeet() {
+  const glb = currentPoseGlb;
+  if (!glb) return;
+  player.updateMatrixWorld(true);
+  _poseAlignBox.setFromObject(glb);
+  if (!isFinite(_poseAlignBox.min.y)) return;
+  // 모델 최저점의 player-로컬 높이 (player.rotation.y는 Y범위에 영향 없음)
+  const localMinY = _poseAlignBox.min.y - player.position.y;
+  // 발보다 아래로 튀어나왔으면(음수) 그만큼 올려서 바닥에 닿게 (과보정/과다상승 방지 클램프)
+  if (localMinY < -0.06 && localMinY > -2.5) {
+    glb.position.y += (-localMinY);
+    console.log('👣 포즈 발 정렬 보정: +' + (-localMinY).toFixed(2) + ' (' + currentPose + ')');
+  }
+}
+let _poseAlignTimers = [];
+function _schedulePoseFeetAlign() {
+  _poseAlignTimers.forEach(t => clearTimeout(t));
+  _poseAlignTimers = [];
+  // 즉시 + 애니 적용 후(짧게 여러 번) 재측정 → 안정적으로 발 맞춤
+  _alignCurrentPoseFeet();
+  _poseAlignTimers.push(setTimeout(_alignCurrentPoseFeet, 150));
+  _poseAlignTimers.push(setTimeout(_alignCurrentPoseFeet, 400));
 }
 
 // ================ 포즈 정의 (한 곳에서 관리) ================
@@ -4885,11 +4914,12 @@ const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
   refreshNearbyColliders();
-  // ★ 레이를 머리 위에서 시작 → 얇은 바닥/살짝 파묻힘도 위에서 확실히 감지
-  const _rayStartY = player.position.y + 2.0;
+  // ★ 파묻힘 방지: 광선을 발 살짝 위(+0.5)에서 시작 (검증된 값)
+  //   위에서 시작(+2.0 등)하면 실내 맵에서 위쪽 구조물/상위층을 먼저 맞아 그 위로 스냅 → 파묻힘
+  const _rayStartY = player.position.y + 0.5;
   _groundOrigin.set(x, _rayStartY, z);
   groundRay.set(_groundOrigin, downV);
-  groundRay.far = 90;
+  groundRay.far = _rayStartY + 30;
   const hits = groundRay.intersectObjects(_nearbyWithGround, false);
   if (!hits.length) return null;               // 못 찾음 → null (호출부에서 이전 바닥 유지)
   const maxAllowed = player.position.y + 0.4;
