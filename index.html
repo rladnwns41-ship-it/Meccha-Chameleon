@@ -4895,11 +4895,24 @@ function loadBodyTint() { try { return localStorage.getItem(STORAGE_TINT) || nul
 
 // 1단계: 닉네임 입력 완료 → 방 목록으로
 document.getElementById('nickNext').addEventListener('click', () => {
-  const rawNick = document.getElementById('nickInput').value.trim();
-  const cleaned = sanitizeNick(rawNick, 16);
-  myNick = cleaned || '익명' + Math.floor(Math.random()*100);
-  showScreen('rooms');
-  subscribeRoomList();
+  try {
+    const rawNick = document.getElementById('nickInput').value.trim();
+    const cleaned = (typeof sanitizeNick === 'function') ? sanitizeNick(rawNick, 16) : rawNick.replace(/[^\p{L}\p{N}_\-]/gu,'').slice(0,16);
+    myNick = cleaned || '익명' + Math.floor(Math.random()*100);
+    try { localStorage.setItem('wc_nick_v1', myNick); } catch(e){}
+    if (typeof showScreen === 'function') {
+      showScreen('rooms');
+    } else {
+      document.querySelectorAll('.screen').forEach(s => { s.classList.add('hidden'); s.style.setProperty('display','none','important'); });
+      const r = document.getElementById('scr-rooms');
+      if (r) { r.classList.remove('hidden'); r.style.setProperty('display','flex','important'); }
+    }
+    if (typeof subscribeRoomList === 'function') subscribeRoomList();
+  } catch (err) {
+    window.__nickErr = { m: err.message, s: err.stack };
+    console.warn('nickNext handler error:', err);
+    alert('오류: ' + err.message);
+  }
 });
 document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('nickNext').click();
@@ -7670,7 +7683,7 @@ animate();
 // 탭 숨겨지면 렌더 완전 정지
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _animRunning = false; }
-  else { _animRunning = true; if (currentScreen === 'game') requestAnimationFrame(animate); }
+  else { if (!_animRunning) { _animRunning = true; requestAnimationFrame(animate); } }
 });
 
 // ★ 페이지 언로드 시 렌더 타겟 해제
@@ -7749,6 +7762,14 @@ addEventListener('wheel', e => {
   const mo = new MutationObserver(update);
   mo.observe(document.body, {subtree:true, attributes:true, attributeFilter:['class']});
   setTimeout(update, 500);
+})();
+</script>
+
+<script>
+(function(){
+  // 프로덕션 렉 감소: console.log 노-옵화 (warn/error는 유지)
+  const noop = () => {};
+  try { console.log = noop; console.debug = noop; console.info = noop; console.trace = noop; } catch(e){}
 })();
 </script>
 </body>
