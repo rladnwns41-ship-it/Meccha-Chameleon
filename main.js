@@ -1547,11 +1547,42 @@ document.getElementById('startGameBtn').addEventListener('click', async () => {
 let _standRefScale = null;
 function processGlb(gltf, poseName) {
   const glb = gltf.scene;
+  // ★ Mixamo 등에서 루트 스케일이 극단적으로 크거나(수백만배) 작게 export되는 경우가 있음.
+  //   bbox 재기 전에 루트 트랜스폼 리셋 → 정규화 스케일 계산이 안정적으로 됨.
+  glb.position.set(0, 0, 0);
+  glb.rotation.set(0, 0, 0);
+  glb.scale.set(1, 1, 1);
+  glb.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
+  console.warn(`[processGlb] ${poseName} raw bbox size:`, size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
   // 두 포즈 모두 자기 크기 기준 1.7m 로 정규화 (동일 시각 크기)
-  const scale = 1.7 / size.y;
+  const scale = size.y > 0 ? (1.7 / size.y) : 1;
   glb.scale.setScalar(scale);
+  // ★ 스케일이 극단적으로 작으면(≈백만분의 1) 부동소수점 정밀도로 렌더 사라짐.
+  //   → geometry에 world matrix bake-in 후 스케일 리셋.
+  if (scale < 0.01 || scale > 100) {
+    console.warn(`[processGlb] ${poseName} extreme scale ${scale.toExponential(2)} → geometry bake-in`);
+    glb.updateMatrixWorld(true);
+    const meshList = [];
+    glb.traverse(o => { if (o.isMesh || o.isSkinnedMesh) meshList.push(o); });
+    meshList.forEach(o => {
+      // world matrix 그대로 적용 (기존 mesh의 local matrix + 상위 scale 반영됨)
+      const m = new THREE.Matrix4().copy(o.matrixWorld);
+      o.geometry = o.geometry.clone();
+      o.geometry.applyMatrix4(m);
+      o.geometry.computeBoundingBox();
+      o.geometry.computeBoundingSphere();
+    });
+    glb.scale.set(1, 1, 1);
+    glb.updateMatrixWorld(true);
+    // 다시 bbox 계산해서 재정규화
+    const box3 = new THREE.Box3().setFromObject(glb);
+    const size3 = new THREE.Vector3(); box3.getSize(size3);
+    const scale2 = size3.y > 0 ? (1.7 / size3.y) : 1;
+    glb.scale.setScalar(scale2);
+    console.warn(`[processGlb] ${poseName} bake 후 사이즈:`, size3.y.toFixed(3), '재스케일:', scale2.toFixed(3));
+  }
   const box2 = new THREE.Box3().setFromObject(glb);
   // X/Z 중심 원점 정렬 (뒤틀림 방지)
   glb.position.y = -box2.min.y;
