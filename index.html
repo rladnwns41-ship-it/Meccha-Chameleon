@@ -2144,6 +2144,14 @@
   /* filter 제거 (drop-shadow 비쌈) */
   #scr-nick .nick-hero-mark { filter: none !important; }
 
+
+
+  /* 스크리블 밑줄(지렁이) 제거 */
+  .screen-title::after, .lobby-title::after,
+  .closet-title::after, .loading-title::after {
+    content: none !important; background: none !important; display: none !important;
+  }
+
 </style>
 </head>
 <body>
