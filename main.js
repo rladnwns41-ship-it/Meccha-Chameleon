@@ -1556,6 +1556,15 @@ function processGlb(gltf, poseName) {
   const box = new THREE.Box3().setFromObject(glb);
   const size = new THREE.Vector3(); box.getSize(size);
   console.warn(`[processGlb] ${poseName} raw bbox size:`, size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+  // ★ 옆으로 눕혀진 캐릭터 자동 회전 보정 (Y가 X/Z보다 확실히 작으면 Z-up으로 export된 것)
+  if (size.y < size.x * 0.6 && size.y < size.z * 0.6) {
+    glb.rotation.x = -Math.PI / 2;
+    glb.updateMatrixWorld(true);
+    const box2 = new THREE.Box3().setFromObject(glb);
+    const size2 = new THREE.Vector3(); box2.getSize(size2);
+    console.warn(`[processGlb] ${poseName} 눕혀짐 감지 → X축 -90도 회전, 새 사이즈:`, size2.x.toFixed(3), size2.y.toFixed(3), size2.z.toFixed(3));
+    size.copy(size2);
+  }
   // 두 포즈 모두 자기 크기 기준 1.7m 로 정규화 (동일 시각 크기)
   const scale = size.y > 0 ? (1.7 / size.y) : 1;
   glb.scale.setScalar(scale);
