@@ -6306,7 +6306,8 @@ function _renderPickerScene(clientX, clientY) {
   const hits = paintRc.intersectObjects(characterMeshes, true);
   if (!hits.length) return null;
   const hitMesh = hits[0].object;
-  if (!hitMesh.geometry?.attributes?.color) return null;
+  // 텍스처만 있고 vertex color가 없는 메쉬도 스포이드 대상
+  if (!hitMesh.geometry?.attributes?.color && !(hitMesh.material && hitMesh.material.map)) return null;
 
   // 풀사이즈 RT (lazy 생성)
   if (!_pickerRenderTarget ||
