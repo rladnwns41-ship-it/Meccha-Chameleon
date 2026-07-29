@@ -1733,6 +1733,21 @@ POSE_LIST.forEach(poseId => {
   gltfLoader.load(url, gltf => {
     poseModels[poseId] = processGlb(gltf, poseId);
     console.log('✅ 포즈 로드 완료:', poseId);
+    // 진단용
+    window._diag = () => ({
+      standModel: !!poseModels.stand,
+      standVisible: poseModels.stand?.visible,
+      standParent: poseModels.stand?.parent?.type,
+      standScale: poseModels.stand?.scale?.x,
+      standPosY: poseModels.stand?.position?.y,
+      standChildren: poseModels.stand?.children?.length,
+      standSkinnedMeshes: (()=>{ let n=0; poseModels.stand?.traverse(o=>{if(o.isSkinnedMesh)n++;}); return n; })(),
+      currentPose,
+      currentPoseGlbName: currentPoseGlb?.name || 'none',
+      characterMeshesCount: characterMeshes.length,
+      playerChildren: player.children.length,
+      playerPos: player.position.toArray().map(n=>+n.toFixed(2)),
+    });
     // 첫 번째 (stand) 로드되면 기본 포즈 세팅 + 캐릭터 템플릿 설정
     if (poseId === 'stand') {
       if (!currentPoseGlb) switchPose('stand');
