@@ -1360,10 +1360,11 @@ function _renderWinner3D(winnerUid, winnerNick) {
     cloned.position.y -= bbox.min.y;
 
     const height = Math.max(size.y, 1);
-    const camera = new THREE.PerspectiveCamera(35, canvas.clientWidth / canvas.clientHeight || 16/9, 0.1, 100);
-    const camDist = height * 2.6;
-    camera.position.set(0, height * 0.55, camDist);
-    camera.lookAt(0, height * 0.5, 0);
+    const camera = new THREE.PerspectiveCamera(28, canvas.clientWidth / canvas.clientHeight || 16/9, 0.1, 100);
+    // 카메라 캐릭터 가까이 → 크게 보임
+    const camDist = height * 1.6;
+    camera.position.set(0, height * 0.6, camDist);
+    camera.lookAt(0, height * 0.55, 0);
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1824,43 +1825,18 @@ POSE_LIST.forEach(poseId => {
   }, err => console.error('❌ 포즈 로드 실패:', url, err?.message || err));
 });
 
-// ★ stand 포즈의 T-pose 클립을 idle 애니로 덮어씀 (숨쉬는 자연스러운 기본 자세)
-// stand.glb는 T포즈 리깅만 되어있고 실제로는 정지 클립 → idle.glb의 걷기 전 대기 애니로 대체
-(function attachIdleToStand(){
-  let standReady = false, idleClip = null;
-  function tryApply(){
-    if (!standReady || !idleClip) return;
-    if (poseModels.stand) {
-      poseModels.stand.animations = [idleClip];
-      // ★ mixer가 참조하는 실제 위치도 갱신
-      if (!poseModels.stand.userData) poseModels.stand.userData = {};
-      poseModels.stand.userData.animations = [idleClip];
-      console.log('🌬️ idle 클립을 stand에 붙임');
-      // 이미 stand로 스위치된 상태면 mixer 재바인딩
-      if (typeof currentPose !== 'undefined' && currentPose === 'stand') {
-        try { switchPose('stand'); } catch(e){}
-      }
-    }
-  }
-  const check = setInterval(() => {
-    if (poseModels.stand && !standReady) { standReady = true; tryApply(); }
-    if (standReady && idleClip) clearInterval(check);
-  }, 200);
-  gltfLoader.load('./pose/idle.glb', g => {
-    if (g.animations && g.animations[0]) {
-      idleClip = g.animations[0];
-      idleClip.name = 'idle';
-      // root motion 제거 (제자리 애니로)
-      idleClip.tracks = idleClip.tracks.filter(t => !/mixamorigHips\.position/i.test(t.name));
-      tryApply();
-    } else {
-      console.warn('⚠️ idle.glb에 클립 없음');
-    }
-  }, undefined, e => console.warn('⚠️ idle.glb 로드 실패:', e?.message || e));
-})();
-
 // ★ walking / dance 클립 별도 저장 (걷기 상태머신 + 우승자 춤 용도)
-const _extraClips = { walking: null, dance: null };
+// idle은 스코어보드 fallback으로만 로드 (자기 캐릭터에는 안 붙임 → T-pose 정지 유지, 그리기 정상 동작)
+const _extraClips = { walking: null, dance: null, idle: null };
+gltfLoader.load('./pose/idle.glb', g => {
+  if (g.animations?.[0]) {
+    const c = g.animations[0];
+    c.name = 'idle';
+    c.tracks = c.tracks.filter(t => !/mixamorigHips\.position/i.test(t.name));
+    _extraClips.idle = c;
+    console.log('🌬️ idle 클립 준비 완료 (스코어보드 fallback용)');
+  }
+}, undefined, e => console.warn('⚠️ idle.glb 로드 실패:', e?.message || e));
 gltfLoader.load('./pose/walking.glb', g => {
   if (g.animations?.[0]) {
     const c = g.animations[0];
@@ -1881,59 +1857,47 @@ gltfLoader.load('./pose/dance.glb', g => {
 }, undefined, e => console.warn('⚠️ dance.glb 로드 실패:', e?.message || e));
 
 // ★ 자기 캐릭터 걷기 상태머신 (stand 포즈에서만 동작)
-// 방식: idle과 walking 액션을 crossFade로 전환 (weight 조절 blending)
+// 방식: T-pose 정지 상태에서 이동 시 walking 재생, 정지 시 walking 중단 → T-pose 복귀
+// 그림 그리기가 정상 동작하려면 정지 시 T-pose여야 함 (SkinnedMesh raycast는 rest pose 기반)
 let _walkAction = null;
-let _idleAction = null;
 let _selfMixerLastRoot = null;
-let _wasMoving = false;
 function _updateSelfWalking(dt) {
   if (!selfMixer || !_extraClips.walking) return;
   if (currentPose !== 'stand') {
-    // 다른 포즈로 넘어가면 walking 정리
     if (_walkAction) { try { _walkAction.stop(); } catch(e){} _walkAction = null; }
-    _idleAction = null;
     _selfMixerLastRoot = null;
-    _wasMoving = false;
     return;
   }
   const root = selfMixer.getRoot();
   if (!root) return;
-  const idleClipRef = poseModels.stand?.userData?.animations?.[0];
-  if (!idleClipRef) return;
-  // mixer 재생성(switchPose 재호출) 감지 → walking + idle 액션 새로 바인딩
+  // mixer 재생성(switchPose 재호출) 감지 → walking 액션 새로 바인딩
   if (root !== _selfMixerLastRoot || !_walkAction) {
     try {
-      _idleAction = selfMixer.clipAction(idleClipRef);
-      _idleAction.setLoop(THREE.LoopRepeat, Infinity);
-      _idleAction.enabled = true;
-      _idleAction.setEffectiveWeight(1);
-      _idleAction.play();
+      // 기존 T-pose 정지 액션(mixer에 이미 있음) weight를 0으로 (T-pose는 자동으로 유지됨)
+      const standClip = poseModels.stand?.userData?.animations?.[0];
+      if (standClip) {
+        const standAct = selfMixer.clipAction(standClip);
+        standAct.setEffectiveWeight(0);
+        standAct.stop();
+      }
       _walkAction = selfMixer.clipAction(_extraClips.walking);
       _walkAction.setLoop(THREE.LoopRepeat, Infinity);
       _walkAction.enabled = true;
-      _walkAction.setEffectiveWeight(0);
-      _walkAction.play();
       _selfMixerLastRoot = root;
-      _wasMoving = false;
-      console.log('🚶 walking/idle 액션 바인딩 완료');
+      console.log('🚶 walking 액션 준비 완료');
     } catch(e) {
       console.warn('walk action 바인딩 실패', e);
       return;
     }
   }
   const isMoving = !!(typeof keys !== 'undefined' && (keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']));
-  // 상태 전환 감지 시 crossFade
-  if (isMoving !== _wasMoving) {
-    try {
-      if (isMoving) {
-        _walkAction.reset().play();
-        _walkAction.crossFadeFrom(_idleAction, 0.25, false);
-      } else {
-        _idleAction.reset().play();
-        _idleAction.crossFadeFrom(_walkAction, 0.25, false);
-      }
-    } catch(e) { console.warn('crossFade 실패', e); }
-    _wasMoving = isMoving;
+  const running = _walkAction.isRunning();
+  if (isMoving && !running) {
+    try { _walkAction.reset().fadeIn(0.15).play(); } catch(e){}
+  } else if (!isMoving && running) {
+    try { _walkAction.fadeOut(0.15); } catch(e){}
+    // 완전 정지는 fadeOut 후 자동 처리
+    setTimeout(() => { try { if (!isMoving && _walkAction && _walkAction.getEffectiveWeight() < 0.02) _walkAction.stop(); } catch(e){} }, 250);
   }
 }
 
