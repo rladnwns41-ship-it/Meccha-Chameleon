@@ -1810,6 +1810,9 @@ POSE_LIST.forEach(poseId => {
     if (!standReady || !idleClip) return;
     if (poseModels.stand) {
       poseModels.stand.animations = [idleClip];
+      // ★ mixer가 참조하는 실제 위치도 갱신
+      if (!poseModels.stand.userData) poseModels.stand.userData = {};
+      poseModels.stand.userData.animations = [idleClip];
       console.log('🌬️ idle 클립을 stand에 붙임');
       // 이미 stand로 스위치된 상태면 mixer 재바인딩
       if (typeof currentPose !== 'undefined' && currentPose === 'stand') {
