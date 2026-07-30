@@ -5254,6 +5254,29 @@ addEventListener('wheel', e => {
 // - dance.glb (Mixamo 리깅+애니) — lazy load (스코어보드 뜰 때 최초 로드)
 // - 우승자의 characterMeshes vertex color를 dance mesh에 씌워 재생
 // ═══════════════════════════════════════════════════════════════
+
+// ★ 채팅창 UX 개선: 하단 정중앙 + 배경 진하게 (원본 CSS 위에 override)
+(function _injectChatStyle(){
+  const s = document.createElement('style');
+  s.textContent = `
+    #chatBox {
+      left: 50% !important;
+      right: auto !important;
+      transform: translateX(-50%) !important;
+      width: min(520px, 70vw) !important;
+      bottom: 24px !important;
+    }
+    #chatInput {
+      background: rgba(14,18,30,0.98) !important;
+      border: 2px solid rgba(255,255,255,0.18) !important;
+    }
+    #chatBox .chat-msg,
+    #chatMessages .chat-msg {
+      background: rgba(14,18,30,0.95) !important;
+    }
+  `;
+  document.head.appendChild(s);
+})();
 let _danceGltf = null;
 let _danceLoadState = 'idle'; // idle | loading | done | failed
 function _ensureDanceLoaded() {
