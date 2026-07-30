@@ -2154,20 +2154,26 @@
 
 
   /* ===== 채팅창 두툼 3D 스타일 (다른 게임 버튼과 통일감) ===== */
-  #chatBox { width: min(520px, 65vw) !important; }
+  #chatInputWrap.active {
+    background: #0e121e !important;
+    padding: 8px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.6) !important;
+    border: 2px solid rgba(255,255,255,0.1) !important;
+  }
   #chatInput {
     background: #1a2138 !important;
     border: 2px solid #3a4260 !important;
-    box-shadow: 0 3px 0 rgba(0,0,0,0.5) !important;
     padding: 8px 12px !important;
     font-size: 14px !important;
     font-weight: 700 !important;
     border-radius: 8px !important;
     flex: 1 !important;
+    color: #fff !important;
   }
   #chatInput:focus {
     border-color: var(--green) !important;
-    box-shadow: 0 3px 0 rgba(0,0,0,0.5), 0 0 0 3px rgba(62,207,108,0.25) !important;
+    box-shadow: 0 0 0 3px rgba(62,207,108,0.25) !important;
   }
   #chatSendBtn {
     padding: 8px 18px !important;
@@ -2190,6 +2196,8 @@
     filter: brightness(0.9);
   }
   #chatInputWrap { gap: 8px !important; align-items: center !important; }
+  /* 메시지도 진한 배경으로 */
+  .chat-msg { background: rgba(14,18,30,0.98) !important; }
 
   /* ===== 접근성/폭 미디어쿼리가 UI를 깨뜨리는 것 우회 ===== */
   @media (prefers-reduced-motion: reduce) {
