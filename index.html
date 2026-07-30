@@ -2152,6 +2152,51 @@
     content: none !important; background: none !important; display: none !important;
   }
 
+
+  /* ===== 채팅창 두툼 3D 스타일 (다른 게임 버튼과 통일감) ===== */
+  #chatInput {
+    background: #1a2138 !important;
+    border: 3px solid #3a4260 !important;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.6) !important;
+    padding: 10px 14px !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    border-radius: 10px !important;
+  }
+  #chatInput:focus {
+    border-color: var(--green) !important;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.6), 0 0 0 3px rgba(62,207,108,0.25) !important;
+  }
+  #chatSendBtn {
+    padding: 10px 18px !important;
+    font-size: 15px !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 0 #1e8a3e !important;
+    border: 3px solid rgba(0,0,0,0.35) !important;
+    transition: transform .1s, box-shadow .1s !important;
+  }
+  #chatSendBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 0 #1e8a3e !important;
+  }
+  #chatSendBtn:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 #1e8a3e !important;
+    filter: brightness(0.9);
+  }
+  #chatInputWrap { gap: 10px !important; }
+
+  /* ===== reduced-motion 접근성 설정이 UI를 깨뜨리는 것 우회 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    /* roundBar 정가운데 정렬 강제 유지 */
+    #roundBar { transform: translateX(-50%) !important; }
+    /* 게임 UI 요소 배경 blur 되살림 (없으면 투명하게 보임) */
+    #roundBar, #online, #hud, #chatBox, #chatInput,
+    #playerListHUD, .ui-card, .lobby-badge {
+      backdrop-filter: blur(14px) !important;
+      -webkit-backdrop-filter: blur(14px) !important;
+    }
+  }
 </style>
 </head>
 <body>
