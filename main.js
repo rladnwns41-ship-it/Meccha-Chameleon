@@ -1788,6 +1788,31 @@ POSE_LIST.forEach(poseId => {
       playerChildren: player.children.length,
       playerPos: player.position.toArray().map(n=>+n.toFixed(2)),
     });
+    window._walkDiag = () => ({
+      walkingClipLoaded: !!_extraClips.walking,
+      danceClipLoaded: !!_extraClips.dance,
+      currentPose,
+      selfMixerExists: !!selfMixer,
+      walkActionExists: !!_walkAction,
+      walkActionWeight: _walkAction?.getEffectiveWeight?.(),
+      keysW: typeof keys !== 'undefined' ? keys['KeyW'] : 'no keys var',
+      keysA: typeof keys !== 'undefined' ? keys['KeyA'] : '?',
+      keysS: typeof keys !== 'undefined' ? keys['KeyS'] : '?',
+      keysD: typeof keys !== 'undefined' ? keys['KeyD'] : '?',
+    });
+    window._otherDiag = () => ({
+      count: Object.keys(otherPlayers).length,
+      players: Object.entries(otherPlayers).map(([uid, ot]) => ({
+        uid: uid.slice(0,8),
+        hasCharMesh: !!ot.charMesh,
+        charMeshVisible: ot.charMesh?.visible,
+        charMeshParent: ot.charMesh?.parent?.type,
+        groupInScene: ot.group?.parent?.type,
+        pos: ot.group?.position?.toArray?.().map?.(n=>+n.toFixed(2)),
+        pose: ot.currentPose,
+        charMeshScale: ot.charMesh?.scale?.x,
+      }))
+    });
     // 첫 번째 (stand) 로드되면 기본 포즈 세팅 + 캐릭터 템플릿 설정
     if (poseId === 'stand') {
       if (!currentPoseGlb) switchPose('stand');
@@ -4787,7 +4812,8 @@ function startFirebaseSync(room) {
         if (!otherPlayers[uid]) {
           const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
           if (!templatePose) return;
-          const clone = templatePose.clone(true);
+          // ★ 리깅된 SkinnedMesh 지원: SkeletonUtils.clone 사용 (일반 .clone은 스켈레톤 공유되어 깨짐)
+          const clone = SkeletonUtils.clone(templatePose);
           // 템플릿이 visible=false 로 시작하므로 강제로 visible 활성화
           clone.visible = true;
           // vertexColors 재질로 (페인트 색 표시 위해)
