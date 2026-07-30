@@ -1298,7 +1298,7 @@ function _disposeWinner3D() {
   } catch(e){ console.warn('winner3D dispose err', e); }
   _winner3D = null;
 }
-function _renderWinner3D(winnerUid) {
+function _renderWinner3D(winnerUid, winnerNick) {
   _disposeWinner3D();
   const wrap = document.getElementById('winner3dWrap');
   const canvas = document.getElementById('winner3d');
@@ -1318,11 +1318,11 @@ function _renderWinner3D(winnerUid) {
     return;
   }
 
-  // 라벨 갱신
+  // 라벨 갱신 (rows에서 온 nick 우선 사용)
   const lbl = document.getElementById('winner3dLabel');
   if (lbl) {
-    const nickSrc = (winnerUid === myUid) ? (myNick || '나') : (otherPlayers?.[winnerUid]?.nick || '?');
-    lbl.textContent = `🥇 ${nickSrc}`;
+    const displayNick = winnerNick || (winnerUid === myUid ? (myNick || '나') : '?');
+    lbl.textContent = `🥇 ${displayNick}`;
   }
   wrap.style.display = 'block';
 
@@ -1331,6 +1331,7 @@ function _renderWinner3D(winnerUid) {
     const cloned = SkeletonUtils.clone(sourceRoot);
     cloned.visible = true;
     // vertex color가 살아있는 재질로 통일 (조명 영향 최소화)
+    // ★ skinning 인자 안 넣음 (Three r155+에서 SkinnedMesh 자동 감지)
     cloned.traverse(o => {
       if (o.isSkinnedMesh || o.isMesh) {
         const hasColor = !!o.geometry?.attributes?.color;
@@ -1338,9 +1339,8 @@ function _renderWinner3D(winnerUid) {
         o.material = new THREE.MeshBasicMaterial({
           vertexColors: hasColor,
           map: oldMap,
-          color: hasColor ? 0xffffff : 0xffffff,
-          side: THREE.DoubleSide,
-          skinning: !!o.isSkinnedMesh
+          color: 0xffffff,
+          side: THREE.DoubleSide
         });
       }
     });
@@ -1351,13 +1351,11 @@ function _renderWinner3D(winnerUid) {
     const scene = new THREE.Scene();
     scene.background = null;
     scene.add(cloned);
-    // 조명 (basic 재질이라 조명 안 필요하지만 텍스처 안 어둡게)
     scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
     // 캐릭터 크기 기준 카메라 배치
     const bbox = new THREE.Box3().setFromObject(cloned);
     const size = new THREE.Vector3(); bbox.getSize(size);
-    const center = new THREE.Vector3(); bbox.getCenter(center);
     // 바닥에 발 맞춤
     cloned.position.y -= bbox.min.y;
 
@@ -1372,7 +1370,7 @@ function _renderWinner3D(winnerUid) {
     renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     renderer.setClearColor(0x000000, 0);
 
-    // 애니메이션 mixer: dance 있으면 dance, 없으면 idle, 둘 다 없으면 회전만
+    // 애니메이션 mixer: dance 있으면 dance, 없으면 idle, 둘 다 없으면 정지
     const mixer = new THREE.AnimationMixer(cloned);
     let action = null;
     const clip = _extraClips.dance || _extraClips.walking || (poseModels.stand?.userData?.animations?.[0]);
@@ -1399,8 +1397,7 @@ function _renderWinner3D(winnerUid) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       mixer.update(dt);
-      // 살짝 회전 (다각도 보이게)
-      cloned.rotation.y += dt * 0.6;
+      // ★ 회전 제거: dance 애니가 이미 움직여서 이중 회전이 어지러움
       renderer.render(scene, camera);
       _winner3D.rafId = requestAnimationFrame(loop);
     };
@@ -1463,8 +1460,8 @@ async function showScoreboard() {
     `;
     box.appendChild(row);
   });
-  // ★ 우승자 3D 춤 렌더
-  _renderWinner3D(rows[0]?.uid);
+  // ★ 우승자 3D 춤 렌더 (rows에서 nick 가져와 전달)
+  _renderWinner3D(rows[0]?.uid, rows[0]?.nick);
   showScreen('scoreboard');
 }
 
@@ -1884,44 +1881,59 @@ gltfLoader.load('./pose/dance.glb', g => {
 }, undefined, e => console.warn('⚠️ dance.glb 로드 실패:', e?.message || e));
 
 // ★ 자기 캐릭터 걷기 상태머신 (stand 포즈에서만 동작)
+// 방식: idle과 walking 액션을 crossFade로 전환 (weight 조절 blending)
 let _walkAction = null;
+let _idleAction = null;
 let _selfMixerLastRoot = null;
+let _wasMoving = false;
 function _updateSelfWalking(dt) {
   if (!selfMixer || !_extraClips.walking) return;
   if (currentPose !== 'stand') {
     // 다른 포즈로 넘어가면 walking 정리
     if (_walkAction) { try { _walkAction.stop(); } catch(e){} _walkAction = null; }
+    _idleAction = null;
     _selfMixerLastRoot = null;
+    _wasMoving = false;
     return;
   }
   const root = selfMixer.getRoot();
   if (!root) return;
-  // mixer 재생성(switchPose 재호출) 감지 → walking 액션 새로 바인딩
+  const idleClipRef = poseModels.stand?.userData?.animations?.[0];
+  if (!idleClipRef) return;
+  // mixer 재생성(switchPose 재호출) 감지 → walking + idle 액션 새로 바인딩
   if (root !== _selfMixerLastRoot || !_walkAction) {
     try {
+      _idleAction = selfMixer.clipAction(idleClipRef);
+      _idleAction.setLoop(THREE.LoopRepeat, Infinity);
+      _idleAction.enabled = true;
+      _idleAction.setEffectiveWeight(1);
+      _idleAction.play();
       _walkAction = selfMixer.clipAction(_extraClips.walking);
-      _walkAction.enabled = true;
       _walkAction.setLoop(THREE.LoopRepeat, Infinity);
+      _walkAction.enabled = true;
       _walkAction.setEffectiveWeight(0);
       _walkAction.play();
       _selfMixerLastRoot = root;
+      _wasMoving = false;
+      console.log('🚶 walking/idle 액션 바인딩 완료');
     } catch(e) {
       console.warn('walk action 바인딩 실패', e);
       return;
     }
   }
   const isMoving = !!(typeof keys !== 'undefined' && (keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']));
-  const target = isMoving ? 1 : 0;
-  const cur = _walkAction.getEffectiveWeight();
-  const next = cur + (target - cur) * Math.min(1, dt * 8);
-  _walkAction.setEffectiveWeight(next);
-  // idle action weight도 반대로 조절
-  const idleClip = poseModels.stand?.userData?.animations?.[0];
-  if (idleClip) {
+  // 상태 전환 감지 시 crossFade
+  if (isMoving !== _wasMoving) {
     try {
-      const idleAct = selfMixer.clipAction(idleClip);
-      idleAct.setEffectiveWeight(1 - next);
-    } catch(e){}
+      if (isMoving) {
+        _walkAction.reset().play();
+        _walkAction.crossFadeFrom(_idleAction, 0.25, false);
+      } else {
+        _idleAction.reset().play();
+        _idleAction.crossFadeFrom(_walkAction, 0.25, false);
+      }
+    } catch(e) { console.warn('crossFade 실패', e); }
+    _wasMoving = isMoving;
   }
 }
 
