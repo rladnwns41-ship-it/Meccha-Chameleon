@@ -1,0 +1,2474 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>🦎 웹챠 카멜레온</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Black+Han+Sans&family=Gowun+Batang:wght@400;700&family=Nanum+Pen+Script&display=swap" rel="stylesheet">
+<style>
+  /* ===== 디자인 토큰 ===== */
+  :root {
+    --green:   #3ecf6c;
+    --green-d: #2aaf56;
+    --green-sh:0 4px 0 #1e8a3e;
+    --yellow:  #ffc93c;
+    --yellow-d:#e6a800;
+    --red:     #ff5c6a;
+    --red-d:   #d93a4a;
+    --blue:    #4a9fff;
+    --purple:  #9b6dff;
+    --bg:      #1e2433;
+    --panel:   #252d3f;
+    --panel2:  #2e3852;
+    --border:  #3a4560;
+    --text:    #e8eaf0;
+    --text-dim:#8b92a8;
+    --radius:  16px;
+    --radius-sm:10px;
+  }
+
+  * { box-sizing:border-box; }
+  html, body {
+    margin:0; padding:0; overflow:hidden;
+    background:var(--bg);
+    font-family:'Nunito Sans', 'Segoe UI', sans-serif;
+    user-select:none; color:var(--text);
+  }
+
+  /* ===== 로딩 ===== */
+  #loading {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    background: #0d1220;
+    z-index:200; gap:18px;
+  }
+  #loading.hidden { display:none; }
+
+  .loading-logo {
+    width:88px; height:88px; border-radius:24px;
+    background:var(--panel); border:3px solid var(--green);
+    display:flex; align-items:center; justify-content:center;
+    font-size:44px;
+  }
+
+  .loading-title {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900;
+    color:var(--text); letter-spacing:-0.5px;
+  }
+  #bar {
+    width:260px; height:14px;
+    background:var(--panel2);
+    border-radius:999px;
+    overflow:hidden;
+    border:2px solid var(--border);
+  }
+  #barFill {
+    height:100%; width:0%;
+    background:linear-gradient(90deg, var(--green), var(--yellow));
+    border-radius:999px;
+    transition:width .25s ease;
+  }
+  #pct { font-size:13px; color:var(--text-dim); font-weight:700; }
+  #loadStat { font-size:11px; color:var(--text-dim); font-family:monospace; }
+
+  /* ===== 오버레이 공통 ===== */
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  @keyframes screenFadeIn {
+    from { opacity:0; }
+    to   { opacity:1; }
+  }
+  @keyframes cardSlideUp {
+    from { opacity:0; transform:translateY(32px) scale(0.96); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
+  .screen {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    z-index:150; gap:14px; padding:20px;
+    background: #0d1220;
+    animation: screenFadeIn .3s ease;
+  }
+  /* 닉네임 화면은 자체 배경 사용 */
+  #scr-nick.screen { animation: screenFadeIn .4s ease; }
+  .screen.hidden { display:none !important; }
+  .screen .ui-card {
+    animation: cardSlideUp .45s cubic-bezier(0.34,1.26,0.64,1) both;
+  }
+  #scr-nick .ui-card { animation: nickFadeIn .6s cubic-bezier(0.34,1.26,0.64,1) .1s both; }
+
+  /* 패널 카드 */
+  .ui-card {
+    background: #1e2840;
+    border:2px solid rgba(255,255,255,0.10);
+    border-radius:var(--radius);
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+    padding:24px 28px;
+    width:min(480px, 92vw);
+    position:relative;
+    overflow:hidden;
+  }
+
+  /* 타이틀 */
+  .screen-title {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900; letter-spacing:-1px;
+    margin:0 0 4px; text-align:center; color:var(--text);
+  }
+  .screen-sub {
+    font-size:13px; color:var(--text-dim);
+    font-weight:700; text-align:center; margin:0 0 16px;
+  }
+
+  /* ===== 버튼들 ===== */
+  @keyframes btnPulse {
+    0%,100% { box-shadow: var(--green-sh), 0 0 0 0 rgba(62,207,108,0); }
+    50%      { box-shadow: var(--green-sh), 0 0 0 8px rgba(62,207,108,0); }
+  }
+
+  /* ===== Skribbl 스타일 자글자글 웨이글 ===== */
+  /* 개별 transform 프로퍼티(rotate/scale) 써서 기존 .btn:hover 의 transform:translateY 와 겹쳐도 안 깨짐 */
+  @keyframes wiggle {
+    0%   { rotate: -1.4deg; scale: 1;      }
+    18%  { rotate:  1.1deg; scale: 1.015;  }
+    35%  { rotate: -0.6deg; scale: 0.992;  }
+    54%  { rotate:  1.5deg; scale: 1.01;   }
+    72%  { rotate: -1.0deg; scale: 0.996;  }
+    100% { rotate: -1.4deg; scale: 1;      }
+  }
+  /* 카드용 살짝 더 부드러움 */
+  @keyframes wiggleSoft {
+    0%   { rotate: -0.8deg; }
+    30%  { rotate:  0.7deg; }
+    55%  { rotate: -0.5deg; }
+    80%  { rotate:  0.6deg; }
+    100% { rotate: -0.8deg; }
+  }
+  /* 각 요소마다 시작 오프셋 다르게 → 다 같이 흔들리지 않고 하찮은 느낌 */
+  .btn, .cta {
+    animation: wiggle 2.6s ease-in-out infinite;
+    transform-origin: center 70%;
+  }
+  .btn:nth-of-type(2n),   .cta:nth-of-type(2n)   { animation-delay: -0.4s;  animation-duration: 3.0s; }
+  .btn:nth-of-type(3n),   .cta:nth-of-type(3n)   { animation-delay: -1.1s;  animation-duration: 2.4s; }
+  .btn:nth-of-type(4n+1), .cta:nth-of-type(4n+1) { animation-delay: -1.7s;  animation-duration: 2.8s; }
+  /* 인게임 뱃지/칩류 (실시간 타이머는 제외 → 읽어야 됨) */
+  #roleTag, #hudShootHint,
+  .vote-timer-pill, .deathBox, #infectionPopup > div {
+    animation: wiggleSoft 3.2s ease-in-out infinite;
+    transform-origin: center 60%;
+  }
+  #hudShootHint { animation-delay: -1.4s; animation-duration: 2.7s; }
+  .deathBox { animation-duration: 4s; } /* 사망 화면은 더 느리게 (분위기용) */
+  /* 호버/포커스/누를 때 잠깐 정지 → 잡으려니 안정되는 귀여운 반응 */
+  .btn:hover, .btn:focus, .btn:active,
+  .cta:hover, .cta:focus, .cta:active {
+    animation-play-state: paused;
+    rotate: 0deg;
+  }
+  /* 접근성: 모션 줄이기 설정한 사람은 웨이글 끔 */
+  @media (prefers-reduced-motion: reduce) {
+    .btn, .cta, .voteMap, #roleTag, #hudShootHint, .vote-timer-pill,
+    .deathBox, #infectionPopup > div {
+      animation: none !important; rotate: 0deg !important;
+    }
+  }
+
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 24px; border-radius:var(--radius-sm);
+    font-family:'Nunito', sans-serif;
+    font-size:15px; font-weight:800;
+    border:none; cursor:pointer;
+    transition:transform .15s cubic-bezier(0.34,1.56,0.64,1), box-shadow .15s, filter .15s;
+    white-space:nowrap; position:relative; overflow:hidden;
+  }
+  .btn::after {
+    content:'';
+    position:absolute; inset:0;
+    background:linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+    opacity:0; transition:opacity .2s;
+    border-radius:inherit;
+  }
+  .btn:hover::after { opacity:1; }
+  .btn:active { transform:translateY(3px) scale(0.97) !important; box-shadow:none !important; }
+  .btn-green {
+    background:var(--green); color:#fff;
+    box-shadow:var(--green-sh);
+  }
+  .btn-green:hover { transform:translateY(-2px); box-shadow:0 6px 0 #1e8a3e; }
+
+  .btn-yellow {
+    background:var(--yellow); color:#2a1a00;
+    box-shadow:0 4px 0 var(--yellow-d);
+  }
+  .btn-yellow:hover { transform:translateY(-2px); box-shadow:0 6px 0 var(--yellow-d); }
+
+  .btn-red {
+    background:var(--red); color:#fff;
+    box-shadow:0 4px 0 var(--red-d);
+  }
+  .btn-red:hover { transform:translateY(-2px); box-shadow:0 6px 0 var(--red-d); }
+
+  .btn-ghost {
+    background:var(--panel2); color:var(--text);
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+  }
+  .btn-ghost:hover { transform:translateY(-2px); background:var(--border); }
+
+  /* 이전 .cta 호환 */
+  .cta { display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 24px; border-radius:var(--radius-sm);
+    font-family:'Nunito', sans-serif; font-size:15px; font-weight:800;
+    border:none; cursor:pointer; transition:transform .1s, box-shadow .1s;
+    background:var(--green); color:#fff; box-shadow:var(--green-sh); }
+  .cta:hover { transform:translateY(-2px); box-shadow:0 6px 0 #1e8a3e; }
+  .cta:active { transform:translateY(3px); box-shadow:none; }
+  .cta.secondary { background:var(--panel2); color:var(--text); border:2px solid var(--border); box-shadow:0 4px 0 rgba(0,0,0,0.3); }
+  .cta.secondary:hover { background:var(--border); box-shadow:0 6px 0 rgba(0,0,0,0.3); }
+
+  /* ===== 인풋 ===== */
+  .ui-input {
+    background:var(--bg);
+    border:3px solid var(--border);
+    border-radius:var(--radius-sm);
+    color:var(--text);
+    font-family:'Nunito', sans-serif;
+    font-size:15px; font-weight:700;
+    padding:10px 14px;
+    outline:none;
+    transition:border-color .15s;
+    width:100%;
+  }
+  .ui-input:focus { border-color:var(--green); }
+  .ui-input::placeholder { color:var(--text-dim); }
+
+  /* ===== 닉네임 화면 완전 리디자인 ===== */
+  @keyframes titleGlow {
+    0%,100% { background-position:0% 50%; }
+    50%      { background-position:100% 50%; }
+  }
+  @keyframes iconOrbit {
+    0%   { transform:translateY(0px) rotate(0deg); }
+    25%  { transform:translateY(-10px) rotate(3deg); }
+    75%  { transform:translateY(6px) rotate(-3deg); }
+    100% { transform:translateY(0px) rotate(0deg); }
+  }
+  @keyframes ringPulse {
+    0%,100% { transform:scale(1); opacity:0.5; }
+    50%      { transform:scale(1.15); opacity:0; }
+  }
+  @keyframes nickFadeIn {
+    from { opacity:0; transform:translateY(24px) scale(0.95); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
+  @keyframes taglineFlicker {
+    0%,100% { opacity:1; }
+    92%     { opacity:1; }
+    94%     { opacity:0.3; }
+    96%     { opacity:1; }
+    98%     { opacity:0.5; }
+  }
+
+  #scr-nick {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:0;
+    z-index:150; padding:20px;
+    background: #080c14;
+    overflow:hidden;
+  }
+
+  #scr-nick .logo-wrap {
+    display:flex; flex-direction:column; align-items:center; gap:0;
+    margin-bottom:32px; position:relative;
+  }
+
+  /* 아이콘 링들 */
+  .icon-ring-wrap {
+    position:relative; width:130px; height:130px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:20px;
+  }
+  .icon-ring {
+    position:absolute; border-radius:50%; border:1.5px solid rgba(62,207,108,0.2);
+  }
+  .icon-ring:nth-child(1) { width:110px; height:110px; }
+  .icon-ring:nth-child(2) { width:130px; height:130px; border-color:rgba(74,159,255,0.15); }
+  .icon-ring:nth-child(3) { width:155px; height:155px; border-color:rgba(155,109,255,0.10); }
+
+  #scr-nick .game-icon {
+    width:88px; height:88px; border-radius:22px;
+    background:linear-gradient(145deg, #1a2540, #111827);
+    border:2px solid rgba(62,207,108,0.4);
+    box-shadow:0 0 0 1px rgba(62,207,108,0.1),
+               0 0 30px rgba(62,207,108,0.2),
+               0 0 60px rgba(62,207,108,0.08),
+               inset 0 1px 0 rgba(255,255,255,0.08);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden; position:relative;
+    z-index:2;
+  }
+  #scr-nick .game-icon::after {
+    content:'';
+    position:absolute; inset:0; border-radius:inherit;
+    background:linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%);
+    pointer-events:none;
+  }
+  #scr-nick .game-icon img { width:100%; height:100%; object-fit:cover; }
+  #scr-nick .game-icon .icon-fallback { font-size:44px; }
+
+  /* 타이틀 */
+  #scr-nick .game-name {
+    font-family:'Nunito', sans-serif;
+    font-size:44px; font-weight:900; letter-spacing:-2px; line-height:1;
+    margin-bottom:8px;
+    background: linear-gradient(90deg, #3ecf6c 0%, #4a9fff 50%, #9b6dff 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+
+  #scr-nick .game-tagline {
+    font-size:12px; font-weight:700; letter-spacing:3px; text-transform:uppercase;
+    color:rgba(139,146,168,0.7);
+    display:flex; align-items:center; gap:8px;
+  }
+  #scr-nick .game-tagline::before,
+  #scr-nick .game-tagline::after {
+    content:''; display:block; width:24px; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(62,207,108,0.5));
+  }
+  #scr-nick .game-tagline::after {
+    background:linear-gradient(90deg, rgba(62,207,108,0.5), transparent);
+  }
+
+  /* 닉네임 카드 */
+  #scr-nick .ui-card {
+    width:min(400px, 92vw);
+    background:#111827;
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:20px;
+    box-shadow:0 16px 40px rgba(0,0,0,0.6);
+    padding:28px 28px 24px;
+    animation:nickFadeIn .4s ease both;
+    position:relative; overflow:hidden;
+  }
+  #scr-nick .ui-card::before {
+    content:'';
+    position:absolute; top:0; left:20%; right:20%; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(62,207,108,0.6), transparent);
+  }
+
+  /* 닉네임 라벨 */
+  #scr-nick .screen-sub {
+    font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+    color:rgba(139,146,168,0.7); margin:0 0 12px; text-align:left;
+  }
+
+  /* 인풋 리디자인 */
+  #scr-nick .nick input {
+    flex:1; padding:14px 18px; border-radius:12px;
+    border:1.5px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.04);
+    color:var(--text); font-size:16px; font-family:'Nunito',sans-serif;
+    font-weight:800; outline:none;
+    transition:border-color .2s, background .2s, box-shadow .2s;
+    width:100%; display:block;
+  }
+  #scr-nick .nick input:focus {
+    border-color:rgba(62,207,108,0.5);
+    background:rgba(62,207,108,0.05);
+    box-shadow:0 0 0 3px rgba(62,207,108,0.1), 0 0 20px rgba(62,207,108,0.08);
+  }
+  #scr-nick .nick input::placeholder { color:rgba(139,146,168,0.4); }
+
+  /* 시작 버튼 리디자인 */
+  #nickNext {
+    width:100%; padding:15px !important; font-size:15px !important;
+    border-radius:12px !important;
+    background:linear-gradient(135deg, #3ecf6c, #2aaf56) !important;
+    border:none !important; color:#fff !important; font-weight:900 !important;
+    font-family:'Nunito',sans-serif !important; cursor:pointer;
+    position:relative; overflow:hidden;
+    box-shadow:0 4px 24px rgba(62,207,108,0.35), 0 1px 0 rgba(255,255,255,0.2) inset !important;
+    transition:transform .15s cubic-bezier(0.34,1.56,0.64,1), box-shadow .15s !important;
+    letter-spacing:0.5px;
+  }
+  #nickNext::before {
+    content:'';
+    position:absolute; top:0; left:-100%; width:100%; height:100%;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition:left .4s;
+  }
+  #nickNext:hover {
+    transform:translateY(-2px) !important;
+    box-shadow:0 8px 32px rgba(62,207,108,0.5), 0 1px 0 rgba(255,255,255,0.2) inset !important;
+  }
+  #nickNext:hover::before { left:100%; }
+  #nickNext:active { transform:translateY(1px) scale(0.99) !important; }
+
+  /* 하단 버전 텍스트 */
+  #scr-nick .version-tag {
+    position:absolute; bottom:18px;
+    font-size:10px; font-weight:700; letter-spacing:2px;
+    color:rgba(139,146,168,0.3); text-transform:uppercase;
+  }
+  .nick {
+    display:flex; gap:8px; align-items:center; width:100%;
+  }
+  .nick input {
+    flex:1; padding:10px 14px; border-radius:var(--radius-sm);
+    border:3px solid var(--border); background:var(--bg);
+    color:var(--text); font-size:15px; font-family:'Nunito',sans-serif;
+    font-weight:700; outline:none; transition:border-color .15s;
+  }
+  .nick input:focus { border-color:var(--green); }
+  .nick input::placeholder { color:var(--text-dim); }
+
+  /* ===== 방 목록 ===== */
+  #roomListBox {
+    width:100%; max-height:42vh; overflow-y:auto;
+    padding:4px 4px 4px 0;
+  }
+  #roomList {
+    display:flex; flex-direction:column; gap:12px;
+  }
+  #roomListBox::-webkit-scrollbar { width:6px; }
+  #roomListBox::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  #roomListBox::-webkit-scrollbar-track { background:transparent; }
+
+  .room-item {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:16px 20px; border-radius:var(--radius-sm);
+    background:var(--panel2); border:2px solid var(--border);
+    cursor:pointer; transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
+    animation:roomSlideIn .3s ease both;
+  }
+  @keyframes roomSlideIn {
+    from { opacity:0; transform:translateX(-16px); }
+    to   { opacity:1; transform:translateX(0); }
+  }
+  .room-item:hover {
+    border-color:var(--green); transform:translateX(6px) scale(1.01);
+    background:rgba(62,207,108,0.12);
+    box-shadow:0 4px 20px rgba(62,207,108,0.15), -4px 0 0 var(--green);
+  }
+  .room-item .info { font-weight:800; font-size:14px; }
+  .room-item .meta { display:flex; align-items:center; gap:8px; }
+  .room-item .count {
+    background:var(--panel); border:2px solid var(--border);
+    color:var(--text); font-size:12px; font-weight:800;
+    padding:2px 8px; border-radius:999px;
+  }
+  .room-item .state {
+    font-size:11px; font-weight:800; padding:3px 8px;
+    border-radius:999px; background:var(--panel); color:var(--text-dim);
+    border:2px solid var(--border);
+  }
+  .room-item .state.playing {
+    background:var(--red); color:#fff; border-color:var(--red-d);
+  }
+  .empty-rooms {
+    text-align:center; padding:40px 20px;
+    color:var(--text-dim); font-weight:700; font-size:14px;
+  }
+
+  /* 방 만들기 줄 */
+  .room-create-row {
+    display:flex; gap:8px; width:100%; margin-top:4px;
+  }
+  .room-create-row input {
+    flex:1; padding:10px 14px; border-radius:var(--radius-sm);
+    border:3px solid var(--border); background:var(--bg);
+    color:var(--text); font-size:14px; font-family:'Nunito',sans-serif;
+    font-weight:700; outline:none; transition:border-color .15s;
+  }
+  .room-create-row input:focus { border-color:var(--green); }
+  .room-create-row input::placeholder { color:var(--text-dim); }
+
+  /* ===== 로비 ===== */
+  .lobby-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .lobby-title {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900; margin:0;
+  }
+  .lobby-badge {
+    display:flex; align-items:center; gap:6px;
+    background:var(--panel2); border:2px solid var(--border);
+    border-radius:999px; padding:4px 12px;
+    font-size:13px; font-weight:800;
+  }
+  .lobby-badge .dot-green {
+    width:8px; height:8px; background:var(--green);
+    border-radius:50%; animation:pulse 1.5s infinite;
+  }
+  @keyframes countdownPop {
+    0%   { transform:scale(1.4); opacity:.6; }
+    100% { transform:scale(1); opacity:1; }
+  }
+  #lobbyCountdown {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900; color:var(--yellow);
+    text-shadow:0 2px 0 var(--yellow-d), 0 0 20px rgba(255,201,60,0.4);
+    text-align:center; min-height:40px;
+  }
+  .playerList {
+    display:flex; flex-direction:column; gap:6px;
+    width:min(440px,92vw);
+  }
+  .player-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 14px; border-radius:var(--radius-sm);
+    background:rgba(46,56,82,0.8); border:2px solid rgba(255,255,255,0.1);
+    animation:roomSlideIn .35s ease both;
+    transition:all .2s;
+  }
+  .player-row:hover { border-color:rgba(62,207,108,0.3); transform:translateX(4px); }
+  .player-row .p-name { font-weight:800; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .player-row .p-avatar {
+    width:28px; height:28px; border-radius:8px;
+    background:var(--panel); border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:14px;
+    overflow:hidden;
+  }
+  .player-row .p-avatar img { width:100%; height:100%; object-fit:cover; }
+  .player-row .host {
+    font-size:11px; font-weight:800;
+    background:var(--yellow); color:#2a1a00;
+    padding:2px 8px; border-radius:999px;
+  }
+
+  /* ===== 투표 ===== */
+  .vote-timer-pill {
+    background:var(--panel2); border:2px solid var(--border);
+    border-radius:999px; padding:6px 18px;
+    font-family:'Nunito', sans-serif;
+    font-weight:800; font-size:15px; color:var(--yellow);
+  }
+  .voteBox { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .voteMap {
+    width:200px; padding:20px 16px;
+    background:rgba(46,56,82,0.8); border:2px solid rgba(255,255,255,0.1);
+    border-radius:var(--radius); cursor:pointer; text-align:center;
+    transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+    backdrop-filter:blur(10px);
+    animation:cardSlideUp .5s cubic-bezier(0.34,1.26,0.64,1) both, wiggleSoft 3.4s ease-in-out infinite;
+    transform-origin: center 60%;
+  }
+  .voteMap:nth-child(2) { animation-delay:.08s, -0.7s; animation-duration:.5s, 3.8s; }
+  .voteMap:nth-child(3) { animation-delay:.16s, -1.9s; animation-duration:.5s, 3.1s; }
+  .voteMap:nth-child(4) { animation-delay:.24s, -2.6s; animation-duration:.5s, 3.6s; }
+  .voteMap:nth-child(5) { animation-delay:.32s, -1.3s; animation-duration:.5s, 2.9s; }
+  .voteMap:hover {
+    border-color:var(--green); transform:translateY(-8px) scale(1.03);
+    box-shadow:0 16px 0 rgba(0,0,0,0.25), 0 0 30px rgba(62,207,108,0.2);
+    animation-play-state: running, paused;
+    rotate: 0deg;
+  }
+  .voteMap.voted { border-color:var(--green); background:rgba(62,207,108,0.12); }
+  .voteMap .map-icon {
+    width:64px; height:64px; margin:0 auto 10px;
+    border-radius:14px; background:var(--panel);
+    border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:30px;
+    overflow:hidden;
+  }
+  .voteMap .map-icon img { width:100%; height:100%; object-fit:cover; }
+  .voteMap .mapName {
+    font-family:'Nunito', sans-serif;
+    font-size:17px; font-weight:900; margin:0 0 6px;
+  }
+  .voteMap .voteCount {
+    display:inline-flex; align-items:center; gap:4px;
+    background:var(--green); color:#fff;
+    font-size:13px; font-weight:800;
+    padding:3px 10px; border-radius:999px;
+    box-shadow:0 3px 0 #1e8a3e;
+  }
+  #voteTimer { color:var(--yellow); font-weight:800; }
+  /* 모드 카드는 맵 카드보다 좀 작게 */
+  #voteModes .voteMap { width:170px; padding:14px 12px; }
+  #voteModes .voteMap .map-icon { width:52px; height:52px; font-size:26px; margin-bottom:8px; }
+  #voteModes .voteMap .mapName { font-size:16px; }
+  #voteModes .voteMap .voteDesc {
+    font-size:11px; color:var(--text-dim); font-weight:700;
+    margin:2px 0 8px; line-height:1.3;
+  }
+
+  /* ===== 뽑기 스피너 ===== */
+  @keyframes spinnerGlow {
+    0%,100% { box-shadow:0 0 0 4px rgba(62,207,108,0.15), 0 6px 0 rgba(0,0,0,0.3), 0 0 30px rgba(62,207,108,0.2); }
+    50%      { box-shadow:0 0 0 4px rgba(62,207,108,0.3),  0 6px 0 rgba(0,0,0,0.3), 0 0 60px rgba(62,207,108,0.4); }
+  }
+  .drawSpin {
+    display:flex; overflow:hidden;
+    width:min(400px,90vw); height:80px;
+    background:var(--bg); border-radius:var(--radius);
+    border:3px solid var(--green);
+    position:relative;
+    animation:spinnerGlow 2s ease-in-out infinite;
+  }
+  .drawSpin .item {
+    min-width:180px; height:100%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Nunito', sans-serif;
+    font-size:20px; font-weight:900;
+    border-right:2px solid var(--border); color:var(--text);
+  }
+  .drawSpin .indicator {
+    position:absolute; top:0; bottom:0; left:50%; width:3px;
+    background:var(--yellow);
+    box-shadow:0 0 14px var(--yellow);
+  }
+  .drawStrip { display:flex; transition:transform 4s cubic-bezier(0.15, 0.85, 0.35, 1); }
+
+  /* ===== 라운드 바 (인게임 HUD 상단 중앙) ===== */
+  @keyframes hudEntrance {
+    from { opacity:0; transform:translateX(-50%) translateY(-20px); }
+    to   { opacity:1; transform:translateX(-50%) translateY(0); }
+  }
+  #roundBar {
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:20;
+    background:rgba(37,45,63,0.9); backdrop-filter:blur(14px);
+    padding:8px 18px; border-radius:var(--radius);
+    display:flex; gap:18px; align-items:center;
+    border:2px solid rgba(255,255,255,0.12);
+    box-shadow:0 6px 24px rgba(0,0,0,0.4);
+    font-weight:800;
+    animation:hudEntrance .5s cubic-bezier(0.34,1.26,0.64,1) both;
+  }
+  #roundTimer {
+    font-family:'Nunito', sans-serif;
+    font-size:28px; font-weight:900;
+    color:var(--yellow);
+    text-shadow:0 2px 0 var(--yellow-d);
+    font-variant-numeric:tabular-nums;
+  }
+  #roundInfo { display:flex; gap:12px; font-size:14px; align-items:center; }
+  #roleTag {
+    padding:4px 12px; border-radius:999px;
+    background:rgba(62,207,108,0.2);
+    border:2px solid var(--green);
+    color:var(--green); font-weight:800; font-size:12px;
+  }
+  #roleTag.seeker {
+    background:rgba(255,92,106,0.2);
+    border-color:var(--red); color:var(--red);
+  }
+
+  /* ===== HUD (왼쪽) ===== */
+  #hud {
+    position:fixed; top:14px; left:14px; z-index:20;
+    background:var(--panel); color:var(--text);
+    padding:10px 14px; border-radius:var(--radius-sm);
+    font-size:12px; line-height:1.85;
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    pointer-events:none;
+  }
+  #hud b { color:var(--yellow); }
+
+  /* ===== 온라인 카운터 ===== */
+  #online {
+    position:fixed; top:14px; right:14px; z-index:20;
+    background:var(--panel);
+    padding:8px 14px; border-radius:var(--radius-sm);
+    font-size:13px; font-weight:800;
+    border:2px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    display:flex; align-items:center; gap:6px;
+  }
+  #online .dot {
+    width:8px; height:8px; background:var(--green);
+    border-radius:50%; animation:pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ===== 도구 도크 ===== */
+  #tools {
+    position:fixed; bottom:24px; left:18px; z-index:30;
+    background:var(--panel);
+    padding:10px; border-radius:var(--radius);
+    display:flex; flex-direction:column; gap:6px;
+    border:2px solid var(--border);
+    box-shadow:0 6px 0 rgba(0,0,0,0.35);
+  }
+  .tool {
+    width:50px; height:50px; border-radius:var(--radius-sm);
+    border:2px solid transparent;
+    background:var(--panel2); color:var(--text);
+    font-size:22px; cursor:pointer;
+    transition:all .12s;
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+  }
+  .tool span { font-size:22px; pointer-events:none; }
+  .tool:hover { background:var(--border); border-color:var(--border); transform:translateY(-2px); }
+  .tool.active {
+    background:var(--green); border-color:var(--green-d);
+    box-shadow:0 4px 0 #1e8a3e; color:#fff;
+  }
+  .tool-label { font-size:9px; color:var(--text-dim); text-align:center; margin-top:-2px; font-weight:700; }
+
+  /* 브러시 크기 */
+  #brushSize {
+    background:var(--panel2);
+    padding:8px 12px; border-radius:var(--radius-sm);
+    border:2px solid var(--border); color:var(--text); font-size:11px; font-weight:700;
+    margin-top:2px;
+  }
+  #brushSize input { width:100%; accent-color:var(--green); cursor:pointer; }
+
+  /* ===== 색 선택기 ===== */
+  #picker {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:30;
+    background:var(--panel);
+    padding:14px; border-radius:var(--radius);
+    display:flex; align-items:center; gap:12px;
+    border:2px solid var(--border);
+    box-shadow:0 6px 0 rgba(0,0,0,0.35);
+  }
+  #hueCanvas { width:280px; height:20px; border-radius:10px; cursor:crosshair; display:block; border:2px solid var(--border); }
+  #satCanvas { width:180px; height:120px; border-radius:var(--radius-sm); cursor:crosshair; display:block; margin-top:8px; border:2px solid var(--border); }
+  .picker-col { display:flex; flex-direction:column; }
+  #preview {
+    width:56px; height:56px; border-radius:var(--radius-sm); background:#fff;
+    border:3px solid var(--border);
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+  }
+  #hexInput {
+    width:82px; text-align:center; padding:5px;
+    border-radius:var(--radius-sm);
+    background:var(--bg); color:var(--text);
+    border:2px solid var(--border);
+    margin-top:6px; font-family:monospace; font-size:12px; font-weight:700;
+    outline:none;
+  }
+  #hexInput:focus { border-color:var(--green); }
+  #preview-col { display:flex; flex-direction:column; align-items:center; gap:2px; }
+
+  /* 최근 색 팔레트 */
+  #recent { display:flex; gap:4px; margin-top:8px; align-items:center; }
+  .recent-color {
+    width:22px; height:22px; border-radius:6px; cursor:pointer;
+    border:2px solid var(--border); transition:transform .1s;
+  }
+  .recent-color:hover { transform:scale(1.2); border-color:var(--text); }
+
+  /* ===== 페인트 모드 표시 ===== */
+  #paintIndicator {
+    position:fixed; top:130px; left:14px; z-index:20;
+    background:var(--green); color:#fff;
+    padding:6px 14px; border-radius:var(--radius-sm);
+    font-size:12px; font-weight:800;
+    border:2px solid var(--green-d);
+    box-shadow:0 3px 0 var(--green-d);
+    display:none;
+  }
+  #paintIndicator.on { display:block; animation:slideIn .2s; }
+
+  /* ============ 홈 (메인 로비) ============ */
+  #scr-home {
+    display:none; flex-direction:column;
+    padding:24px; gap:20px;
+    min-height:100vh; box-sizing:border-box;
+  }
+  #scr-home:not(.hidden) { display:flex; }
+  .home-topbar {
+    display:flex; justify-content:space-between; align-items:center;
+    gap:12px; flex-wrap:wrap;
+  }
+  .home-nickbox, .home-coinbox {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(30,38,60,0.7); border:2px solid rgba(255,255,255,0.1);
+    padding:8px 14px; border-radius:20px;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:15px;
+    color:#e5eaf5; backdrop-filter:blur(8px);
+  }
+  .home-coinbox .coin-icon { font-size:20px; }
+  .home-coinbox .coin-lbl { font-size:12px; opacity:0.7; }
+  #homeCoinCount { color:var(--yellow); font-size:18px; font-weight:900; }
+  .home-nickbox .nick-icon { font-size:20px; }
+  #changeNickBtn {
+    background:transparent; border:none; color:#8b92a8; cursor:pointer;
+    font-size:16px; padding:2px 6px; border-radius:6px;
+  }
+  #changeNickBtn:hover { background:rgba(255,255,255,0.08); color:#fff; }
+  .home-stage {
+    flex:1; position:relative;
+    background:radial-gradient(ellipse at center, rgba(90,120,180,0.25), rgba(15,20,32,0.6));
+    border:2px solid rgba(255,255,255,0.1);
+    border-radius:24px;
+    min-height:340px;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    box-shadow: inset 0 0 60px rgba(0,0,0,0.4);
+  }
+  .home-stage::before {
+    content:''; position:absolute; inset:0;
+    background:radial-gradient(ellipse at 50% 90%, rgba(255,207,60,0.15), transparent 60%);
+    pointer-events:none;
+  }
+  #homeCharCanvas {
+    width:100%; height:100%;
+    cursor:grab;
+  }
+  #homeCharCanvas:active { cursor:grabbing; }
+  .home-stage-hint {
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    color:rgba(255,255,255,0.4); font-size:12px; font-weight:700;
+    font-family:'Nunito',sans-serif;
+    pointer-events:none;
+  }
+  .home-actions {
+    display:flex; gap:16px; align-items:stretch;
+    flex-wrap:wrap;
+  }
+  .home-play-btn {
+    flex:1; min-width:260px;
+    padding:22px 28px;
+    background:linear-gradient(135deg, #3ecf6c, #2ea058);
+    color:#fff; border:none; border-radius:20px;
+    font-family:'Nunito',sans-serif;
+    cursor:pointer;
+    box-shadow:0 8px 0 #1e8a3e, 0 12px 30px rgba(62,207,108,0.35);
+    transition:transform .15s, box-shadow .15s;
+    display:flex; align-items:center; gap:16px;
+    text-align:left;
+  }
+  .home-play-btn:hover { transform:translateY(-2px); box-shadow:0 10px 0 #1e8a3e, 0 16px 40px rgba(62,207,108,0.45); }
+  .home-play-btn:active { transform:translateY(4px); box-shadow:0 4px 0 #1e8a3e; }
+  .home-play-btn .hpb-icon { font-size:40px; }
+  .home-play-btn .hpb-txt {
+    font-size:32px; font-weight:900; letter-spacing:0.5px;
+    text-shadow:0 3px 0 rgba(0,0,0,0.25);
+  }
+  .home-play-btn .hpb-sub {
+    font-size:12px; font-weight:700; opacity:0.85;
+    margin-top:2px;
+  }
+  .home-play-btn > span:nth-child(2) { display:flex; flex-direction:column; }
+  .home-side-actions {
+    display:flex; flex-direction:column; gap:10px;
+    min-width:180px;
+  }
+  .home-side-btn {
+    padding:12px 16px;
+    background:rgba(46,56,82,0.85); color:#e5eaf5;
+    border:2px solid rgba(255,255,255,0.12);
+    border-radius:14px;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:14px;
+    cursor:pointer;
+    display:flex; align-items:center; gap:10px;
+    box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    transition:transform .15s, background .15s;
+  }
+  .home-side-btn:hover { background:rgba(60,72,100,0.9); transform:translateY(-2px); box-shadow:0 6px 0 rgba(0,0,0,0.3); }
+  .home-side-btn:active { transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,0.3); }
+  .home-side-btn > span:first-child { font-size:22px; }
+
+  /* 옷장/포즈샵 오버레이 */
+  #closetOverlay, #poseShopOverlay {
+    position:fixed; inset:0; z-index:160;
+    background:rgba(10,14,24,0.85); backdrop-filter:blur(8px);
+    display:flex; align-items:center; justify-content:center;
+    padding:20px;
+  }
+  #closetOverlay.hidden, #poseShopOverlay.hidden { display:none; }
+  .closet-panel {
+    background:rgba(30,38,60,0.95); border:2px solid rgba(255,255,255,0.15);
+    border-radius:20px; padding:24px;
+    max-width:520px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+    animation:cardSlideUp .3s cubic-bezier(0.34,1.56,0.64,1);
+    color:#e5eaf5; font-family:'Nunito',sans-serif;
+  }
+  .closet-title { font-size:22px; font-weight:900; margin-bottom:4px; }
+  .closet-sub { font-size:13px; color:#8b92a8; margin-bottom:16px; }
+  .closet-palette {
+    display:grid; grid-template-columns:repeat(6, 1fr); gap:10px;
+    margin-bottom:14px;
+  }
+  .palette-swatch {
+    aspect-ratio:1; border-radius:12px; cursor:pointer;
+    border:3px solid rgba(255,255,255,0.15);
+    transition:transform .1s, border-color .1s, box-shadow .1s;
+  }
+  .palette-swatch:hover { transform:scale(1.08); }
+  .palette-swatch.active {
+    border-color:var(--yellow);
+    box-shadow:0 0 20px rgba(255,207,60,0.6);
+    transform:scale(1.12);
+  }
+  .closet-hint {
+    font-size:12px; color:#8b92a8; margin-bottom:16px;
+    padding:10px 12px; background:rgba(0,0,0,0.25); border-radius:10px;
+    line-height:1.5;
+  }
+  .closet-buttons { display:flex; gap:10px; justify-content:space-between; }
+
+  .pose-shop-list {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+    gap:12px; margin-bottom:18px;
+  }
+  .pose-shop-card {
+    background:rgba(46,56,82,0.7); border:2px solid rgba(255,255,255,0.1);
+    border-radius:14px; padding:14px; text-align:center;
+  }
+  .pose-shop-card.owned { border-color:rgba(62,207,108,0.5); }
+  .pose-shop-card.locked { opacity:0.7; }
+  .pose-shop-card .psc-icon { font-size:38px; margin-bottom:6px; }
+  .pose-shop-card .psc-name { font-weight:900; font-size:15px; margin-bottom:8px; }
+  .pose-shop-card .psc-price { font-size:13px; color:var(--yellow); font-weight:800; margin-bottom:8px; }
+  .pose-shop-card button {
+    width:100%; padding:6px 8px; border-radius:8px; border:none;
+    font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; cursor:pointer;
+  }
+  .pose-shop-card .btn-buy { background:var(--yellow); color:#000; }
+  .pose-shop-card .btn-owned { background:rgba(62,207,108,0.3); color:#7ee06a; cursor:default; }
+  .pose-shop-card .btn-poor { background:rgba(200,60,60,0.3); color:#ff8888; cursor:not-allowed; }
+
+
+  /* ============ 포즈 휠 — 파이 차트 ============ */
+  #poseWheel {
+    position:fixed; inset:0; z-index:170; display:flex;
+    align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  #poseWheel.hidden { display:none; }
+  #poseWheelBg {
+    position:absolute; inset:0;
+    background:rgba(8,10,18,0.65);
+    backdrop-filter:blur(10px) saturate(50%);
+    -webkit-backdrop-filter:blur(10px) saturate(50%);
+    animation:poseFade .18s ease-out;
+  }
+  @keyframes poseFade { from { opacity:0; } to { opacity:1; } }
+  #poseWheelStage {
+    position:relative; width:520px; height:520px; max-width:88vmin; max-height:88vmin;
+    animation:poseWheelIn .28s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  @keyframes poseWheelIn { from { transform:scale(0.5) rotate(-30deg); opacity:0; } to { transform:none; opacity:1; } }
+  #poseWheelSvg {
+    position:absolute; inset:0; width:100%; height:100%;
+    filter: drop-shadow(0 20px 40px rgba(0,0,0,0.6));
+  }
+  .wedge {
+    transition:filter .12s;
+    cursor:pointer;
+    pointer-events:all;
+    stroke:rgba(15,20,32,0.85);
+    stroke-width:2;
+  }
+  .wedge.hover {
+    fill:#c8a24a !important;
+    filter: brightness(1.15) drop-shadow(0 0 12px rgba(255,207,60,0.5));
+  }
+  .wedge.current {
+    filter: brightness(0.7) saturate(0.5);
+  }
+  #poseWheelItems {
+    position:absolute; inset:0; pointer-events:none;
+  }
+  .poseSlot {
+    position:absolute; transform:translate(-50%, -50%);
+    display:flex; flex-direction:column; align-items:center;
+    pointer-events:none;
+    transition: transform .15s;
+  }
+  .poseSlot canvas {
+    display:block; width:110px; height:110px;
+    background:transparent;
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+  }
+  .poseSlot.hover { transform:translate(-50%, -50%) scale(1.15); }
+  .poseSlot.current canvas { opacity:0.5; filter:grayscale(0.6); }
+  #poseWheelCenter {
+    position:absolute; left:50%; top:50%;
+    transform:translate(-50%, -50%);
+    width:180px; height:180px; border-radius:50%;
+    background:radial-gradient(circle at center, #1e2540, #0a0d1a);
+    border:4px solid rgba(255,255,255,0.15);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    box-shadow: inset 0 0 25px rgba(0,0,0,0.5), 0 0 30px rgba(126,192,255,0.15);
+    pointer-events:none;
+  }
+  #poseWheelLabel {
+    color:#fff; font-family:'Nunito',sans-serif;
+    font-weight:900; font-size:22px;
+    text-shadow:0 3px 8px rgba(0,0,0,0.8);
+    letter-spacing:0.5px;
+    margin-bottom:6px;
+    text-align:center; padding: 0 10px;
+  }
+  #poseWheelHint {
+    color:#8b92a8; font-family:'Nunito',sans-serif;
+    font-weight:700; font-size:11px;
+    letter-spacing:0.3px; text-transform:uppercase;
+  }
+
+
+  /* 플레이어 생존 목록 (게임 중) */
+  #playerListHUD {
+    position:fixed; top:60px; right:14px; z-index:20;
+    background:var(--panel); color:var(--text);
+    padding:8px 12px; border-radius:var(--radius-sm);
+    font-size:12px; min-width:140px;
+    border:2px solid var(--border);
+    box-shadow:0 3px 0 rgba(0,0,0,0.3);
+    display:none;
+  }
+  #playerListHUD.on { display:block; }
+  #playerListHUD .plh-title {
+    font-weight:800; font-size:11px; color:var(--text-dim);
+    margin-bottom:5px; letter-spacing:0.5px;
+  }
+  #playerListHUD .plh-row {
+    display:flex; align-items:center; gap:6px; padding:3px 0;
+    border-top:1px solid rgba(255,255,255,0.05);
+  }
+  #playerListHUD .plh-row:first-of-type { border-top:none; }
+  #playerListHUD .plh-dot {
+    width:8px; height:8px; border-radius:50%;
+    background:var(--green); flex-shrink:0;
+    box-shadow:0 0 6px var(--green);
+  }
+  #playerListHUD .plh-row.dead .plh-dot {
+    background:#555; box-shadow:none;
+  }
+  #playerListHUD .plh-row.dead .plh-nick {
+    color:var(--text-dim); text-decoration:line-through;
+  }
+  #playerListHUD .plh-nick { font-weight:700; flex:1; }
+  #playerListHUD .plh-role { font-size:11px; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+
+  /* 크로스헤어 */
+  #crosshair {
+    position:fixed; left:50%; top:50%;
+    width:16px; height:16px; margin:-8px 0 0 -8px;
+    border:2px solid #fff; border-radius:50%;
+    pointer-events:none; z-index:15;
+    box-shadow:0 0 8px rgba(0,0,0,0.6); display:none;
+  }
+  #crosshair.on { display:block; }
+
+  /* ===== 숨는 시간 오버레이 ===== */
+  #hidePhaseOverlay {
+    position:fixed; inset:0; z-index:60;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(0,0,0,1);
+    color:var(--text); pointer-events:none;
+  }
+  #hidePhaseOverlay.hidden { display:none !important; }
+  #gameStartClick.show { display:flex !important; }
+  #hidePhaseOverlay .msg {
+    font-family:'Nunito', sans-serif;
+    font-size:32px; font-weight:900; margin-bottom:12px;
+  }
+  #hidePhaseOverlay .timer {
+    font-family:'Nunito', sans-serif;
+    font-size:80px; font-weight:900; color:var(--yellow);
+    text-shadow:0 4px 0 var(--yellow-d);
+    line-height:1;
+  }
+
+  /* ===== 죽음 화면 ===== */
+  #deathScreen {
+    position:fixed; inset:0; background:rgba(255,0,0,0.1);
+    backdrop-filter:blur(4px);
+    display:flex; align-items:center; justify-content:center;
+    z-index:50; pointer-events:none;
+  }
+  #deathScreen.hidden { display:none; }
+  .deathBox {
+    background:var(--panel); padding:40px 60px;
+    border-radius:var(--radius); text-align:center;
+    border:3px solid var(--red);
+    box-shadow:0 8px 0 var(--red-d);
+  }
+  .deathBox .death-icon {
+    width:72px; height:72px; border-radius:18px;
+    margin:0 auto 12px;
+    background:rgba(255,92,106,0.15);
+    border:3px solid var(--red);
+    display:flex; align-items:center; justify-content:center; font-size:36px;
+    overflow:hidden;
+  }
+  .deathBox .death-icon img { width:100%; height:100%; object-fit:contain; }
+  .deathBox .death-title {
+    font-family:'Nunito', sans-serif;
+    font-size:26px; font-weight:900; color:var(--red);
+  }
+  .deathBox .death-sub {
+    color:var(--text-dim); font-size:13px; font-weight:700; margin-top:4px;
+  }
+
+  /* ===== 점수판 ===== */
+  #scoreList .player-row { justify-content:space-between; padding:12px 16px; }
+  #scoreList .player-row.first {
+    background:rgba(255,201,60,0.12);
+    border-color:var(--yellow);
+  }
+  #scoreList .player-row .score-val {
+    color:var(--green); font-weight:900;
+    font-family:'Nunito', sans-serif; font-size:20px;
+  }
+  #scoreList .player-row .rank {
+    font-weight:900; margin-right:10px;
+    font-family:'Nunito', sans-serif; font-size:16px;
+    color:var(--text-dim);
+  }
+  #scoreList .player-row.first .rank { color:var(--yellow); }
+
+  /* ===== 게임 시작 화면 ===== */
+  #gameStartClick {
+    background:rgba(18,22,34,0.75) !important;
+    backdrop-filter:blur(8px);
+  }
+  #gameStartClick .start-card {
+    background:var(--panel); border:3px solid var(--border);
+    border-radius:var(--radius); padding:36px 48px;
+    text-align:center; box-shadow:0 10px 0 rgba(0,0,0,0.35);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  #gameStartClick .start-icon {
+    width:80px; height:80px; border-radius:20px;
+    background:var(--panel2); border:3px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:40px; overflow:hidden;
+    box-shadow:0 6px 0 rgba(0,0,0,0.3);
+  }
+  #gameStartClick .start-icon img { width:100%; height:100%; object-fit:cover; }
+  #gameStartClick .start-label {
+    font-family:'Nunito', sans-serif;
+    font-size:22px; font-weight:900;
+  }
+  #gameStartClick .start-sub {
+    font-size:13px; color:var(--text-dim); font-weight:700;
+  }
+
+  /* ===== 채팅 ===== */
+  @keyframes chatMsgIn {
+    from { opacity:0; transform:translateY(6px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  #chatBox {
+    position:fixed; bottom:80px; right:14px;
+    width:280px; z-index:25;
+    display:none; flex-direction:column; gap:0;
+    pointer-events:none;
+  }
+  #chatBox.visible { display:flex; }
+  #chatMessages {
+    display:flex; flex-direction:column; gap:4px;
+    max-height:180px; overflow:hidden;
+    justify-content:flex-end;
+  }
+  .chat-msg {
+    background:rgba(14,18,30,0.78);
+    border-radius:8px;
+    padding:5px 9px;
+    font-size:13px; font-weight:600;
+    color:var(--text);
+    max-width:100%;
+    word-break:break-all;
+    animation:chatMsgIn .2s ease both;
+    pointer-events:none;
+    line-height:1.35;
+  }
+  .chat-msg .chat-nick { color:var(--green); font-weight:800; margin-right:4px; }
+  .chat-msg.system .chat-nick { color:var(--text-dim); }
+  #chatInputWrap {
+    display:none; align-items:center; gap:6px;
+    margin-top:6px; pointer-events:all;
+  }
+  #chatInputWrap.active { display:flex; }
+  #chatInput {
+    flex:1;
+    background:rgba(14,18,30,0.92);
+    border:2px solid var(--border);
+    border-radius:8px;
+    color:var(--text);
+    font-family:'Nunito Sans', sans-serif;
+    font-size:13px; font-weight:700;
+    padding:6px 10px;
+    outline:none;
+    transition:border-color .15s;
+  }
+  #chatInput:focus { border-color:var(--green); }
+  #chatSendBtn {
+    background:var(--green); border:none; border-radius:8px;
+    color:#fff; font-weight:800; font-size:13px;
+    padding:6px 12px; cursor:pointer;
+    font-family:'Nunito', sans-serif;
+  }
+  #chatSendBtn:active { filter:brightness(0.85); }
+  #chatHint {
+    font-size:11px; color:rgba(139,146,168,0.7);
+    margin-top:3px; pointer-events:none;
+  }
+
+  /* ============ 글리치(분신 명중) 효과 ============ */
+  #glitchOverlay {
+    position: fixed; inset: 0; z-index: 200;
+    pointer-events: none; opacity: 0;
+    background:
+      linear-gradient(rgba(255,20,90,0.18), rgba(0,255,220,0.18)),
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 2px, transparent 2px 4px);
+    mix-blend-mode: screen;
+    will-change: opacity, transform, filter;
+  }
+  #glitchOverlay.active {
+    animation: glitchEffect 0.7s steps(10) forwards;
+  }
+  @keyframes glitchEffect {
+    0%   { opacity: 0.95; transform: translate(0,0); filter: hue-rotate(0deg) saturate(2); }
+    10%  { transform: translate(-10px, 5px); filter: hue-rotate(90deg) saturate(3); }
+    22%  { transform: translate(8px, -4px); filter: hue-rotate(-80deg) invert(0.1); }
+    35%  { transform: translate(-6px, 8px); filter: hue-rotate(180deg); }
+    50%  { opacity: 0.85; transform: translate(4px, -6px); filter: hue-rotate(45deg); }
+    65%  { transform: translate(-3px, 3px); filter: hue-rotate(-30deg); }
+    80%  { opacity: 0.5; transform: translate(2px, -1px); }
+    100% { opacity: 0; transform: translate(0,0); filter: none; }
+  }
+  body.glitchShake canvas {
+    animation: canvasShake 0.7s steps(14) forwards;
+  }
+  @keyframes canvasShake {
+    0%,100% { transform: translate(0,0); filter: none; }
+    12%     { transform: translate(-6px, 2px); filter: hue-rotate(15deg) contrast(1.4); }
+    25%     { transform: translate(5px, -3px); filter: hue-rotate(-15deg) contrast(1.6); }
+    40%     { transform: translate(-3px, 4px); filter: hue-rotate(20deg); }
+    55%     { transform: translate(4px, -2px); filter: hue-rotate(-10deg); }
+    70%     { transform: translate(-2px, 1px); }
+    85%     { transform: translate(1px, -1px); }
+  }
+
+  /* ===== 포즈 전환 치지직 + 페이드 ===== */
+  #poseTransitionOverlay {
+    position: fixed; inset: 0; z-index: 100;
+    pointer-events: none; opacity: 0;
+    background: #000;
+  }
+  #poseTransitionOverlay.active {
+    animation: poseFade 0.5s ease forwards;
+  }
+  @keyframes poseFade {
+    0%   { opacity: 0; }
+    15%  { opacity: 0.85; filter: brightness(1.5) contrast(2); }
+    30%  { opacity: 0.7;  filter: brightness(0.3) saturate(3) hue-rotate(30deg); }
+    50%  { opacity: 0.9;  filter: brightness(2) contrast(1.5) hue-rotate(-20deg); }
+    70%  { opacity: 0.6;  filter: brightness(0.5); }
+    85%  { opacity: 0.3; }
+    100% { opacity: 0; filter: none; }
+  }
+  body.poseFadeShake canvas {
+    animation: poseFadeShake 0.5s steps(10) forwards;
+  }
+  @keyframes poseFadeShake {
+    0%   { transform: translate(0,0); filter: none; }
+    10%  { transform: translate(-4px, 2px); filter: brightness(2) contrast(2); }
+    25%  { transform: translate(3px, -2px); filter: hue-rotate(40deg) saturate(2); }
+    40%  { transform: translate(-2px, 3px); filter: hue-rotate(-30deg); }
+    60%  { transform: translate(2px, -1px); filter: brightness(0.5); }
+    80%  { transform: translate(-1px, 1px); }
+    100% { transform: translate(0,0); filter: none; }
+  }
+
+  /* =========================================================
+     HANDDRAWN OVERHAUL — 하찮게 그림 느낌
+     ========================================================= */
+  :root {
+    --ink: #f5f6fa;
+    --scribble: #ffd76a;
+    --sketch-stroke: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120' preserveAspectRatio='none'><path d='M6,4 Q18,2 34,5 T62,3 T92,6 T115,4 L116,32 L114,64 L117,96 L115,116 Q96,117 74,114 T44,117 T6,115 L4,90 L7,58 L3,28 Z' fill='none' stroke='rgba(255,255,255,0.85)' stroke-width='2.4' stroke-linejoin='round' stroke-linecap='round'/></svg>") 14 stretch;
+    --scribble-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14'><path d='M4,9 Q22,3 44,7 T88,8 T136,6 T176,9 T196,7' fill='none' stroke='%23ffd76a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    --paper-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.045 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  html body::before {
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image: var(--paper-noise);
+    opacity:.55; mix-blend-mode:overlay;
+  }
+
+  body, .btn, .cta, .ui-input, input, button,
+  .lobby-title, .screen-title, .screen-sub,
+  #hud, #online, #paintIndicator,
+  .home-play-btn, .home-side-btn, .home-nickbox, .home-coinbox,
+  .closet-title, .closet-sub, .closet-hint,
+  .death-title, .death-sub,
+  #roundTimer, #roundInfo, #roleTag {
+    font-family: 'Black Han Sans','Noto Sans KR',sans-serif !important; font-weight:400 !important;
+  }
+  .screen-title, .lobby-title, .loading-title,
+  .home-play-btn .hpb-txt, .closet-title, .death-title,
+  #scr-nick .game-name {
+    font-family: 'Black Han Sans','Noto Sans KR',sans-serif !important; font-weight:400 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .ui-card {
+    border: 3px solid transparent !important;
+    border-image: var(--sketch-stroke);
+    background: #1a2033 !important;
+    box-shadow: 6px 6px 0 0 rgba(0,0,0,0.55), 12px 12px 0 -3px rgba(62,207,108,0.18) !important;
+    border-radius: 22px 20px 24px 18px / 20px 24px 18px 22px !important;
+  }
+  #scr-nick .ui-card { transform: rotate(-0.6deg); }
+  #scr-rooms .ui-card { transform: rotate(-0.4deg); }
+  #scr-lobby .ui-card { transform: rotate(0.5deg); }
+  #scr-scoreboard .ui-card { transform: rotate(-0.3deg); }
+  .ui-card::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background: radial-gradient(120% 80% at 20% 0%, rgba(255,255,255,0.04), transparent 60%);
+  }
+
+  .btn, .cta {
+    border-radius: 14px 12px 16px 10px / 12px 16px 10px 14px !important;
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    box-shadow: 3px 4px 0 0 rgba(0,0,0,0.55) !important;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.25);
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+  }
+  .btn:hover, .cta:hover { box-shadow: 5px 6px 0 0 rgba(0,0,0,0.55) !important; transform: translate(-1px,-2px) !important; }
+  .btn:active, .cta:active { box-shadow: 1px 1px 0 0 rgba(0,0,0,0.55) !important; transform: translate(2px,3px) !important; }
+  .btn-green { background: #4ed67a !important; color:#0e2a17 !important; text-shadow:none !important; }
+  .btn-yellow { background: #ffd35c !important; color:#3b2c00 !important; text-shadow:none !important; }
+  .btn-red { background: #ff7079 !important; color:#3a0a10 !important; text-shadow:none !important; }
+  .btn-ghost {
+    background: transparent !important; color: var(--ink) !important;
+    border-style: dashed !important; border-color: rgba(255,255,255,0.55) !important;
+    box-shadow: 2px 3px 0 0 rgba(0,0,0,0.4) !important;
+  }
+
+  .ui-input, input.ui-input, #scr-nick .nick input, .room-create-row input, #newRoomName {
+    background: rgba(255,255,255,0.04) !important;
+    border: 2.5px dashed rgba(255,255,255,0.35) !important;
+    border-radius: 12px 10px 14px 11px / 10px 14px 11px 12px !important;
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.4) !important;
+    color: var(--ink) !important;
+  }
+  .ui-input:focus, #scr-nick .nick input:focus, #newRoomName:focus {
+    border-style: solid !important;
+    border-color: #4ed67a !important;
+    background: rgba(78,214,122,0.08) !important;
+  }
+
+  .screen-title, .lobby-title, .closet-title, .loading-title {
+    position: relative; display: inline-block !important; padding-bottom: 10px;
+  }
+  .screen-title::after, .lobby-title::after, .closet-title::after, .loading-title::after {
+    content:''; position:absolute; left:-6px; right:-6px; bottom:-2px; height:12px;
+    background: var(--scribble-underline) center/100% 100% no-repeat;
+    pointer-events:none;
+  }
+  #scr-nick .game-name {
+    text-shadow: 3px 3px 0 rgba(0,0,0,0.55), -1px 1px 0 rgba(0,0,0,0.4) !important;
+    color: #f6f7ff !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+    transform: rotate(-1.2deg);
+  }
+  #scr-nick .game-tagline {
+    font-family:'Black Han Sans','Noto Sans KR',sans-serif !important; font-weight:400 !important;
+    font-size:20px !important; letter-spacing:1px !important;
+    color: var(--scribble) !important;
+    transform: rotate(1deg);
+  }
+
+  .loading-logo {
+    border-radius: 18px 22px 16px 20px / 20px 16px 22px 18px !important;
+    border: 3px solid transparent !important;
+    border-image: var(--sketch-stroke);
+    box-shadow: 4px 5px 0 rgba(0,0,0,0.55) !important;
+    transform: rotate(-3deg);
+  }
+  #bar {
+    border-radius: 999px !important;
+    border: 2.5px solid rgba(255,255,255,0.7) !important;
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.55) !important;
+  }
+  #barFill { background: linear-gradient(90deg, #4ed67a, #ffd35c) !important; }
+
+  .home-nickbox, .home-coinbox {
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    border-radius: 14px 12px 16px 11px / 12px 16px 11px 14px !important;
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.55) !important;
+  }
+  .home-nickbox { transform: rotate(-1deg); background: #263150 !important; }
+  .home-coinbox { transform: rotate(1deg); background: #4a3a1a !important; }
+
+  .home-play-btn {
+    border: 3px solid rgba(0,0,0,0.6) !important;
+    border-radius: 24px 20px 26px 18px / 20px 26px 18px 24px !important;
+    box-shadow: 6px 7px 0 rgba(0,0,0,0.55) !important;
+    background: #4ed67a !important;
+    color: #0e2a17 !important;
+    transform: rotate(-1.5deg);
+    text-shadow: none !important;
+  }
+  .home-play-btn:hover { transform: rotate(-1.5deg) translate(-1px,-3px) !important; box-shadow: 8px 10px 0 rgba(0,0,0,0.55) !important; }
+  .home-play-btn:active { transform: rotate(-1.5deg) translate(3px,4px) !important; box-shadow: 2px 2px 0 rgba(0,0,0,0.55) !important; }
+  .home-play-btn .hpb-sub { color: rgba(14,42,23,0.75) !important; font-family:'Gowun Dodum',sans-serif !important; }
+
+  .home-side-btn {
+    border: 2.5px dashed rgba(255,255,255,0.55) !important;
+    border-radius: 16px 12px 18px 14px / 12px 18px 14px 16px !important;
+    box-shadow: 3px 4px 0 rgba(0,0,0,0.5) !important;
+    background: rgba(255,255,255,0.05) !important;
+  }
+  .home-side-btn:nth-child(1) { transform: rotate(-0.8deg); }
+  .home-side-btn:nth-child(2) { transform: rotate(0.9deg); }
+
+  .voteMap, .pose-shop-item, .room-item {
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    border-radius: 16px 14px 18px 12px / 14px 18px 12px 16px !important;
+    box-shadow: 4px 5px 0 rgba(0,0,0,0.5) !important;
+    background: #2a3450 !important;
+  }
+  .voteMap:hover, .pose-shop-item:hover, .room-item:hover {
+    transform: translate(-1px,-2px) rotate(-0.6deg) !important;
+    box-shadow: 6px 7px 0 rgba(0,0,0,0.55) !important;
+  }
+
+  #hud, #online, #paintIndicator, #roundBar, #playerListHUD {
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    border-radius: 14px 12px 16px 11px / 12px 16px 11px 14px !important;
+    box-shadow: 3px 4px 0 rgba(0,0,0,0.55) !important;
+    background: rgba(30,40,64,0.92) !important;
+  }
+  #hud { transform: rotate(-0.6deg); }
+  #online { transform: rotate(0.8deg); }
+  #roundBar { transform: translateX(-50%) rotate(-0.4deg); }
+
+  .deathBox {
+    border: 3px solid rgba(0,0,0,0.6) !important;
+    border-radius: 22px 18px 24px 16px / 18px 24px 16px 22px !important;
+    box-shadow: 6px 8px 0 rgba(0,0,0,0.6) !important;
+    background: #3a1a20 !important;
+  }
+
+  @keyframes wiggle {
+    0%   { rotate: -1.8deg; scale: 1; }
+    18%  { rotate:  1.6deg; scale: 1.02; }
+    35%  { rotate: -1.0deg; scale: 0.988; }
+    54%  { rotate:  1.9deg; scale: 1.012; }
+    72%  { rotate: -1.4deg; scale: 0.995; }
+    100% { rotate: -1.8deg; scale: 1; }
+  }
+
+  #chatBox, #chatInput {
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    border-radius: 12px 10px 14px 11px / 10px 14px 11px 12px !important;
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.5) !important;
+  }
+  .lobby-badge {
+    border: 2px dashed rgba(255,255,255,0.5) !important;
+    border-radius: 999px !important;
+    padding: 4px 12px !important;
+    background: rgba(255,255,255,0.05) !important;
+    transform: rotate(2deg);
+  }
+
+  /* ===== 닉네임 화면 리디자인 v2 ===== */
+  #scr-nick {
+    background: radial-gradient(140% 90% at 20% 10%, #1c2740 0%, #0c1220 55%, #060912 100%) !important;
+  }
+  #scr-nick .nick-shell {
+    width: min(1040px, 94vw);
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 40px;
+    align-items: center;
+    position: relative;
+    z-index: 2;
+  }
+  @media (max-width: 860px) {
+    #scr-nick .nick-shell { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  /* HERO 좌측 */
+  #scr-nick .nick-hero {
+    display: flex; gap: 22px; align-items: flex-start;
+  }
+  #scr-nick .nick-hero-mark {
+    font-size: 96px; line-height: 1;
+    filter: drop-shadow(4px 6px 0 rgba(0,0,0,0.6));
+    transform: rotate(-8deg);
+    animation: heroBob 4s ease-in-out infinite;
+  }
+  @keyframes heroBob {
+    0%,100% { transform: rotate(-8deg) translateY(0); }
+    50%     { transform: rotate(-4deg) translateY(-8px); }
+  }
+  #scr-nick .nick-hero-copy { flex:1; min-width:0; }
+  #scr-nick .nick-hero-kicker {
+    font-family:'Gowun Batang', serif !important; font-weight:700 !important;
+    font-size: 14px; letter-spacing: 6px; text-transform: uppercase;
+    color: #4ed67a; margin-bottom: 6px;
+  }
+  #scr-nick .game-name {
+    font-family: 'Black Han Sans', sans-serif !important;
+    font-size: clamp(48px, 7vw, 84px) !important;
+    line-height: 0.92 !important;
+    color: #f6f7ff !important;
+    text-shadow: 4px 4px 0 rgba(0,0,0,0.7), -1px 1px 0 rgba(78,214,122,0.35) !important;
+    letter-spacing: -1px !important;
+    margin: 0 0 12px !important;
+    transform: rotate(-1.5deg) !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+  }
+  #scr-nick .game-tagline {
+    font-family:'Gowun Batang', serif !important; font-weight:700 !important;
+    font-size: 17px !important; letter-spacing: 2px !important;
+    color: #ffd76a !important; text-transform: none !important;
+    margin-bottom: 22px !important; transform: rotate(0.8deg);
+    display: inline-flex !important;
+  }
+  #scr-nick .game-tagline::before, #scr-nick .game-tagline::after { display: none !important; }
+  #scr-nick .nick-hero-chips {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+  }
+  #scr-nick .nick-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    border: 2px dashed rgba(255,255,255,0.35);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    font-family:'Gowun Dodum', sans-serif;
+    font-size: 13px; color: #cfd4e0; font-weight: 700;
+  }
+  #scr-nick .nick-chip em {
+    font-style: normal;
+    font-family:'Black Han Sans', sans-serif;
+    font-size: 10px; letter-spacing: 2px;
+    color: #4ed67a;
+    padding: 3px 7px 2px;
+    border: 1.5px solid rgba(78,214,122,0.4);
+    border-radius: 6px;
+    background: rgba(78,214,122,0.08);
+  }
+  #scr-nick .nick-chip:nth-child(1) { transform: rotate(-1.5deg); }
+  #scr-nick .nick-chip:nth-child(2) { transform: rotate(1.2deg); }
+  #scr-nick .nick-chip:nth-child(3) { transform: rotate(-0.6deg); }
+
+  /* CARD 우측 */
+  #scr-nick .nick-card {
+    width: 100% !important;
+    padding: 30px 32px 28px !important;
+    background: #131a2c !important;
+    transform: rotate(1.2deg) !important;
+    animation: nickFadeIn .5s ease both;
+  }
+  #scr-nick .nick-card-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 20px;
+  }
+  #scr-nick .nick-card-title {
+    font-family:'Black Han Sans', sans-serif !important;
+    font-size: 30px; color: #f6f7ff;
+    margin-top: 4px; letter-spacing: -0.5px;
+    line-height: 1.1;
+  }
+  #scr-nick .screen-sub {
+    font-family:'Gowun Batang', serif !important; font-weight:700 !important;
+    font-size: 11px !important; letter-spacing: 4px !important;
+    color: rgba(255,215,106,0.75) !important;
+    padding: 3px 10px;
+    border: 1.5px dashed rgba(255,215,106,0.4);
+    border-radius: 999px;
+    display: inline-block;
+    margin: 0 !important;
+    text-align: left !important;
+  }
+  #scr-nick .nick-card-badge {
+    font-family:'Black Han Sans', sans-serif;
+    font-size: 12px; letter-spacing: 3px;
+    color: #0e2a17;
+    background: #4ed67a;
+    padding: 6px 12px;
+    border-radius: 8px 6px 10px 7px / 6px 10px 7px 8px;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.5);
+    transform: rotate(4deg);
+    white-space: nowrap;
+  }
+
+  /* 인풋 그룹 */
+  #scr-nick .nick {
+    display: flex !important; gap: 0 !important; align-items: stretch !important;
+    border: 2.5px solid rgba(0,0,0,0.55);
+    border-radius: 14px 12px 16px 11px / 12px 16px 11px 14px;
+    box-shadow: 4px 5px 0 rgba(0,0,0,0.55);
+    background: #0d1220;
+    overflow: hidden;
+  }
+  #scr-nick .nick-prefix {
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 14px 0 16px;
+    font-family:'Black Han Sans', sans-serif;
+    font-size: 22px; color: #4ed67a;
+    background: rgba(78,214,122,0.08);
+    border-right: 2px dashed rgba(255,255,255,0.15);
+  }
+  #scr-nick .nick input {
+    flex: 1 !important;
+    padding: 16px 14px !important;
+    border: none !important;
+    background: transparent !important;
+    color: #f6f7ff !important;
+    font-family: 'Gowun Dodum','Pretendard',sans-serif !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  #scr-nick .nick input:focus {
+    background: rgba(78,214,122,0.06) !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  #scr-nick #nickShuffle {
+    border: none; background: rgba(255,255,255,0.05);
+    border-left: 2px dashed rgba(255,255,255,0.15);
+    color: #fff; font-size: 20px; cursor: pointer;
+    padding: 0 16px; transition: background .15s;
+  }
+  #scr-nick #nickShuffle:hover { background: rgba(255,215,106,0.15); }
+  #scr-nick #nickShuffle:active { transform: scale(0.9); }
+
+  #scr-nick .nick-hint {
+    margin-top: 10px;
+    font-family:'Gowun Dodum', sans-serif;
+    font-size: 12px; color: rgba(207,212,224,0.55);
+    letter-spacing: 0.3px;
+  }
+
+  /* CTA */
+  #scr-nick #nickNext {
+    width: 100% !important;
+    padding: 18px 20px !important;
+    font-size: 20px !important;
+    font-family:'Black Han Sans', sans-serif !important;
+    background: #4ed67a !important;
+    color: #0e2a17 !important;
+    border: 3px solid rgba(0,0,0,0.6) !important;
+    border-radius: 16px 12px 18px 14px / 12px 18px 14px 16px !important;
+    box-shadow: 5px 6px 0 rgba(0,0,0,0.6) !important;
+    letter-spacing: 0.5px !important;
+    transform: rotate(-1deg);
+    text-shadow: none !important;
+  }
+  #scr-nick #nickNext:hover {
+    transform: rotate(-1deg) translate(-1px,-2px) !important;
+    box-shadow: 7px 9px 0 rgba(0,0,0,0.6) !important;
+  }
+  #scr-nick #nickNext:active {
+    transform: rotate(-1deg) translate(3px,4px) !important;
+    box-shadow: 2px 2px 0 rgba(0,0,0,0.6) !important;
+  }
+  #scr-nick #nickNext::before { display: none; }
+
+  /* 하단 상태바 */
+  #scr-nick .nick-foot {
+    position: absolute; left: 0; right: 0; bottom: 22px;
+    display: flex; justify-content: center; align-items: center; gap: 10px;
+    font-family:'Gowun Batang', serif; font-weight: 700;
+    font-size: 12px; letter-spacing: 2px;
+    color: rgba(207,212,224,0.45);
+    z-index: 1;
+  }
+  #scr-nick .nick-foot-dot {
+    color: #4ed67a;
+    animation: pulse 1.4s ease-in-out infinite;
+    font-size: 10px;
+  }
+  #scr-nick .nick-foot-sep { opacity: 0.4; }
+
+  /* 홈 상단 코인박스 숨기기 — 사용자가 코인 획득 제거 요청 */
+  #scr-home .home-coinbox { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #scr-nick .ui-card, #scr-rooms .ui-card, #scr-lobby .ui-card, #scr-scoreboard .ui-card,
+    #scr-nick .game-name, #scr-nick .game-tagline,
+    .home-nickbox, .home-coinbox, .home-play-btn, .home-side-btn,
+    .lobby-badge, .loading-logo, #hud, #online, #roundBar {
+      transform: none !important;
+    }
+  }
+
+
+  /* ===== 폰트 완전 통일 ===== */
+  html, body, *, *::before, *::after,
+  input, textarea, button, select {
+    font-family: 'Black Han Sans','Noto Sans KR', sans-serif !important;
+    font-weight: 400 !important;
+  }
+
+  /* ===== 닉 화면 겹침 방지 & 축소 ===== */
+  #scr-nick .nick-shell {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 32px !important;
+    max-width: 980px !important;
+  }
+  #scr-nick .nick-hero {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 14px !important;
+  }
+  #scr-nick .nick-hero-mark {
+    font-size: 64px !important;
+    margin-bottom: 4px !important;
+  }
+  #scr-nick .game-name {
+    font-size: clamp(38px, 5vw, 62px) !important;
+    line-height: 0.95 !important;
+    margin: 0 0 10px !important;
+    letter-spacing: 0 !important;
+  }
+  #scr-nick .nick-hero-kicker { font-size: 12px !important; letter-spacing: 4px !important; }
+  #scr-nick .game-tagline {
+    font-size: 15px !important; letter-spacing: 1px !important;
+    margin-bottom: 14px !important;
+  }
+  #scr-nick .nick-hero-chips { gap: 6px !important; }
+  #scr-nick .nick-chip { font-size: 12px !important; padding: 6px 11px !important; }
+  #scr-nick .nick-chip em { font-size: 10px !important; letter-spacing: 1.5px !important; padding: 2px 6px !important; }
+
+  #scr-nick .nick-card {
+    padding: 24px 26px 22px !important;
+    transform: rotate(0.6deg) !important;
+  }
+  #scr-nick .nick-card-title { font-size: 24px !important; }
+  #scr-nick .nick-card-badge { font-size: 11px !important; letter-spacing: 2px !important; padding: 5px 10px !important; }
+  #scr-nick .nick-prefix { font-size: 18px !important; padding: 0 12px !important; }
+  #scr-nick .nick input { font-size: 17px !important; padding: 14px 12px !important; }
+  #scr-nick #nickShuffle { font-size: 18px !important; padding: 0 14px !important; }
+  #scr-nick #nickNext { font-size: 18px !important; padding: 15px 18px !important; letter-spacing: 1px !important; }
+
+  #scr-nick .nick-foot { font-size: 11px !important; letter-spacing: 1.5px !important; bottom: 16px !important; }
+
+  @media (max-width: 900px) {
+    #scr-nick .nick-shell { grid-template-columns: 1fr !important; gap: 22px !important; }
+    #scr-nick .nick-hero-mark { font-size: 54px !important; }
+    #scr-nick .game-name { font-size: 40px !important; }
+  }
+
+
+
+  /* ===== 하단 상태바 겹침 최종 수정 ===== */
+  #scr-nick {
+    padding-bottom: 80px !important;
+    justify-content: center !important;
+  }
+  #scr-nick .nick-shell {
+    align-items: start !important;
+  }
+  #scr-nick .nick-foot {
+    position: fixed !important;
+    left: 0 !important; right: 0 !important;
+    bottom: 20px !important;
+    padding: 10px 20px !important;
+    background: linear-gradient(180deg, transparent, rgba(6,9,18,0.85) 40%);
+    pointer-events: none;
+  }
+  #scr-nick .nick-hero-chips { margin-bottom: 12px !important; }
+
+
+
+  /* ===== 최적화 힌트 ===== */
+  /* GPU 힌트 — 위글 도는 요소는 별도 레이어로 승격 */
+  .btn, .cta, .voteMap, .home-play-btn, .home-side-btn,
+  .home-nickbox, .home-coinbox, #hud, #online, #roundBar,
+  .lobby-badge, .nick-chip {
+    will-change: transform;
+    transform-origin: center;
+    backface-visibility: hidden;
+  }
+  /* 화면 컨테이너: 오프스크린 그리기 스킵 */
+  .screen { contain: layout paint; }
+  .screen.hidden { content-visibility: hidden; }
+  /* 페이퍼 노이즈 오버레이 비용 절감 — blend 제거 + 낮은 opacity */
+  html body::before {
+    opacity: .18 !important;
+    mix-blend-mode: normal !important;
+    background-size: 260px 260px !important;
+  }
+  /* 룸/보트/드로 스크린 배경만 은은한 라디얼로 */
+  #scr-rooms, #scr-vote, #scr-draw, #scr-lobby, #scr-scoreboard {
+    background:
+      radial-gradient(120% 80% at 15% 0%, rgba(78,214,122,0.06), transparent 55%),
+      radial-gradient(100% 70% at 85% 100%, rgba(255,215,106,0.05), transparent 60%),
+      #0d1220 !important;
+  }
+
+  /* ===== 방 목록 꽉꽉 채우기 ===== */
+  #scr-rooms .ui-card { width: min(760px, 96vw) !important; padding: 26px 28px !important; }
+  #scr-rooms .ui-card::before {
+    content: '● LOBBY / ROOM LIST';
+    position: absolute; top: -14px; left: 24px;
+    background: #ffd76a; color: #3a2a00;
+    font-size: 11px; letter-spacing: 3px;
+    padding: 5px 12px; border-radius: 6px;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.5);
+    transform: rotate(-3deg);
+    z-index: 2;
+  }
+  #scr-rooms .lobby-header { margin-bottom: 4px; }
+  #scr-rooms .lobby-title { font-size: 32px !important; }
+  #scr-rooms .lobby-badge {
+    background: rgba(78,214,122,0.1) !important;
+    border-color: rgba(78,214,122,0.5) !important;
+    color: #4ed67a !important;
+  }
+  #scr-rooms #roomListBox {
+    min-height: 300px;
+    background: rgba(0,0,0,0.2);
+    border: 2px dashed rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 10px !important;
+    margin-top: 12px;
+  }
+  #scr-rooms #roomListBox:empty::before,
+  #scr-rooms #roomList:empty::before {
+    content: '🌫  방이 없어… 하나 만들어봐';
+    display: block;
+    text-align: center; padding: 60px 20px 40px;
+    font-size: 18px; color: rgba(255,255,255,0.4);
+    letter-spacing: 1px;
+  }
+  #scr-rooms .room-create-row {
+    background: rgba(78,214,122,0.06);
+    border: 2px dashed rgba(78,214,122,0.3);
+    border-radius: 14px;
+    padding: 12px !important;
+    margin-top: 14px !important;
+    position: relative;
+  }
+  #scr-rooms .room-create-row::before { content: none; }
+  #scr-rooms .room-create-row input { flex: 1; font-size: 15px !important; }
+
+  /* 사이드 정보 스트립 */
+  #scr-rooms::after {
+    content: '💡 규칙 — 방 만들고 대기실에서 시작을 누르면 맵/모드 투표가 시작을 하다.';
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: rgba(255,255,255,0.4);
+    letter-spacing: 1px; text-align: center;
+    padding: 8px 18px;
+    border: 1.5px dashed rgba(255,255,255,0.15);
+    border-radius: 999px;
+    background: rgba(0,0,0,0.3);
+    pointer-events: none;
+    max-width: 90vw;
+  }
+
+  /* ===== 투표 화면 꽉꽉 ===== */
+  #scr-vote { padding: 40px 20px 80px !important; gap: 18px !important; }
+  #scr-vote .screen-title { font-size: 40px !important; }
+  #scr-vote::before {
+    content: '🗳 VOTE PHASE';
+    display: inline-block;
+    font-size: 12px; letter-spacing: 4px;
+    color: #ffd76a;
+    padding: 5px 14px;
+    border: 2px dashed rgba(255,215,106,0.5);
+    border-radius: 999px;
+    margin-bottom: 4px;
+    transform: rotate(-1deg);
+  }
+  .vote-timer-pill {
+    font-size: 16px !important;
+    padding: 8px 18px !important;
+    border-radius: 999px !important;
+    background: #2a1a1a !important;
+    border: 2.5px solid rgba(0,0,0,0.55) !important;
+    box-shadow: 3px 4px 0 rgba(0,0,0,0.55) !important;
+    color: #ffd76a !important;
+  }
+  .voteBox { max-width: 900px; margin: 0 auto; padding: 0 8px; }
+  .voteMap { transition: transform .18s ease, box-shadow .18s ease !important; }
+  #scr-vote::after {
+    content: '탭해서 투표를 하다 · 시간이 끝나면 최다 득표가 채택을 하다';
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: rgba(255,255,255,0.45); letter-spacing: 1px;
+    padding: 8px 16px; border: 1.5px dashed rgba(255,255,255,0.15);
+    border-radius: 999px; background: rgba(0,0,0,0.3); pointer-events: none;
+  }
+
+  /* ===== 술래 뽑기 화면 꽉꽉 ===== */
+  #scr-draw { padding: 40px 20px !important; gap: 18px !important; }
+  #scr-draw::before {
+    content: '🎲 DRAWING SEEKER';
+    display: inline-block;
+    font-size: 12px; letter-spacing: 4px;
+    color: #ff7079;
+    padding: 5px 14px;
+    border: 2px dashed rgba(255,112,121,0.5);
+    border-radius: 999px;
+    margin-bottom: 4px;
+    transform: rotate(1deg);
+  }
+  #scr-draw .screen-title { font-size: 44px !important; }
+  #scr-draw .screen-sub { font-size: 15px !important; letter-spacing: 2px !important; }
+  .drawSpin {
+    border: 3px solid rgba(0,0,0,0.6) !important;
+    border-radius: 18px 14px 22px 12px / 14px 22px 12px 18px !important;
+    box-shadow: 6px 8px 0 rgba(0,0,0,0.55), 0 0 40px rgba(255,215,106,0.2) !important;
+    background: linear-gradient(180deg, #1a2033, #0d1220) !important;
+    position: relative;
+  }
+  .drawSpin::before {
+    content: ''; position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(90deg, transparent 0 40px, rgba(255,255,255,0.03) 40px 41px);
+    pointer-events: none; border-radius: inherit;
+  }
+  .drawSpin::after {
+    content: '▼'; position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    color: #ffd76a; font-size: 24px;
+    filter: drop-shadow(0 2px 0 rgba(0,0,0,0.6));
+    animation: drawArrow 1s ease-in-out infinite;
+  }
+  @keyframes drawArrow {
+    0%,100% { transform: translateX(-50%) translateY(0); }
+    50%     { transform: translateX(-50%) translateY(-4px); }
+  }
+  .drawSpin .indicator {
+    background: #ff7079 !important;
+    box-shadow: 0 0 20px #ff7079, 0 0 40px rgba(255,112,121,0.4) !important;
+  }
+  #scr-draw #drawResult {
+    font-family: 'Black Han Sans','Noto Sans KR',sans-serif !important;
+    font-size: 30px !important;
+    padding: 12px 24px;
+    border: 3px dashed rgba(255,215,106,0.5);
+    border-radius: 16px 12px 18px 14px / 12px 18px 14px 16px;
+    background: rgba(255,215,106,0.05);
+    min-width: 200px; text-align: center;
+    margin-top: 20px !important;
+  }
+  #scr-draw::after {
+    content: '술래는 색으로 표시가 됨 · 잡히면 감염을 하다 · 마지막 생존자가 승리';
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: rgba(255,255,255,0.45); letter-spacing: 1px;
+    padding: 8px 16px; border: 1.5px dashed rgba(255,255,255,0.15);
+    border-radius: 999px; background: rgba(0,0,0,0.3); pointer-events: none;
+    max-width: 90vw;
+  }
+
+  /* 로비 카드도 살짝 채움 */
+  #scr-lobby .ui-card { width: min(560px, 94vw) !important; padding: 26px 28px !important; }
+  #scr-lobby .ui-card::before {
+    content: '● WAITING ROOM';
+    position: absolute; top: -14px; right: 24px;
+    background: #4ed67a; color: #0e2a17;
+    font-size: 11px; letter-spacing: 3px;
+    padding: 5px 12px; border-radius: 6px;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.5);
+    transform: rotate(3deg);
+    z-index: 2;
+  }
+
+  /* 점수판 카드도 살짝 채움 */
+  #scr-scoreboard .ui-card { padding: 26px 28px !important; }
+  #scr-scoreboard .ui-card::before {
+    content: '🏆 ROUND RESULT';
+    position: absolute; top: -14px; left: 24px;
+    background: #ffd76a; color: #3a2a00;
+    font-size: 11px; letter-spacing: 3px;
+    padding: 5px 12px; border-radius: 6px;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.5);
+    transform: rotate(-3deg);
+    z-index: 2;
+  }
+
+
+
+  /* ===== 잘림 방지 & 렉 절감 (최종) ===== */
+  /* contain/CV 제거 — 절대위치 자식(스티커 배지 등) 잘림 원인 */
+  .screen { contain: none !important; content-visibility: visible !important; overflow: visible !important; }
+  .screen.hidden { content-visibility: visible !important; }
+
+  /* 페이퍼 노이즈 완전 제거 — 전체 화면 매 프레임 리페인트 원인 */
+  html body::before { display: none !important; content: none !important; }
+
+  /* will-change 남발 취소 — 레이어 폭발 방지 */
+  .btn, .cta, .voteMap, .home-play-btn, .home-side-btn,
+  .home-nickbox, .home-coinbox, #hud, #online, #roundBar,
+  .lobby-badge, .nick-chip { will-change: auto !important; }
+
+  /* 위글 애니 — 숨은 화면 요소는 정지 (GPU 낭비 X) */
+  .screen.hidden .btn,
+  .screen.hidden .cta,
+  .screen.hidden .voteMap,
+  .screen.hidden .nick-chip,
+  .screen.hidden .home-play-btn,
+  .screen.hidden .home-side-btn {
+    animation-play-state: paused !important;
+  }
+
+  /* 인게임(홈/닉/보드가 아닌 상태)에서 위글 전면 정지 */
+  body.ingame .btn,
+  body.ingame .cta,
+  body.ingame .voteMap,
+  body.ingame #roleTag,
+  body.ingame #hudShootHint,
+  body.ingame .vote-timer-pill,
+  body.ingame .deathBox,
+  body.ingame #infectionPopup > div,
+  body.ingame #hud, body.ingame #online, body.ingame #roundBar {
+    animation: none !important;
+    rotate: 0deg !important;
+  }
+
+  /* 큰 오프셋 다중 그림자 → 단일 그림자로 (컴포지트 비용↓) */
+  .ui-card {
+    box-shadow: 6px 6px 0 rgba(0,0,0,0.55) !important;
+  }
+  .home-play-btn { box-shadow: 5px 6px 0 rgba(0,0,0,0.55) !important; }
+
+  /* backdrop-filter 있으면 제거 (심각한 렉 원인) */
+  * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+  /* 닉 화면 잘림 방지 — 최소 높이 스크롤 허용 */
+  #scr-nick {
+    overflow-y: auto !important;
+    padding-top: 40px !important;
+    padding-bottom: 90px !important;
+  }
+  #scr-nick .nick-shell { margin: auto !important; }
+
+
+
+  /* ===== 잘림 방지 & 렉 절감 최종 ===== */
+  .screen { contain: none !important; content-visibility: visible !important; overflow: visible !important; }
+  .screen.hidden { content-visibility: visible !important; }
+  html body::before { display: none !important; content: none !important; }
+  .btn, .cta, .voteMap, .home-play-btn, .home-side-btn,
+  .home-nickbox, .home-coinbox, #hud, #online, #roundBar,
+  .lobby-badge, .nick-chip { will-change: auto !important; }
+  .screen.hidden .btn, .screen.hidden .cta, .screen.hidden .voteMap,
+  .screen.hidden .nick-chip, .screen.hidden .home-play-btn,
+  .screen.hidden .home-side-btn { animation-play-state: paused !important; }
+  body.ingame .btn, body.ingame .cta, body.ingame .voteMap,
+  body.ingame #roleTag, body.ingame #hudShootHint, body.ingame .vote-timer-pill,
+  body.ingame .deathBox, body.ingame #infectionPopup > div,
+  body.ingame #hud, body.ingame #online, body.ingame #roundBar {
+    animation: none !important; rotate: 0deg !important;
+  }
+  .ui-card { box-shadow: 6px 6px 0 rgba(0,0,0,0.55) !important; }
+  .home-play-btn { box-shadow: 5px 6px 0 rgba(0,0,0,0.55) !important; }
+  * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  #scr-nick {
+    overflow-y: auto !important;
+    padding-top: 40px !important; padding-bottom: 90px !important;
+  }
+  #scr-nick .nick-shell { margin: auto !important; }
+
+
+
+  /* 스티커 배지 잘림 방지 — 카드 overflow visible */
+  .ui-card { overflow: visible !important; }
+  .ui-card::after { overflow: hidden; border-radius: inherit; }
+
+
+
+  /* 데코 스트립이 버튼 클릭 가로채지 않게 */
+  #scr-rooms::after, #scr-vote::after, #scr-draw::after {
+    z-index: 0 !important;
+    pointer-events: none !important;
+  }
+  #scr-rooms .ui-card, #scr-vote > *, #scr-draw > * { position: relative; z-index: 5; }
+  #roomsBackBtn { position: relative; z-index: 10; }
+
+
+
+  /* ===== 최종 렉 감소: 모든 무한 애니 중지 ===== */
+  .btn, .cta, .voteMap, .home-play-btn, .home-side-btn,
+  .home-nickbox, .home-coinbox, #hud, #online, #paintIndicator,
+  .lobby-badge, .nick-chip, #roleTag, #hudShootHint, .vote-timer-pill,
+  .deathBox, #infectionPopup > div, #scr-nick .nick-hero-mark,
+  #scr-nick .nick-foot-dot, .drawSpin, #bar #barFill {
+    animation: none !important;
+  }
+  /* 위글은 정적 tilt만 남김 */
+  #hud, #online, #roundBar, .lobby-badge,
+  .home-nickbox, .home-coinbox { rotate: 0deg !important; }
+
+  /* 데코 스트립 제거 */
+  #scr-rooms::after, #scr-vote::after, #scr-draw::after,
+  #scr-rooms::before { content: none !important; display: none !important; }
+  #scr-rooms .ui-card::before, #scr-lobby .ui-card::before,
+  #scr-scoreboard .ui-card::before, #scr-vote::before, #scr-draw::before {
+    animation: none !important;
+  }
+
+  /* ui-card ::after 라디얼 배경 제거 (합성 비용) */
+  .ui-card::after { content: none !important; }
+
+  /* 종이 노이즈 완전 삭제 확인 */
+  html body::before { display: none !important; content: none !important; background: none !important; }
+
+  /* backdrop-filter 완전 제거 */
+  * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+  /* will-change 전면 취소 → 레이어 폭발 방지 */
+  *, *::before, *::after { will-change: auto !important; }
+
+  /* 그림자 단순화 — 다중 오프셋 → 단일 */
+  .ui-card { box-shadow: 4px 4px 0 rgba(0,0,0,0.5) !important; }
+  .btn, .cta, .voteMap, .room-item, .pose-shop-item,
+  .home-play-btn, .home-side-btn, .home-nickbox, .home-coinbox,
+  #hud, #online, #roundBar, .deathBox, .drawSpin, .vote-timer-pill,
+  .lobby-badge, #chatBox, #chatInput {
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.5) !important;
+  }
+
+  /* filter 제거 (drop-shadow 비쌈) */
+  #scr-nick .nick-hero-mark { filter: none !important; }
+
+
+
+  /* 스크리블 밑줄(지렁이) 제거 */
+  .screen-title::after, .lobby-title::after,
+  .closet-title::after, .loading-title::after {
+    content: none !important; background: none !important; display: none !important;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="loading" class="hidden">
+  <div class="loading-logo">
+    <span style="font-size:44px;">🦎</span>
+  </div>
+  <div class="loading-title">웹챠 카멜레온</div>
+  <div id="bar"><div id="barFill"></div></div>
+  <div id="pct">0%</div>
+  <div id="loadStat">캐릭터: 0% / 0% · 맵: 0%</div>
+</div>
+
+<!-- 화면들 (배타적) -->
+<div id="scr-nick" class="screen hidden">
+  <div class="nick-shell">
+    <div class="nick-hero">
+      <div class="nick-hero-mark">🦎</div>
+      <div class="nick-hero-copy">
+        <div class="nick-hero-kicker">웹챠 카멜레온</div>
+        <div class="game-name">WEBCHA<br>CHAMELEON</div>
+        <div class="game-tagline">숨어라 · 색을 감추어라</div>
+        <div class="nick-hero-chips">
+          <span class="nick-chip"><em>ROLE</em>숨는 자</span>
+          <span class="nick-chip"><em>MAP</em>랜덤 · 6종</span>
+          <span class="nick-chip"><em>PLAYERS</em>2 – 10</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ui-card nick-card">
+      <div class="nick-card-head">
+        <div>
+          <div class="nick-card-title">닉네임을 정해줘</div>
+        </div>
+        <div class="nick-card-badge">HELLO,</div>
+      </div>
+      <div class="nick">
+        <input id="nickInput" placeholder="시그마보이" maxlength="16" autocomplete="off" spellcheck="false">
+        <button id="nickShuffle" title="랜덤 닉네임" type="button">🎲</button>
+      </div>
+      <div class="nick-hint">최대 16자 · 한글/영문 · 언제든 홈에서 변경 가능</div>
+      <div style="margin-top:18px;">
+        <button id="nickNext">게임을 시작을 하다 →</button>
+      </div>
+    </div>
+
+    <div class="nick-foot">
+      <span class="nick-foot-dot">●</span>
+      <span>서버 정상</span>
+      <span class="nick-foot-sep">/</span>
+      <span>WEBCHA CHAMELEON · v1.0</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 홈 (메인 로비) ============ -->
+<div id="scr-home" class="screen hidden">
+  <div class="home-topbar">
+    <div class="home-nickbox">
+      <span class="nick-icon">🦎</span>
+      <span id="homeNickLabel">닉네임</span>
+      <button id="changeNickBtn" title="닉 바꾸기">✎</button>
+    </div>
+    <div class="home-coinbox">
+      <span class="coin-icon">🪙</span>
+      <span id="homeCoinCount">0</span>
+      <span class="coin-lbl">코인</span>
+    </div>
+  </div>
+
+  <div class="home-stage">
+    <canvas id="homeCharCanvas"></canvas>
+    <div class="home-stage-hint">드래그해서 회전</div>
+  </div>
+
+  <div class="home-actions">
+    <button class="home-play-btn" id="homePlayBtn">
+      <span class="hpb-icon">🎮</span>
+      <span class="hpb-txt">유희를 하다!</span>
+      <span class="hpb-sub">방 선택하러 가기</span>
+    </button>
+    <div class="home-side-actions">
+      <button class="home-side-btn" id="homeClosetBtn">
+        <span>🎨</span>
+        <span>옷장 · 색 칠하기</span>
+      </button>
+      <button class="home-side-btn" id="homePoseBtn">
+        <span>🕺</span>
+        <span>포즈 잠금해제</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 옷장 오버레이 -->
+<div id="closetOverlay" class="hidden">
+  <div class="closet-panel">
+    <div class="closet-title">🎨 색 칠하기 · 옷장</div>
+    <div class="closet-sub">캐릭터를 예쁘게 꾸며봐</div>
+    <div class="closet-palette" id="closetPalette"></div>
+    <div class="closet-hint">색을 선택 후 캐릭터를 클릭하다 → 그 부분의 색이 변하다</div>
+    <div class="closet-buttons">
+      <button id="closetResetBtn" class="btn btn-ghost">초기화</button>
+      <button id="closetCloseBtn" class="btn btn-green">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 포즈 잠금해제 오버레이 -->
+<div id="poseShopOverlay" class="hidden">
+  <div class="closet-panel" style="max-width:640px;">
+    <div class="closet-title">🕺 포즈 상점</div>
+    <div class="closet-sub">코인으로 새로운 포즈 구매</div>
+    <div id="poseShopList" class="pose-shop-list"></div>
+    <div class="closet-buttons" style="justify-content:flex-end;">
+      <button id="poseShopCloseBtn" class="btn btn-green">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="scr-rooms" class="screen hidden">
+  <div class="ui-card" style="width:min(520px,94vw);">
+    <div class="lobby-header">
+      <h2 class="lobby-title">방 목록</h2>
+      <div class="lobby-badge">
+        <span class="dot-green"></span>
+        <span>게임 선택</span>
+      </div>
+    </div>
+    <div id="roomListBox">
+      <div id="roomList"></div>
+    </div>
+    <div class="room-create-row" style="margin-top:12px;">
+      <input id="newRoomName" placeholder="새 방 이름..." maxlength="20">
+      <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
+    </div>
+    <div style="margin-top:10px; text-align:center;">
+      <button id="roomsBackBtn" class="btn btn-ghost">← 홈으로</button>
+    </div>
+  </div>
+</div>
+
+<div id="scr-lobby" class="screen hidden">
+  <div class="ui-card" style="width:min(460px,94vw);">
+    <div class="lobby-header">
+      <h2 id="lobbyName" class="lobby-title">대기실</h2>
+      <div class="lobby-badge">
+        <span class="dot-green"></span>
+        <span id="lobbyPlayerCount">1</span>/10명
+      </div>
+    </div>
+    <div id="lobbyCountdown"></div>
+    <div id="lobbyPlayers" class="playerList" style="margin-top:12px;width:100%;"></div>
+    <div style="margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-ghost" id="leaveRoomBtn">← 나가기</button>
+      <button class="btn btn-green" id="startGameBtn" style="display:none;">🎮 즉시 시작</button>
+    </div>
+  </div>
+</div>
+
+<div id="scr-vote" class="screen hidden">
+  <div class="screen-title" id="voteTitle">맵 투표</div>
+  <div class="vote-timer-pill" id="voteTimer">남은 시간: 15초</div>
+  <div id="voteMaps" class="voteBox"></div>
+  <div id="voteModes" class="voteBox" style="display:none;"></div>
+</div>
+
+<div id="scr-draw" class="screen hidden">
+  <div class="screen-title">술래 뽑기</div>
+  <div class="screen-sub">이번 라운드의 술래는...</div>
+  <div id="drawSpinner" class="drawSpin"></div>
+  <div id="drawResult" style="font-family:'Nunito',sans-serif;font-size:22px;font-weight:900;margin-top:14px;min-height:32px;color:var(--yellow);text-shadow:0 2px 0 var(--yellow-d);"></div>
+</div>
+
+<div id="hud">
+  <b>WASD</b> 이동 &nbsp;<b>Shift</b> 달리기 &nbsp;<b>Space</b> 점프/벽타기<br>
+  <b>마우스</b> 시점 &nbsp;<b>Q</b> 페인트 &nbsp;<b>R</b> 포즈 &nbsp;<b>H</b> 도발 &nbsp;<b>L</b> 👍좋아요 &nbsp;<b>C</b> 분신 &nbsp;<b>Enter</b> 채팅 &nbsp;<b>ESC</b> 시점 풀기<br>
+  <span id="hudShootHint" style="display:none;color:var(--red);"><b>좌클릭 = 발사!</b></span>
+  &nbsp; <span style="color:#ffe066;">👍 <span id="myLikeCount">0</span></span>
+  &nbsp; <span style="color:#ff8b8b;">🔍 <span id="myCatchCount">0</span></span>
+</div>
+
+<div id="roundBar">
+  <div id="roundTimer">--:--</div>
+  <div id="roundInfo">
+    <div>💯 <span id="myScore">0</span></div>
+    <div id="roleTag">숨는 자</div>
+  </div>
+</div>
+
+<div id="glitchOverlay"></div>
+<div id="poseTransitionOverlay"></div>
+<div id="endFadeOverlay" style="position:fixed;inset:0;z-index:180;background:#000;opacity:0;pointer-events:none;transition:opacity 3s ease-in;"></div>
+
+<div id="hidePhaseOverlay" class="hidden">
+  <div class="msg"></div>
+  <div class="timer"></div>
+</div>
+<div id="deathScreen" class="hidden">
+  <div class="deathBox">
+    <div class="death-icon"><span>💀</span></div>
+    <div class="death-title">잡혔다!</div>
+    <div class="death-sub">관전 중 · 다음 라운드 대기</div>
+  </div>
+</div>
+<div id="infectionPopup" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:150;pointer-events:none;">
+  <div style="background:rgba(20,10,10,0.85); border:3px solid #7ee06a; border-radius:24px; padding:36px 56px; text-align:center; box-shadow:0 0 60px rgba(126,224,106,0.5); font-family:'Nunito',sans-serif; animation:cardSlideUp .4s cubic-bezier(0.34,1.56,0.64,1);">
+    <div style="font-size:72px; line-height:1;">☣️</div>
+    <div style="font-size:34px; font-weight:900; color:#7ee06a; margin-top:8px; text-shadow:0 3px 0 #2f6b26;">감염됨!</div>
+    <div style="font-size:15px; font-weight:700; color:#cfd8d0; margin-top:6px;">이제 너도 술래다 — 남은 애들 잡아라</div>
+  </div>
+</div>
+
+<div id="scr-scoreboard" class="screen hidden">
+  <div class="ui-card" style="width:min(500px,94vw);">
+    <div class="lobby-header">
+      <h2 class="lobby-title">라운드 결과</h2>
+      <div class="lobby-badge">
+        <span>🏆</span>
+        <span>순위</span>
+      </div>
+    </div>
+    <div id="scoreList" class="playerList" style="width:100%;"></div>
+    <div style="margin-top:14px;display:flex;justify-content:center;">
+      <button class="btn btn-green" id="backToLobbyBtn">대기실로 이동을 하다</button>
+    </div>
+  </div>
+</div>
+
+<div id="online"><span class="dot"></span><span id="onlineCount">1</span> 온라인 &nbsp;·&nbsp; <span id="mapName">-</span></div>
+
+<div id="paintIndicator">페인트 모드 &nbsp;·&nbsp; Q 로 종료</div>
+
+<!-- ============ 포즈 휠 (R 홀드) — 파이 차트 스타일 ============ -->
+<div id="poseWheel" class="hidden">
+  <div id="poseWheelBg"></div>
+  <div id="poseWheelStage">
+    <svg id="poseWheelSvg" viewBox="-220 -220 440 440"></svg>
+    <div id="poseWheelItems"></div>
+    <div id="poseWheelCenter">
+      <div id="poseWheelLabel">선택 해</div>
+      <div id="poseWheelHint">P 놓으면 확정</div>
+    </div>
+  </div>
+</div>
+<div id="playerListHUD"></div>
+
+<div id="chatBox">
+  <div id="chatMessages"></div>
+  <div id="chatInputWrap">
+    <input id="chatInput" maxlength="60" placeholder="메시지 입력..." autocomplete="off" spellcheck="false">
+    <button id="chatSendBtn">전송</button>
+  </div>
+  <div id="chatHint">Enter = 채팅 열기</div>
+</div>
+
+<div id="crosshair"></div>
+<div id="gameStartClick" style="display:none;position:fixed;inset:0;z-index:80;align-items:center;justify-content:center;cursor:pointer;">
+  <div class="start-card">
+    <div class="start-icon"><span style="font-size:40px;">🎮</span></div>
+    <div class="start-label">화면 클릭해서 시작</div>
+    <div class="start-sub">ESC 키로 마우스 풀기</div>
+  </div>
+</div>
+<div id="gameCrosshair" style="display:none;position:fixed;left:50%;top:50%;width:24px;height:24px;margin:-12px 0 0 -12px;pointer-events:none;z-index:15">
+  <div style="position:absolute;left:11px;top:0;width:2px;height:8px;background:#ff4757"></div>
+  <div style="position:absolute;left:11px;bottom:0;width:2px;height:8px;background:#ff4757"></div>
+  <div style="position:absolute;top:11px;left:0;height:2px;width:8px;background:#ff4757"></div>
+  <div style="position:absolute;top:11px;right:0;height:2px;width:8px;background:#ff4757"></div>
+  <div style="position:absolute;left:10px;top:10px;width:4px;height:4px;border-radius:50%;background:#ff4757"></div>
+</div>
+
+<div id="tools">
+  <button class="tool active" data-tool="brush" title="붓 (B)"><span>🖌️</span></button>
+  <button class="tool" data-tool="bucket" title="페인트통 (F)"><span>🪣</span></button>
+  <button class="tool" data-tool="eraser" title="지우개 (E)"><span>🧽</span></button>
+  <button class="tool" data-tool="picker" title="스포이드 (I)"><span>🎯</span></button>
+  <div id="brushSize">
+    <div style="margin-bottom:4px">붓 크기: <span id="brushSizeVal">20</span>px</div>
+    <input type="range" id="brushRange" min="4" max="80" value="20">
+  </div>
+</div>
+
+<div id="picker">
+  <div class="picker-col">
+    <canvas id="hueCanvas" width="280" height="20"></canvas>
+    <canvas id="satCanvas" width="180" height="120"></canvas>
+    <div id="recent"></div>
+  </div>
+  <div id="preview-col">
+    <div id="preview"></div>
+    <input id="hexInput" value="#ffffff" spellcheck="false">
+  </div>
+</div>
+
+
+
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module" src="main.js"></script>
+
+<script src="visibility.js"></script>
+
+<script src="ingame-observer.js"></script>
+
+<script src="ingame-observer-2.js"></script>
+
+<script src="console-noop.js"></script>
+</body>
+</html>
