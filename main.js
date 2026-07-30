@@ -5313,8 +5313,19 @@ function _extractWinnerColors(winnerUid) {
 
 function _renderWinnerDance(winnerRow) {
   _disposeWinnerDance();
-  const wrap = document.getElementById('winner3dWrap');
-  const canvas = document.getElementById('winner3d');
+  // ★ scoreList 위에 wrap을 동적으로 삽입 (원본 HTML 안 건드림)
+  let wrap = document.getElementById('winner3dWrap');
+  let canvas = document.getElementById('winner3d');
+  if (!wrap) {
+    const scoreList = document.getElementById('scoreList');
+    if (!scoreList) return;
+    wrap = document.createElement('div');
+    wrap.id = 'winner3dWrap';
+    wrap.style.cssText = 'width:100%;height:320px;background:linear-gradient(180deg,#0d1220,#1a2138);border-radius:14px;margin-bottom:12px;overflow:hidden;display:none;position:relative;';
+    wrap.innerHTML = '<canvas id="winner3d" style="width:100%;height:100%;display:block;"></canvas><div id="winner3dLabel" style="position:absolute;top:8px;left:10px;background:rgba(0,0,0,0.5);color:#ffd54a;font-weight:900;padding:4px 10px;border-radius:999px;font-size:13px;">🥇 우승</div>';
+    scoreList.parentNode.insertBefore(wrap, scoreList);
+    canvas = document.getElementById('winner3d');
+  }
   if (!wrap || !canvas) return;
   if (!winnerRow || !winnerRow.uid) { wrap.style.display = 'none'; return; }
   if (!_danceGltf) {
