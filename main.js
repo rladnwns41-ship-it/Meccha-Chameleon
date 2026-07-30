@@ -5398,14 +5398,20 @@ function _renderWinnerDance(winnerRow) {
     cloned.position.x -= (bbox2.min.x + bbox2.max.x) * 0.5;
     cloned.position.z -= (bbox2.min.z + bbox2.max.z) * 0.5;
 
-    // ★ 폴 가이즈 스타일: 캐릭터 크게 + 3/4 각도 (살짝 옆에서)
-    // 캐릭터 자체를 살짝 회전 (정면에서 볼 때 3/4 각도로 보이도록)
+    // ★ 폴 가이즈 스타일: 캐릭터 크게 + 3/4 각도, 프레임 안에 딱 맞게
     cloned.rotation.y = Math.PI * 0.22; // 약 40도 옆으로
 
-    // 카메라
-    const camera = new THREE.PerspectiveCamera(32, canvas.clientWidth / canvas.clientHeight || 16/9, 0.1, 100);
-    const camDist = targetHeight * 1.15; // 훨씬 가까이 → 크게 보임
-    camera.position.set(0, targetHeight * 0.75, camDist); // 살짝 위에서
+    // 카메라 (wrap 크기 계산해서 캐릭터 전체가 담기게 자동 조정)
+    const aspect = canvas.clientWidth / canvas.clientHeight || 16/9;
+    const camera = new THREE.PerspectiveCamera(32, aspect, 0.1, 100);
+    // 세로/가로 시야 모두 확보하는 최소 거리 계산
+    const fovRad = camera.fov * Math.PI / 180;
+    const charHalfH = targetHeight * 0.55; // 위/아래 여유
+    const charHalfW = targetHeight * 0.35; // 팔 벌린 폭
+    const distByH = charHalfH / Math.tan(fovRad / 2);
+    const distByW = charHalfW / (Math.tan(fovRad / 2) * aspect);
+    const camDist = Math.max(distByH, distByW) * 1.15; // 여유 15%
+    camera.position.set(0, targetHeight * 0.55, camDist);
     camera.lookAt(0, targetHeight * 0.5, 0);
 
     // 렌더러
