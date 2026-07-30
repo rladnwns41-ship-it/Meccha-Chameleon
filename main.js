@@ -5251,18 +5251,32 @@ addEventListener('wheel', e => {
 
 // ═══════════════════════════════════════════════════════════════
 // ★ 스코어보드 우승자 춤 시스템 (게임 로직 무관, 독립적으로 동작)
-// - dance.glb (Mixamo 리깅+애니) 를 미리 로드
-// - 스코어보드 열릴 때 우승자의 characterMeshes vertex color를 dance mesh에 복사해 씌우고 재생
+// - dance.glb (Mixamo 리깅+애니) — lazy load (스코어보드 뜰 때 최초 로드)
+// - 우승자의 characterMeshes vertex color를 dance mesh에 씌워 재생
 // ═══════════════════════════════════════════════════════════════
-let _danceGltf = null; // { scene, animations }
-gltfLoader.load('./pose/dance.glb', g => {
-  // hip position track 제거 (제자리에서 춤추도록)
-  if (g.animations && g.animations[0]) {
-    g.animations[0].tracks = g.animations[0].tracks.filter(t => !/mixamorigHips\.position/i.test(t.name));
-  }
-  _danceGltf = g;
-  console.log('💃 dance.glb 로드 완료 (스코어보드용)');
-}, undefined, e => console.warn('⚠️ dance.glb 로드 실패:', e?.message || e));
+let _danceGltf = null;
+let _danceLoadState = 'idle'; // idle | loading | done | failed
+function _ensureDanceLoaded() {
+  if (_danceLoadState === 'done' || _danceLoadState === 'loading') return;
+  _danceLoadState = 'loading';
+  gltfLoader.load('./pose/dance.glb', g => {
+    if (g.animations && g.animations[0]) {
+      g.animations[0].tracks = g.animations[0].tracks.filter(t => !/mixamorigHips\.position/i.test(t.name));
+    }
+    _danceGltf = g;
+    _danceLoadState = 'done';
+    console.log('💃 dance.glb 로드 완료');
+    // 스코어보드가 이미 열려 있으면 방금 로드된 걸로 다시 렌더
+    if (_pendingWinnerRow) {
+      const w = _pendingWinnerRow; _pendingWinnerRow = null;
+      try { _renderWinnerDance(w); } catch(e){}
+    }
+  }, undefined, e => {
+    _danceLoadState = 'failed';
+    console.warn('⚠️ dance.glb 로드 실패:', e?.message || e);
+  });
+}
+let _pendingWinnerRow = null;
 
 let _winnerDance = null; // { renderer, scene, camera, mixer, rafId, resizeHandler }
 function _disposeWinnerDance() {
@@ -5280,7 +5294,11 @@ function _disposeWinnerDance() {
         }
       });
     }
-    if (_winnerDance.renderer) _winnerDance.renderer.dispose();
+    if (_winnerDance.renderer) {
+      // ★ GPU 컨텍스트 강제 해제 (안 하면 context loss 유발)
+      try { _winnerDance.renderer.forceContextLoss?.(); } catch(e){}
+      _winnerDance.renderer.dispose();
+    }
   } catch(e) { console.warn('winner dance dispose', e); }
   _winnerDance = null;
 }
@@ -5321,7 +5339,7 @@ function _renderWinnerDance(winnerRow) {
     if (!scoreList) return;
     wrap = document.createElement('div');
     wrap.id = 'winner3dWrap';
-    wrap.style.cssText = 'width:100%;height:320px;background:linear-gradient(180deg,#0d1220,#1a2138);border-radius:14px;margin-bottom:12px;overflow:hidden;display:none;position:relative;';
+    wrap.style.cssText = 'width:100%;height:200px;background:linear-gradient(135deg,#ffcf6b 0%,#ff8fb1 50%,#8fb8ff 100%);border-radius:14px;margin-bottom:12px;overflow:hidden;display:none;position:relative;box-shadow:inset 0 0 30px rgba(0,0,0,0.15);';
     wrap.innerHTML = '<canvas id="winner3d" style="width:100%;height:100%;display:block;"></canvas><div id="winner3dLabel" style="position:absolute;top:8px;left:10px;background:rgba(0,0,0,0.5);color:#ffd54a;font-weight:900;padding:4px 10px;border-radius:999px;font-size:13px;">🥇 우승</div>';
     scoreList.parentNode.insertBefore(wrap, scoreList);
     canvas = document.getElementById('winner3d');
@@ -5329,8 +5347,13 @@ function _renderWinnerDance(winnerRow) {
   if (!wrap || !canvas) return;
   if (!winnerRow || !winnerRow.uid) { wrap.style.display = 'none'; return; }
   if (!_danceGltf) {
-    console.warn('dance.glb 아직 로드 안 됨');
-    wrap.style.display = 'none';
+    // ★ lazy load 트리거 (아직 안 받았으면 여기서 처음 로드)
+    _pendingWinnerRow = winnerRow;
+    _ensureDanceLoaded();
+    // 로드 중이라는 표시로 wrap 살짝 보여줌
+    wrap.style.display = 'block';
+    const lbl = document.getElementById('winner3dLabel');
+    if (lbl) lbl.textContent = `🥇 ${winnerRow.nick || '?'} · 준비중...`;
     return;
   }
 
@@ -5350,17 +5373,37 @@ function _renderWinnerDance(winnerRow) {
 
     cloned.traverse(o => {
       if (o.isMesh || o.isSkinnedMesh) {
-        // geometry 복제 후 색 씌우기
         o.geometry = o.geometry.clone();
+        if (o.geometry.index) {
+          try { o.geometry = o.geometry.toNonIndexed(); } catch(e) {}
+        }
         const posCount = o.geometry.attributes.position.count;
-        const cArr = new Float32Array(posCount * 3).fill(1); // 기본 흰색
-        // 우승자 색 데이터가 있고 vertex 수가 같으면 복사
+        const cArr = new Float32Array(posCount * 3).fill(1);
         const winnerMesh = winnerColorMeshes[colorIndex++];
         if (winnerMesh && winnerMesh.vertexCount === posCount) {
+          // 완벽 매칭
           cArr.set(winnerMesh.colorArray);
-          console.log('🎨 우승자 색 씌우기 성공:', posCount, '정점');
-        } else if (winnerMesh) {
-          console.warn('⚠️ vertex 수 불일치 - 흰색 캐릭터로 표시', winnerMesh.vertexCount, 'vs', posCount);
+          console.log('🎨 우승자 색 완벽 매칭:', posCount, '정점');
+        } else if (winnerMesh && winnerMesh.colorArray.length >= 3) {
+          // ★ vertex 수 불일치 → 원본 색상들의 평균 색을 dance mesh 전체에 씌움
+          //   (완벽하진 않지만 흰색보다 훨씬 나음)
+          const src = winnerMesh.colorArray;
+          let sr = 0, sg = 0, sb = 0, cnt = 0, painted = 0;
+          for (let i = 0; i < src.length; i += 3) {
+            const r = src[i], g = src[i+1], b = src[i+2];
+            // 흰색(1,1,1) 근처는 배경으로 간주하고 평균에서 제외
+            if (r < 0.98 || g < 0.98 || b < 0.98) {
+              sr += r; sg += g; sb += b; painted++;
+            }
+            cnt++;
+          }
+          if (painted > 0) {
+            const ar = sr / painted, ag = sg / painted, ab = sb / painted;
+            for (let i = 0; i < posCount; i++) {
+              cArr[i*3] = ar; cArr[i*3+1] = ag; cArr[i*3+2] = ab;
+            }
+            console.log('🎨 우승자 색 평균 적용:', ar.toFixed(2), ag.toFixed(2), ab.toFixed(2), `(${painted}/${cnt} 정점 사용)`);
+          }
         }
         const cAttr = new THREE.BufferAttribute(cArr, 3);
         o.geometry.setAttribute('color', cAttr);
@@ -5414,9 +5457,15 @@ function _renderWinnerDance(winnerRow) {
     camera.position.set(0, targetHeight * 0.55, camDist);
     camera.lookAt(0, targetHeight * 0.5, 0);
 
-    // 렌더러
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // 렌더러 (성능 최적화: antialias off, pixelRatio 1)
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: false,
+      alpha: true,
+      powerPreference: 'low-power',
+      precision: 'lowp'
+    });
+    renderer.setPixelRatio(1);
     renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     renderer.setClearColor(0x000000, 0);
 
@@ -5460,13 +5509,21 @@ function _renderWinnerDance(winnerRow) {
     window.addEventListener('resize', resizeHandler);
 
     let last = performance.now();
+    let accum = 0;
+    const FRAME_INTERVAL = 1000 / 30; // 30 FPS
     const loop = () => {
       if (!_winnerDance) return;
       const now = performance.now();
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      mixer.update(dt);
-      renderer.render(scene, camera);
+      accum += dt * 1000;
+      if (accum >= FRAME_INTERVAL) {
+        accum = 0;
+        mixer.update(dt);
+        renderer.render(scene, camera);
+      } else {
+        mixer.update(dt); // mixer는 매 프레임 갱신 (부드러운 애니 유지)
+      }
       _winnerDance.rafId = requestAnimationFrame(loop);
     };
     _winnerDance = { renderer, scene, camera, mixer, rafId: 0, resizeHandler };
