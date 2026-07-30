@@ -5387,11 +5387,15 @@ function _renderWinnerDance(winnerRow) {
     cloned.position.x -= (bbox2.min.x + bbox2.max.x) * 0.5;
     cloned.position.z -= (bbox2.min.z + bbox2.max.z) * 0.5;
 
+    // ★ 폴 가이즈 스타일: 캐릭터 크게 + 3/4 각도 (살짝 옆에서)
+    // 캐릭터 자체를 살짝 회전 (정면에서 볼 때 3/4 각도로 보이도록)
+    cloned.rotation.y = Math.PI * 0.22; // 약 40도 옆으로
+
     // 카메라
-    const camera = new THREE.PerspectiveCamera(28, canvas.clientWidth / canvas.clientHeight || 16/9, 0.1, 100);
-    const camDist = targetHeight * 1.8;
-    camera.position.set(0, targetHeight * 0.6, camDist);
-    camera.lookAt(0, targetHeight * 0.55, 0);
+    const camera = new THREE.PerspectiveCamera(32, canvas.clientWidth / canvas.clientHeight || 16/9, 0.1, 100);
+    const camDist = targetHeight * 1.15; // 훨씬 가까이 → 크게 보임
+    camera.position.set(0, targetHeight * 0.75, camDist); // 살짝 위에서
+    camera.lookAt(0, targetHeight * 0.5, 0);
 
     // 렌더러
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -5400,11 +5404,32 @@ function _renderWinnerDance(winnerRow) {
     renderer.setClearColor(0x000000, 0);
 
     // mixer + dance 재생
-    const mixer = new THREE.AnimationMixer(cloned);
+    // ★ mixer root는 실제 스켈레톤이 있는 노드로. 씬 최상위는 track name 매칭 실패할 수 있음.
+    //   dance.glb의 최상위 자식(보통 Armature) 또는 SkinnedMesh를 찾아 씀
+    let mixerRoot = cloned;
+    let firstSkinned = null;
+    cloned.traverse(o => {
+      if (!firstSkinned && o.isSkinnedMesh) firstSkinned = o;
+    });
+    if (firstSkinned) {
+      // SkinnedMesh의 skeleton root 조상 찾기 (본이 붙어있는 부모)
+      // dance.glb 구조상 armature가 mesh와 형제이거나 mesh의 부모
+      mixerRoot = cloned; // 씬 root 유지가 안전 - 아래에서 root 옵션 여러 개 시도
+    }
+    const mixer = new THREE.AnimationMixer(mixerRoot);
     if (_danceGltf.animations && _danceGltf.animations[0]) {
-      const action = mixer.clipAction(_danceGltf.animations[0]);
+      const clip = _danceGltf.animations[0];
+      // 첫 track 이름으로 노드 존재 확인 (디버그)
+      const firstTrackName = clip.tracks[0]?.name || '';
+      const nodeName = firstTrackName.split('.')[0];
+      let foundNode = null;
+      cloned.traverse(o => { if (o.name === nodeName) foundNode = o; });
+      console.log('💃 dance clip:', clip.name, 'duration:', clip.duration.toFixed(2), 'tracks:', clip.tracks.length, 'firstTrack:', firstTrackName, 'nodeExists:', !!foundNode);
+      const action = mixer.clipAction(clip);
       action.setLoop(THREE.LoopRepeat, Infinity);
+      action.enabled = true;
       action.reset().play();
+      console.log('💃 action isRunning:', action.isRunning(), 'weight:', action.getEffectiveWeight());
     }
 
     const resizeHandler = () => {
