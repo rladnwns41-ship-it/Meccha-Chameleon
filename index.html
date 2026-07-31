@@ -2258,7 +2258,7 @@
         <div class="nick-hero-chips">
           <span class="nick-chip"><em>ROLE</em>숨는 자</span>
           <span class="nick-chip"><em>MAP</em>랜덤 · 6종</span>
-          <span class="nick-chip"><em>PLAYERS</em>2 – 10</span>
+          <span class="nick-chip"><em>PLAYERS</em>2 – 25</span>
         </div>
       </div>
     </div>
@@ -2382,7 +2382,7 @@
       <h2 id="lobbyName" class="lobby-title">대기실</h2>
       <div class="lobby-badge">
         <span class="dot-green"></span>
-        <span id="lobbyPlayerCount">1</span>/10명
+        <span id="lobbyPlayerCount">1</span>/25명
       </div>
     </div>
     <div id="lobbyCountdown"></div>
@@ -5412,7 +5412,7 @@ function subscribeRoomList() {
         const cnt = el.querySelector('.count');
         const st  = el.querySelector('.state');
         const infoTxt = room.name;
-        const cntTxt  = `👥 ${count}/10`;
+        const cntTxt  = `👥 ${count}/25`;
         const stTxt   = state === 'playing' ? '게임 중' : '대기';
         if (info.textContent !== infoTxt) info.textContent = infoTxt;
         if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
@@ -5472,7 +5472,7 @@ async function joinRoom(roomId) {
   const room = roomSnap.val();
   if (!room) { alert('방이 없음'); _joiningRoom = false; return; }
   const count = Object.keys(room.players || {}).length;
-  if (count >= 10) { alert('방이 꽉 참'); _joiningRoom = false; return; }
+  if (count >= 25) { alert('방이 꽉 참'); _joiningRoom = false; return; }
   if (room.state === 'playing') { alert('이미 게임 중'); _joiningRoom = false; return; }
   if (room.state === 'ended') { alert('라운드 종료 중. 잠시 후 입장하세요'); _joiningRoom = false; return; }
   // 이미 방에 들어가 있으면 차단
