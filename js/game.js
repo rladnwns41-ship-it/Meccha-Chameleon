@@ -23,6 +23,8 @@ import { scene, renderer, camera,
 
 // game.js 로컬 상태 (firebase.js 의 myUid 와 별도)
 let myRef = null, myNick = '익명';
+// 포즈휠 미리보기 렌더 타겟 (renderPoseWheel 안에서 lazy-init 됨)
+let _poseWheelRT = null;
 
 // ================ Player ================
 const player = new THREE.Group();
@@ -1730,8 +1732,15 @@ addEventListener('blur', () => { if (poseWheelOpen) closePoseWheel(false); });
 
 // 매 프레임 미니 씬 렌더 (열려있을 때만)
 // ★ 메인 renderer 재활용: 추가 WebGL 컨텍스트 0개
+// ★ 최적화: 프리뷰는 정적(mixer paused)이므로 프리뷰당 1회만 렌더 → 매프레임 GPU stall 제거
+const _poseWheelPixBuf = new Uint8Array(110 * 110 * 4); // 재사용 버퍼 (GC 압박 X)
 function renderPoseWheel() {
   if (!poseWheelOpen) return;
+  // 모두 이미 렌더됐으면 아무것도 안 함 → 오픈 중 프레임 비용 0
+  let anyPending = false;
+  _poseWheelPreviews.forEach(prev => { if (prev.obj && !prev.rendered) anyPending = true; });
+  if (!anyPending) return;
+
   // RenderTarget lazy 생성 (첫 호출 시 1회)
   if (!_poseWheelRT) {
     _poseWheelRT = new THREE.WebGLRenderTarget(110, 110, {
@@ -1745,13 +1754,11 @@ function renderPoseWheel() {
   renderer.setRenderTarget(_poseWheelRT);
   renderer.setClearColor(0x000000, 0);
   _poseWheelPreviews.forEach(prev => {
-    if (!prev.obj) return;
+    if (!prev.obj || prev.rendered) return; // ★ 이미 렌더됐으면 스킵
     try {
       renderer.clear();
       renderer.render(prev.scene, prev.camera);
-      // GPU 픽셀 → CPU → 2D canvas 복사
-      const buf = new Uint8Array(110 * 110 * 4);
-      renderer.readRenderTargetPixels(_poseWheelRT, 0, 0, 110, 110, buf);
+      renderer.readRenderTargetPixels(_poseWheelRT, 0, 0, 110, 110, _poseWheelPixBuf);
       const ctx = prev.canvas.getContext('2d');
       if (ctx) {
         const id = ctx.createImageData(110, 110);
@@ -1759,9 +1766,10 @@ function renderPoseWheel() {
         for (let row = 0; row < 110; row++) {
           const src = (109 - row) * 110 * 4;
           const dst = row * 110 * 4;
-          id.data.set(buf.subarray(src, src + 110 * 4), dst);
+          id.data.set(_poseWheelPixBuf.subarray(src, src + 110 * 4), dst);
         }
         ctx.putImageData(id, 0, 0);
+        prev.rendered = true; // ★ 캐시 완료 표시 → 다음 프레임부터 스킵
       }
     } catch(e) {}
   });
@@ -5177,7 +5185,8 @@ function animate() {
 
   // 게임 화면(인게임)일 때만 렌더
   if (currentScreen === 'game') renderer.render(scene, camera);
-  renderPoseWheel();
+  // ★ 최적화: 포즈휠 닫혀 있으면 함수 호출조차 스킵
+  if (poseWheelOpen) renderPoseWheel();
   renderHomePreview();
 }
 
