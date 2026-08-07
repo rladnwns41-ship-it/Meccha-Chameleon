@@ -442,8 +442,8 @@ setInterval(async () => {
   if (!myUid) return;
   if (currentScreen !== 'rooms') return; // 방 목록 화면에서만
   try {
-    const { get: _g } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js");
-    const snap = await _g(ref(fbDb, 'rooms'));
+    // ★ 최적화: 상단에서 이미 import 된 get 사용 (매번 dynamic import 안 함)
+    const snap = await get(ref(fbDb, 'rooms'));
     const data = snap.val() || {};
     for (const [rid, room] of Object.entries(data)) {
       if (!room) continue;
@@ -980,10 +980,13 @@ function updateSplats(dt) {
     const fadeStart = s.maxLife - 3.0;
     const fadeT = s.life > fadeStart ? (s.life - fadeStart) / 3.0 : 0;
     const opacity = Math.max(0, (1 - fadeT) * 0.85) * scale;
-    s.group.children.forEach(mesh => {
+    // ★ 최적화: forEach → for-loop (매 프레임 클로저 할당 방지)
+    const kids = s.group.children;
+    for (let k = 0; k < kids.length; k++) {
+      const mesh = kids[k];
       mesh.scale.setScalar(scale);
       if (mesh.material) mesh.material.opacity = opacity;
-    });
+    }
     if (s.life >= s.maxLife) {
       scene.remove(s.group);
       _activeSplats.splice(i, 1);
@@ -2435,6 +2438,7 @@ document.getElementById('homePoseBtn').addEventListener('click', openPoseShop);
 //   렌더 타겟 → CPU 픽셀 읽기 → canvas 2D putImageData 방식
 let _homeRT = null;       // WebGLRenderTarget (lazy)
 let _homeRTW = 0, _homeRTH = 0;  // 현재 RT 크기 (리사이즈 감지용)
+let _homePixBuf = null;   // ★ 재사용 픽셀 버퍼 (매 프레임 alloc 방지)
 let _homeScene = null, _homeCamera = null, _homeObj = null;
 let _homeDrag = { active:false, lastX:0, rotY:0 };
 // homeCharCanvas 자체는 2D canvas 로만 사용 (WebGL context 부여 안 함)
@@ -2526,6 +2530,8 @@ function renderHomePreview() {
       samples: 0
     });
     _homeRTW = w; _homeRTH = h;
+    // ★ 최적화: readback 버퍼도 사이즈에 맞게 재사용용으로 캐시
+    _homePixBuf = new Uint8Array(w * h * 4);
   }
   _homeObj.rotation.y = _homeDrag.rotY + performance.now() * 0.0003;
   const prevTarget = renderer.getRenderTarget();
@@ -2533,9 +2539,8 @@ function renderHomePreview() {
   renderer.setClearColor(0x000000, 0);
   renderer.clear();
   renderer.render(_homeScene, _homeCamera);
-  // GPU → CPU → 2D canvas
-  const buf = new Uint8Array(w * h * 4);
-  renderer.readRenderTargetPixels(_homeRT, 0, 0, w, h, buf);
+  // GPU → CPU → 2D canvas (버퍼 재사용, 매 프레임 alloc 없음)
+  renderer.readRenderTargetPixels(_homeRT, 0, 0, w, h, _homePixBuf);
   renderer.setRenderTarget(prevTarget);
   const ctx = canvas.getContext('2d');
   if (ctx) {
@@ -2543,7 +2548,7 @@ function renderHomePreview() {
     for (let row = 0; row < h; row++) {
       const src = (h - 1 - row) * w * 4;
       const dst = row * w * 4;
-      id.data.set(buf.subarray(src, src + w * 4), dst);
+      id.data.set(_homePixBuf.subarray(src, src + w * 4), dst);
     }
     ctx.putImageData(id, 0, 0);
   }
@@ -2802,7 +2807,7 @@ function subscribeRoom(roomId) {
   let _roomThrottle = 0;
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
-    _cachedRoom = room;
+    _cachedRoom = room; // ★ 캐시는 항상 최신값으로 (스로틀 무관)
     if (!room) {
       // 순간적 null (Firebase 쓰기 사이 race) 방어 - 연속 2번이어야 진짜 방 없음
       _nullHits++;
@@ -2812,7 +2817,9 @@ function subscribeRoom(roomId) {
       return;
     }
     _nullHits = 0;
-    // ★ 감염 모드: 내가 방금 감염됐다면 즉시 술래로 전환
+    // ★ 최적화: 위치 업데이트마다도 이 콜백 발동 → 8명 방이면 초 80회.
+    //   중요 상태(감염)는 즉시 처리, DOM/UI 재렌더는 100ms 스로틀.
+    // 감염 모드: 내가 방금 감염됐다면 즉시 술래로 전환 (스로틀 밖에서 처리)
     if (room.state === 'playing' && room.gameMode === 'infection'
         && myRole === 'hider' && isSeekerUid(myUid, room)) {
       console.log('☣️ 내가 감염됨 → 술래로 전환');
@@ -2825,6 +2832,10 @@ function subscribeRoom(roomId) {
       // 화면 중앙에 감염 팝업
       showInfectionPopup();
     }
+    // ★ 나머지 무거운 DOM 처리는 100ms 스로틀
+    const _now = performance.now();
+    if (_now - _roomThrottle < 100) return;
+    _roomThrottle = _now;
     // 다른 사람 감염 상태 변화 → 총 부착 갱신
     refreshOtherSeekerGuns();
     // 게임 상태에 따라 닉/따봉 라벨 표시/숨김
@@ -4880,10 +4891,14 @@ function animate() {
   const roomNow = _cachedRoom;
   const isEnded = roomNow && roomNow.state === 'ended';
   const aliveMap = roundState?.alive || {};
-  // ★ 최적화: blinkPhase - 60프레임마다 needBlink 재계산
+  // ★ 최적화: blinkPhase - 200ms마다 needBlink 재계산 (Object.values 할당 회피)
   if (!_blinkCheckFrame || _frameNow - _blinkCheckFrame > 200) {
     _blinkCheckFrame = _frameNow;
-    _needBlinkCache = isEnded || Object.values(otherPlayers).some(o => o.stuck === 1);
+    let hasStuck = false;
+    for (const uid in otherPlayers) {
+      if (otherPlayers[uid].stuck === 1) { hasStuck = true; break; }
+    }
+    _needBlinkCache = isEnded || hasStuck;
   }
   const blinkPhase = _needBlinkCache ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
   for (const uid in otherPlayers) {
@@ -4948,23 +4963,23 @@ function animate() {
       // ★ 파묻힘 감지: 조용히 옆으로 밀어냄 (튕기지 않게)
       if (window._myStuck && currentScreen === 'game' && myAlive) {
         window._unstickTries = (window._unstickTries || 0) + 1;
-        // 4방향 중 벽이 가장 먼 쪽을 찾아서 그 쪽으로 살짝 미는 방식
-        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        // ★ 최적화: 미리 할당된 _stuckDirs 재사용 (매번 new Vector3 X)
         let bestDir = null, bestDist = -1;
-        for (const [dx, dz] of dirs) {
+        for (let di = 0; di < _stuckDirs.length; di++) {
+          const dv = _stuckDirs[di];
           _stuckOrigin.set(player.position.x, player.position.y + 0.9, player.position.z);
-          _stuckRc.set(_stuckOrigin, new THREE.Vector3(dx, 0, dz));
+          _stuckRc.set(_stuckOrigin, dv);
           _stuckRc.far = 2.0;
           const h = _stuckRc.intersectObjects(_nearbyColliders, false);
           const dist = h.length ? h[0].distance : 2.0;
-          if (dist > bestDist) { bestDist = dist; bestDir = [dx, dz]; }
+          if (dist > bestDist) { bestDist = dist; bestDir = dv; }
         }
         if (bestDir && bestDist > 0.3) {
           // 벽에서 먼 방향으로 0.15m 만큼 조용히 이동 (튕김 X)
-          player.position.x += bestDir[0] * 0.15;
-          player.position.z += bestDir[1] * 0.15;
+          player.position.x += bestDir.x * 0.15;
+          player.position.z += bestDir.z * 0.15;
           cachedGroundY = null;
-          console.log('🧱 살짝 밀어냄 (방향 x' + bestDir[0] + ' z' + bestDir[1] + ', 여유 ' + bestDist.toFixed(2) + 'm)');
+          console.log('🧱 살짝 밀어냄 (방향 x' + bestDir.x + ' z' + bestDir.z + ', 여유 ' + bestDist.toFixed(2) + 'm)');
         }
         // 3초 이상 계속 갇혀 있으면 스폰으로 (최후 수단)
         if (window._unstickTries > 6) {
