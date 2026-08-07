@@ -2074,6 +2074,8 @@ function loadSelectedMap(mapIdx) {
     });
     _groundAndCollidable.length = 0;
     _groundAndCollidable.push(...collidableMeshes);
+    // ★ 스포이드 캐시 무효화 (맵 로드 후 새 collider가 스포이드 대상이 되도록)
+    if (typeof invalidatePickerCache === 'function') invalidatePickerCache();
     // 경계 설정
     const finalBox = new THREE.Box3().setFromObject(group);
     const size = new THREE.Vector3(); finalBox.getSize(size);
@@ -3320,8 +3322,8 @@ async function startGame(room) {
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
   // 게임 중 락이 풀렸으면 오버레이 다시 띄워서 재잠금 가능하게
-  // (단, 채팅 인풋이 열려있을 때는 오버레이 표시 안 함)
-  if (!pointerLocked && currentScreen === 'game' && !paintMode && !chatInputOpen) {
+  // (단, 채팅 인풋이 열려있거나 포즈휠이 열려있을 때는 오버레이 표시 안 함)
+  if (!pointerLocked && currentScreen === 'game' && !paintMode && !chatInputOpen && !poseWheelOpen) {
     const ov = document.getElementById('gameStartClick');
     if (ov) {
       ov.style.display = 'flex';
@@ -3678,9 +3680,12 @@ let _pickerTargetsDirty = true;
 function _getPickerTargets() {
   if (!_pickerTargetsDirty && _pickerTargets) return _pickerTargets;
   _pickerTargets = [...characterMeshes];
+  // ★ 다른 플레이어 캐릭터
   Object.values(otherPlayers).forEach(ot => {
     if (ot.charMesh) ot.charMesh.traverse(o => { if (o.isMesh) _pickerTargets.push(o); });
   });
+  // ★ 맵 구조물 (텍스처 색 뽑기 대상)
+  for (let i = 0; i < collidableMeshes.length; i++) _pickerTargets.push(collidableMeshes[i]);
   _pickerTargetsDirty = false;
   return _pickerTargets;
 }
@@ -3747,8 +3752,7 @@ let _pickerRenderTarget = null;
 // paint()는 _paintColor.set(hex) → ColorManagement가 sRGB→Linear 자동변환 → setXYZ 저장
 // 따라서 읽을 때 Linear→sRGB 역변환하면 원래 hex가 나옴
 function _pickColorAt(clientX, clientY) {
-  // characterMeshes가 없으면 바로 종료
-  if (!characterMeshes.length) return null;
+  if (!characterMeshes.length && !collidableMeshes.length) return null;
 
   const rect = renderer.domElement.getBoundingClientRect();
   const mv = new THREE.Vector2(
@@ -3758,14 +3762,14 @@ function _pickColorAt(clientX, clientY) {
   paintRc.camera = camera;
   paintRc.setFromCamera(mv, camera);
 
-  // ★ 오직 characterMeshes만 레이캐스트 (배경/맵 완전 제외)
-  // paint()도 characterMeshes만 대상으로 하므로 동일 타겟
-  const hits = paintRc.intersectObjects(characterMeshes, true);
+  // ★ 캐릭터 + 맵 구조물 모두 대상 (_getPickerTargets 가 관리)
+  const hits = paintRc.intersectObjects(_getPickerTargets(), true);
   if (!hits.length) return null;
 
   const hit  = hits[0];
   const mesh = hit.object;
   const colors = mesh.geometry?.attributes?.color;
+  // vertex color 없으면 이 경로로는 못 뽑음 (텍스처는 _renderPickerScene 이 처리)
   if (!colors) return null;
 
   // 바리센트릭 보간으로 정확한 vertex color 샘플링
@@ -3785,8 +3789,8 @@ function _pickColorAt(clientX, clientY) {
 }
 
 function _renderPickerScene(clientX, clientY) {
-  // characterMeshes만 오프스크린 렌더 → 픽셀 읽기 (조명 제외, 순수 vertex color)
-  if (!characterMeshes.length) return null;
+  // ★ 캐릭터 + 맵 구조물 모두 대상으로 오프스크린 렌더 → 픽셀 읽기
+  if (!characterMeshes.length && !collidableMeshes.length) return null;
 
   const rect    = renderer.domElement.getBoundingClientRect();
   const canvasW = renderer.domElement.width;
@@ -3794,14 +3798,14 @@ function _renderPickerScene(clientX, clientY) {
   const px = Math.round((clientX - rect.left) / rect.width  * canvasW);
   const py = Math.round((1 - (clientY - rect.top) / rect.height) * canvasH);
 
-  // 레이캐스트로 히트 mesh 확인 (characterMeshes만)
+  // 레이캐스트로 히트 mesh 확인 (캐릭터 + 맵)
   const mv = new THREE.Vector2(
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1
   );
   paintRc.camera = camera;
   paintRc.setFromCamera(mv, camera);
-  const hits = paintRc.intersectObjects(characterMeshes, true);
+  const hits = paintRc.intersectObjects(_getPickerTargets(), true);
   if (!hits.length) return null;
   const hitMesh = hits[0].object;
   // 텍스처만 있고 vertex color가 없는 메쉬도 스포이드 대상
@@ -3884,7 +3888,7 @@ function pickColor(clientX, clientY) {
   // 2차: vertex color 직접 읽기 (텍스처 없는 메쉬용 fallback)
   const hexDirect = _pickColorAt(clientX, clientY);
   const hex = hexRender || hexDirect;
-  if (!hex) { console.log('🎯 스포이드 - 색 없음 (캐릭터 위를 클릭하세요)'); return; }
+  if (!hex) { console.log('🎯 스포이드 - 색 없음 (캐릭터 또는 맵을 클릭하세요)'); return; }
   console.log('🎯 스포이드 결과 | direct:', hexDirect, '| render:', hexRender, '| 최종:', hex);
   currentColor = hex;
   document.getElementById('preview').style.background = hex;
