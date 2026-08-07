@@ -1,6 +1,28 @@
 // ============================================================
 // boot.js — 게임 시작 전/후 실행되는 작은 유틸들
 // ============================================================
+'use strict';
+
+// ============================================================
+// 보안 강화 (CSP 백업 계층 - 오래된 브라우저나 CSP 무시되는 경우 대비)
+// ============================================================
+(function(){
+  // ★ 클릭재킹 방지: 다른 사이트 iframe 안에 심어지면 최상위로 강제 이동
+  //   CSP의 frame-ancestors 'none' 을 무시하는 옛 브라우저 방어망
+  try {
+    if (self !== top) {
+      // 백업 방어: 콘텐츠 숨김 후 최상위로 리다이렉트
+      document.documentElement.style.display = 'none';
+      top.location = self.location;
+    }
+  } catch (e) {
+    // 크로스오리진 프레임 접근 실패 = 임베딩 시도 → 콘텐츠 숨김
+    document.documentElement.style.display = 'none';
+  }
+
+  // ★ Prototype 오염 방지는 CSP(외부 스크립트 차단) 와 strict mode 로 이미 커버됨
+  //   Object.prototype freeze 는 라이브러리 호환성 위험이 있어 제거
+})();
 
 // ★ 렉 감소: console.log/debug/info 최상단에서 노-옵화
 // (hot path 에서 log 인자 문자열 조립 오버헤드까지 없앰)
