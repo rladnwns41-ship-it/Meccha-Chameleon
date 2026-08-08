@@ -13,6 +13,7 @@
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
         },
         "hostUid": {
+          ".write": "auth != null && data.val() === auth.uid",
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
         },
         "createdAt": {
