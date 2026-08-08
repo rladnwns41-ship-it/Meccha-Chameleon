@@ -1415,3 +1415,85 @@
   border-radius: 6px;
   transition: background 0.15s;
 }
+
+/* 음성 오류 상태 */
+#voiceWidget.state-error #voiceBar {
+  border-color: rgba(255, 92, 108, 0.5);
+  background: rgba(40, 20, 25, 0.95);
+}
+#voiceWidget.state-joining #voiceBar {
+  border-color: rgba(255, 215, 106, 0.5);
+}
+
+#voiceError {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+#voiceError:not(.hidden) { display: flex; }
+
+.voice-err-icon {
+  font-size: 16px;
+  filter: grayscale(0.3);
+  animation: voice-err-shake 2.5s ease-in-out infinite;
+}
+@keyframes voice-err-shake {
+  0%, 100% { transform: rotate(0deg); }
+  92%, 96% { transform: rotate(-8deg); }
+  94%, 98% { transform: rotate(8deg); }
+}
+.voice-err-text {
+  color: #ff8a95;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+#voiceRetryBtn {
+  background: rgba(255, 92, 108, 0.15);
+  border: 1px solid rgba(255, 92, 108, 0.4);
+  color: #ff8a95;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+#voiceRetryBtn:hover {
+  background: rgba(255, 92, 108, 0.25);
+  color: #fff;
+}
+
+/* 플레이어 목록 헤더의 음성 상태 아이콘 */
+.plh-voice-icon {
+  margin-left: 6px;
+  font-size: 0.85em;
+  vertical-align: middle;
+}
+.plh-voice-icon.err {
+  filter: grayscale(0.2);
+  animation: voice-err-shake 3s ease-in-out infinite;
+  opacity: 0.9;
+}
+.plh-voice-icon.ok {
+  animation: voice-pulse 2s ease-in-out infinite;
+}
+
+/* 목록 컨테이너 자체가 오류 상태일 때 (은은한 힌트) */
+#playerListHUD.voice-error .plh-title,
+#lobbyPlayers.voice-error::before {
+  color: #ff8a95;
+}
+#lobbyPlayers.voice-error::before {
+  content: '🔇 음성 사용 불가';
+  display: block;
+  padding: 8px 12px;
+  background: rgba(255, 92, 108, 0.08);
+  border: 1px solid rgba(255, 92, 108, 0.25);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
