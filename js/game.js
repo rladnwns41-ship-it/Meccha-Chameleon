@@ -4018,21 +4018,67 @@ function paint(clientX, clientY) {
   mesh.geometry.attributes.color.needsUpdate = true;
   addRecentColor(currentColor);
 
-  // Firebase에 스트로크 이벤트 push (모든 붓 스트로크가 전달됨)
-  if (myRoomId && myUid && Date.now() - _lastPaintSyncTime > 120) { // 120ms throttle (대회용)
-    _lastPaintSyncTime = Date.now();
+  // ★ 페인트 스트로크 배칭 — throttle 로 스트로크 손실되던 문제 해결
+  //   기존: 120ms 에 1개만 push → 남 화면에 빈 점 생김
+  //   변경: 큐에 다 쌓아뒀다가 60ms 마다 update() 한 번에 전송 → 손실 0
+  if (myRoomId && myUid) {
     const meshIdx = characterMeshes.indexOf(mesh);
-    const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
-    push(strokesRef, {
-      x: +localPoint.x.toFixed(2),
-      y: +localPoint.y.toFixed(2),
-      z: +localPoint.z.toFixed(2),
-      c: currentTool === 'eraser' ? '#ffffff' : currentColor,
-      r: +radiusLocal.toFixed(3),
-      m: meshIdx,
-      t: Date.now()
-    });
+    const cx = +localPoint.x.toFixed(2);
+    const cy = +localPoint.y.toFixed(2);
+    const cz = +localPoint.z.toFixed(2);
+    const strokeColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
+    // dedup: 큐 마지막 스트로크와 거의 같은 위치·같은 색·같은 mesh면 스킵 (붓 정지 스팸 방지)
+    let skip = false;
+    if (_paintStrokeQueue.length > 0) {
+      const last = _paintStrokeQueue[_paintStrokeQueue.length - 1];
+      if (last.m === meshIdx && last.c === strokeColor) {
+        const ddx = last.x - cx, ddy = last.y - cy, ddz = last.z - cz;
+        const dedupR = radiusLocal * 0.35;
+        if (ddx*ddx + ddy*ddy + ddz*ddz < dedupR * dedupR) skip = true;
+      }
+    }
+    if (!skip) {
+      _paintStrokeQueue.push({
+        x: cx, y: cy, z: cz,
+        c: strokeColor,
+        r: +radiusLocal.toFixed(3),
+        m: meshIdx,
+        t: Date.now()
+      });
+      _schedulePaintFlush();
+    }
   }
+}
+
+// ★ 페인트 스트로크 큐 & flush 스케줄러
+const _paintStrokeQueue = [];
+let _paintFlushTimer = null;
+const PAINT_FLUSH_MS = 60;         // 60ms 마다 배치 전송
+const PAINT_MAX_BATCH = 40;        // 한 번에 최대 40개 (안전 상한)
+function _schedulePaintFlush() {
+  if (_paintFlushTimer) return;
+  _paintFlushTimer = setTimeout(_flushPaintQueue, PAINT_FLUSH_MS);
+}
+function _flushPaintQueue() {
+  _paintFlushTimer = null;
+  if (!myRoomId || !myUid || _paintStrokeQueue.length === 0) return;
+  // 상한 초과 시 오래된 것부터 자름 (튐 방지)
+  if (_paintStrokeQueue.length > PAINT_MAX_BATCH) {
+    _paintStrokeQueue.splice(0, _paintStrokeQueue.length - PAINT_MAX_BATCH);
+  }
+  const batch = _paintStrokeQueue.splice(0);
+  try {
+    const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
+    // 각 스트로크에 개별 push key 부여 → 한 번의 update() 로 원자적 전송
+    const updates = {};
+    for (let i = 0; i < batch.length; i++) {
+      const k = push(strokesRef).key;
+      updates[k] = batch[i];
+    }
+    update(strokesRef, updates);
+  } catch(e) { /* 실패해도 다음 flush 시 큐가 비어있으면 그만, 이미 로컬은 반영됨 */ }
+  // 큐에 뭐 더 쌓였으면 다시 예약
+  if (_paintStrokeQueue.length > 0) _schedulePaintFlush();
 }
 
 let isPainting = false;
