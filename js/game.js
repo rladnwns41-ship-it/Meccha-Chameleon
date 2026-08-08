@@ -5259,6 +5259,7 @@ addEventListener('wheel', e => {
 // 방 안에서만 활성. 게임 화면에서도 백그라운드 오디오는 유지됨.
 // - 기본 음소거, V 눌러야 말할 수 있음 (push-to-talk)
 // - 말하는 사람은 플레이어 목록에 🔊 아이콘 표시
+// - 서비스 오류 시 🔇 표시로 안 되는 상태 명확히 안내
 // ============================================================
 
 let _voiceApi = null;              // JitsiMeetExternalAPI 인스턴스
@@ -5266,18 +5267,35 @@ let _voiceMuted = true;            // 기본 음소거 (PTT 모드)
 let _voiceRoomId = null;
 let _voiceParticipantCount = 1;
 let _pttHeld = false;              // V 키 홀드 상태
+let _voiceStatus = 'off';          // 'off' | 'joining' | 'joined' | 'error' | 'unavailable'
+let _voiceJoinTimer = null;        // 접속 타임아웃
 
 // ★ 지금 말하고 있는 uid 집합 (플레이어 목록의 🔊 아이콘용)
 const _voiceSpeakingUids = new Set();
 let _voiceSpeakerClearTimer = null;
+
+// ★ Jitsi API 스크립트 로드 실패 감지 (10초 내 로드 안 되면 unavailable)
+(function _watchJitsiApiLoad() {
+  const start = Date.now();
+  const check = () => {
+    if (typeof JitsiMeetExternalAPI !== 'undefined') return; // OK
+    if (Date.now() - start > 10000) {
+      _voiceStatus = 'unavailable';
+      _applyVoiceStatusUI();
+      console.warn('🔇 Jitsi API 로드 실패 - 음성 사용 불가');
+      return;
+    }
+    setTimeout(check, 500);
+  };
+  setTimeout(check, 500);
+})();
 
 function showVoiceWidget(roomId) {
   _voiceRoomId = roomId;
   const w = document.getElementById('voiceWidget');
   if (!w) return;
   w.classList.remove('hidden');
-  document.getElementById('voiceJoinBtn').classList.remove('hidden');
-  document.getElementById('voiceStatus').classList.add('hidden');
+  _applyVoiceStatusUI();
 }
 
 function hideVoiceWidget() {
@@ -5291,7 +5309,9 @@ async function _joinVoice() {
   if (_voiceApi) return;
   if (!_voiceRoomId) return;
   if (typeof JitsiMeetExternalAPI === 'undefined') {
-    alert('음성 서비스 로드 실패 — 네트워크 확인 후 새로고침');
+    _voiceStatus = 'unavailable';
+    _applyVoiceStatusUI();
+    alert('음성 서비스 로드 실패\n네트워크 또는 브라우저 확장 프로그램(광고 차단 등) 확인');
     return;
   }
   // 마이크 권한 사전 요청
@@ -5303,50 +5323,70 @@ async function _joinVoice() {
     return;
   }
 
+  _voiceStatus = 'joining';
+  _applyVoiceStatusUI();
+
   const wrap = document.getElementById('voiceIframeWrap');
   wrap.innerHTML = '';
   wrap.classList.remove('hidden');
 
   const jitsiRoomName = 'wcc-' + _voiceRoomId.replace(/[^a-zA-Z0-9]/g, '');
 
-  // ★ displayName 을 uid 로 넣어서 dominantSpeaker → uid 매칭 가능하게
-  _voiceApi = new JitsiMeetExternalAPI('meet.jit.si', {
-    roomName: jitsiRoomName,
-    parentNode: wrap,
-    width: '100%',
-    height: '100%',
-    userInfo: {
-      displayName: myUid || 'anon'
-    },
-    configOverwrite: {
-      startWithVideoMuted: true,
-      startWithAudioMuted: true,      // ★ PTT: 기본 음소거
-      prejoinPageEnabled: false,
-      disableDeepLinking: true,
-      enableWelcomePage: false,
-      requireDisplayName: false,
-      p2p: { enabled: false },
-      startAudioOnly: true,
-      disableSelfView: true,
-      disableInviteFunctions: true,
-      readOnlyName: true,
-      toolbarButtons: []
-    },
-    interfaceConfigOverwrite: {
-      DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
-      DEFAULT_BACKGROUND: '#000',
-      SHOW_JITSI_WATERMARK: false,
-      SHOW_WATERMARK_FOR_GUESTS: false,
-      MOBILE_APP_PROMO: false,
-      HIDE_INVITE_MORE_HEADER: true
+  try {
+    _voiceApi = new JitsiMeetExternalAPI('meet.jit.si', {
+      roomName: jitsiRoomName,
+      parentNode: wrap,
+      width: '100%',
+      height: '100%',
+      userInfo: {
+        displayName: myUid || 'anon'
+      },
+      configOverwrite: {
+        startWithVideoMuted: true,
+        startWithAudioMuted: true,
+        prejoinPageEnabled: false,
+        disableDeepLinking: true,
+        enableWelcomePage: false,
+        requireDisplayName: false,
+        p2p: { enabled: false },
+        startAudioOnly: true,
+        disableSelfView: true,
+        disableInviteFunctions: true,
+        readOnlyName: true,
+        toolbarButtons: []
+      },
+      interfaceConfigOverwrite: {
+        DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+        DEFAULT_BACKGROUND: '#000',
+        SHOW_JITSI_WATERMARK: false,
+        SHOW_WATERMARK_FOR_GUESTS: false,
+        MOBILE_APP_PROMO: false,
+        HIDE_INVITE_MORE_HEADER: true
+      }
+    });
+  } catch (err) {
+    console.warn('🔇 Jitsi 초기화 실패:', err);
+    _voiceStatus = 'error';
+    _applyVoiceStatusUI();
+    _leaveVoice();
+    return;
+  }
+
+  // ★ 20초 안에 접속 안 되면 오류 처리
+  _voiceJoinTimer = setTimeout(() => {
+    if (_voiceStatus === 'joining') {
+      console.warn('🔇 Jitsi 접속 타임아웃');
+      _voiceStatus = 'error';
+      _applyVoiceStatusUI();
+      _leaveVoice();
     }
-  });
+  }, 20000);
 
   _voiceApi.addEventListener('videoConferenceJoined', () => {
+    _voiceStatus = 'joined';
     _voiceMuted = true;
-    document.getElementById('voiceJoinBtn').classList.add('hidden');
-    document.getElementById('voiceStatus').classList.remove('hidden');
-    _updateVoiceUI();
+    if (_voiceJoinTimer) { clearTimeout(_voiceJoinTimer); _voiceJoinTimer = null; }
+    _applyVoiceStatusUI();
   });
   _voiceApi.addEventListener('participantJoined', () => {
     _voiceParticipantCount++;
@@ -5354,24 +5394,32 @@ async function _joinVoice() {
   });
   _voiceApi.addEventListener('participantLeft', ev => {
     _voiceParticipantCount = Math.max(1, _voiceParticipantCount - 1);
-    // 나간 사람이 말하고 있었다면 제거
     if (ev && ev.id) _voiceRemoveSpeakerByJitsiId(ev.id);
     _updateVoiceUI();
   });
   _voiceApi.addEventListener('audioMuteStatusChanged', ev => {
     _voiceMuted = !!ev.muted;
-    // 내가 음소거되면 내 uid 를 speaker 에서 즉시 제거, 언뮤트면 즉시 추가
     if (_voiceMuted) _voiceSpeakingUids.delete(myUid);
     else _voiceSpeakingUids.add(myUid);
     _updateVoiceUI();
     _refreshVoiceUiOnLists();
   });
   _voiceApi.addEventListener('dominantSpeakerChanged', ev => {
-    // ev.id 는 Jitsi 참가자 id — displayName(= 게임 uid) 을 얻어와 매칭
     _voiceResolveSpeaker(ev && ev.id);
   });
   _voiceApi.addEventListener('readyToClose', () => {
+    // 정상 종료가 아닌 경우 (아직 joined 상태에서 갑자기 닫힘) 오류로 표시
+    if (_voiceStatus === 'joining' || _voiceStatus === 'joined') {
+      _voiceStatus = 'error';
+      _applyVoiceStatusUI();
+    }
     _leaveVoice();
+  });
+  // 연결 실패 이벤트들 (Jitsi 가 발동시키는 다양한 오류)
+  _voiceApi.addEventListener('errorOccurred', ev => {
+    console.warn('🔇 Jitsi 오류:', ev);
+    _voiceStatus = 'error';
+    _applyVoiceStatusUI();
   });
 }
 
@@ -5379,18 +5427,15 @@ async function _joinVoice() {
 function _voiceResolveSpeaker(jitsiId) {
   if (!_voiceApi || !jitsiId) return;
   try {
-    // 이전 dominant 는 정리 (한 명씩만 유지 — dominant speaker 모델)
     _voiceSpeakingUids.forEach(uid => {
       if (uid !== myUid) _voiceSpeakingUids.delete(uid);
     });
-    // getDisplayName 은 Promise 반환할 수도 있으니 안전하게
     const nameOrPromise = _voiceApi.getDisplayName(jitsiId);
     Promise.resolve(nameOrPromise).then(name => {
       if (typeof name === 'string' && name && name !== myUid) {
         _voiceSpeakingUids.add(name);
         _refreshVoiceUiOnLists();
       }
-      // 3초 뒤 무조건 자동 해제 (Jitsi 는 "말 멈춤" 이벤트가 없어서)
       if (_voiceSpeakerClearTimer) clearTimeout(_voiceSpeakerClearTimer);
       _voiceSpeakerClearTimer = setTimeout(() => {
         _voiceSpeakingUids.forEach(uid => {
@@ -5403,7 +5448,6 @@ function _voiceResolveSpeaker(jitsiId) {
 }
 
 function _voiceRemoveSpeakerByJitsiId(jitsiId) {
-  // participantLeft 시엔 이미 나가서 displayName 못 얻을 수 있음 → 전체 정리
   _voiceSpeakingUids.forEach(uid => {
     if (uid !== myUid) _voiceSpeakingUids.delete(uid);
   });
@@ -5415,6 +5459,7 @@ function _leaveVoice() {
     try { _voiceApi.dispose(); } catch(e) {}
     _voiceApi = null;
   }
+  if (_voiceJoinTimer) { clearTimeout(_voiceJoinTimer); _voiceJoinTimer = null; }
   _voiceMuted = true;
   _pttHeld = false;
   _voiceParticipantCount = 1;
@@ -5422,8 +5467,9 @@ function _leaveVoice() {
   if (_voiceSpeakerClearTimer) { clearTimeout(_voiceSpeakerClearTimer); _voiceSpeakerClearTimer = null; }
   const wrap = document.getElementById('voiceIframeWrap');
   if (wrap) { wrap.innerHTML = ''; wrap.classList.add('hidden'); }
-  document.getElementById('voiceJoinBtn').classList.remove('hidden');
-  document.getElementById('voiceStatus').classList.add('hidden');
+  // 상태를 error/unavailable 로 두려면 그대로, 정상 종료면 'off' 로
+  if (_voiceStatus !== 'error' && _voiceStatus !== 'unavailable') _voiceStatus = 'off';
+  _applyVoiceStatusUI();
   _refreshVoiceUiOnLists();
 }
 
@@ -5432,7 +5478,6 @@ function _updateVoiceUI() {
   if (cnt) cnt.textContent = _voiceParticipantCount;
   const dot = document.querySelector('.voice-dot');
   if (dot) dot.classList.toggle('muted', _voiceMuted);
-  // PTT 힌트 라벨
   const pttHint = document.getElementById('voicePttHint');
   if (pttHint) {
     pttHint.textContent = _voiceMuted ? 'V 눌러서 말하기' : '🎙 말하는 중';
@@ -5440,15 +5485,82 @@ function _updateVoiceUI() {
   }
 }
 
-// 플레이어 목록(HUD + 로비) 의 스피커 아이콘 즉시 갱신
+// ★ 음성 상태에 따라 UI 전체 갱신 (위젯 + 플레이어 목록 헤더)
+function _applyVoiceStatusUI() {
+  const widget = document.getElementById('voiceWidget');
+  if (!widget) return;
+
+  const joinBtn = document.getElementById('voiceJoinBtn');
+  const status  = document.getElementById('voiceStatus');
+  const errBox  = document.getElementById('voiceError');
+
+  // 상태별 위젯 표시
+  widget.classList.toggle('state-error', _voiceStatus === 'error' || _voiceStatus === 'unavailable');
+  widget.classList.toggle('state-joining', _voiceStatus === 'joining');
+  widget.classList.toggle('state-joined', _voiceStatus === 'joined');
+
+  if (_voiceStatus === 'error' || _voiceStatus === 'unavailable') {
+    joinBtn?.classList.add('hidden');
+    status?.classList.add('hidden');
+    if (errBox) errBox.classList.remove('hidden');
+  } else if (_voiceStatus === 'joining') {
+    joinBtn?.classList.add('hidden');
+    status?.classList.remove('hidden');
+    errBox?.classList.add('hidden');
+    const cnt = document.getElementById('voiceCount');
+    if (cnt) cnt.textContent = '접속 중...';
+  } else if (_voiceStatus === 'joined') {
+    joinBtn?.classList.add('hidden');
+    status?.classList.remove('hidden');
+    errBox?.classList.add('hidden');
+    _updateVoiceUI();
+  } else { // 'off'
+    joinBtn?.classList.remove('hidden');
+    status?.classList.add('hidden');
+    errBox?.classList.add('hidden');
+  }
+
+  // 플레이어 목록 헤더 상태 아이콘
+  ['playerListHUD', 'lobbyPlayers'].forEach(id => {
+    const container = document.getElementById(id);
+    if (!container) return;
+    // HUD 는 .plh-title, 로비는 헤더가 별도 없어서 컨테이너 자체에 클래스 부여
+    container.classList.toggle('voice-error', _voiceStatus === 'error' || _voiceStatus === 'unavailable');
+    container.classList.toggle('voice-joined', _voiceStatus === 'joined');
+  });
+  // HUD 헤더 텍스트 옆 상태 아이콘 삽입
+  const plhTitle = document.querySelector('#playerListHUD .plh-title');
+  if (plhTitle) {
+    let statusIcon = plhTitle.querySelector('.plh-voice-icon');
+    if (!statusIcon) {
+      statusIcon = document.createElement('span');
+      statusIcon.className = 'plh-voice-icon';
+      plhTitle.appendChild(statusIcon);
+    }
+    if (_voiceStatus === 'error' || _voiceStatus === 'unavailable') {
+      statusIcon.textContent = '🔇';
+      statusIcon.title = '음성 채팅 사용 불가';
+      statusIcon.classList.add('err');
+      statusIcon.classList.remove('ok');
+    } else if (_voiceStatus === 'joined') {
+      statusIcon.textContent = '🔊';
+      statusIcon.title = '음성 채팅 연결됨';
+      statusIcon.classList.add('ok');
+      statusIcon.classList.remove('err');
+    } else {
+      statusIcon.textContent = '';
+      statusIcon.classList.remove('err', 'ok');
+    }
+  }
+}
+
+// 플레이어 목록의 스피커 아이콘 즉시 갱신
 function _refreshVoiceUiOnLists() {
-  // HUD
   document.querySelectorAll('#playerListHUD .plh-row').forEach(row => {
     const uid = row.dataset._k;
     if (!uid) return;
     row.classList.toggle('speaking', _voiceSpeakingUids.has(uid));
   });
-  // 로비
   document.querySelectorAll('#lobbyPlayers .player-row').forEach(row => {
     const uid = row.dataset._k;
     if (!uid) return;
@@ -5458,10 +5570,9 @@ function _refreshVoiceUiOnLists() {
 
 // ==================== Push-to-Talk (V 키) ====================
 document.addEventListener('keydown', e => {
-  if (e.repeat) return;                          // 홀드 시 반복 발동 무시
+  if (e.repeat) return;
   if (e.code !== 'KeyV') return;
-  if (!_voiceApi) return;                        // 음성 참가 안 했으면 무시
-  // 채팅/닉 입력 중이면 스킵
+  if (!_voiceApi) return;
   const ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
   if (_pttHeld) return;
@@ -5474,7 +5585,6 @@ document.addEventListener('keyup', e => {
   _pttHeld = false;
   if (_voiceApi && !_voiceMuted) _voiceApi.executeCommand('toggleAudio');
 });
-// 창 포커스 잃으면 자동으로 마이크 놓기
 addEventListener('blur', () => {
   if (_pttHeld && _voiceApi && !_voiceMuted) {
     _voiceApi.executeCommand('toggleAudio');
@@ -5486,8 +5596,15 @@ addEventListener('blur', () => {
 (function bindVoiceUI() {
   const j = document.getElementById('voiceJoinBtn');
   const l = document.getElementById('voiceLeaveBtn');
+  const r = document.getElementById('voiceRetryBtn');
   if (j) j.addEventListener('click', _joinVoice);
   if (l) l.addEventListener('click', _leaveVoice);
+  // 오류 상태에서 재시도 버튼
+  if (r) r.addEventListener('click', () => {
+    _voiceStatus = 'off';
+    _applyVoiceStatusUI();
+    setTimeout(() => _joinVoice(), 200);
+  });
 })();
 
 addEventListener('beforeunload', () => { _leaveVoice(); });
