@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>🦎 웹챠 카멜레온</title>
-<link rel="icon" type="image/jpeg" href="asset/logo.jpg">
-<link rel="apple-touch-icon" href="asset/logo.jpg">
+<link rel="icon" type="image/png" href="asset/logo.png">
+<link rel="apple-touch-icon" href="asset/logo.png">
 
 <!-- ============================================================
      보안 헤더 (메타태그로 클라이언트 사이드에서 강제)
@@ -14,12 +14,13 @@
 ============================================================ -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com https://www.gstatic.com;
+  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com https://www.gstatic.com https://meet.jit.si;
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' data: https://fonts.gstatic.com;
-  img-src 'self' data: blob: https://www.gstatic.com;
-  media-src 'self' https://www.myinstants.com;
-  connect-src 'self' blob: https://*.firebaseio.com wss://*.firebaseio.com https://*.googleapis.com https://firebase.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com;
+  img-src 'self' data: blob: https://www.gstatic.com https://meet.jit.si;
+  media-src 'self' blob: https://www.myinstants.com https://meet.jit.si;
+  connect-src 'self' blob: https://*.firebaseio.com wss://*.firebaseio.com https://*.googleapis.com https://firebase.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com https://meet.jit.si wss://meet.jit.si;
+  frame-src https://meet.jit.si;
   worker-src 'self' blob:;
   object-src 'none';
   base-uri 'self';
@@ -330,6 +331,24 @@
     <input id="hexInput" value="#ffffff" spellcheck="false">
   </div>
 </div>
+
+<!-- ============================================================
+     🎙 음성 채팅 (Jitsi Meet 임베드) — 방 안에서만 표시
+============================================================ -->
+<div id="voiceWidget" class="hidden">
+  <div id="voiceBar">
+    <button id="voiceJoinBtn" title="음성 참가">🎙 음성 참가</button>
+    <div id="voiceStatus" class="hidden">
+      <span class="voice-dot"></span>
+      <span id="voiceCount">1</span>명 통화 중
+      <button id="voiceMuteBtn" title="음소거 토글">🎙</button>
+      <button id="voiceLeaveBtn" title="나가기">✖</button>
+    </div>
+  </div>
+  <div id="voiceIframeWrap" class="hidden"></div>
+</div>
+
+<script src="https://meet.jit.si/external_api.js"></script>
 
 
 <!-- ============================================================
