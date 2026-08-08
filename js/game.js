@@ -506,11 +506,10 @@ setInterval(async () => {
       } else if (room.countdown > 0) {
         await update(roomRef, { countdown: room.countdown - 1 });
       } else {
+        // ★ 각자 자기 vote/modeVote 를 지움 (rules.md 는 본인만 자기 필드 쓰기 가능)
+        //   방장이 남의 vote 를 지우려 하면 permission_denied → 이전 vote 남아 다음 라운드 오작동
+        //   해결: state 전환만 하고, 각 클라이언트는 subscribeRoom 에서 감지 후 자기 것만 지움
         await update(roomRef, { state: 'voting', votePhase: 'map', voteCountdown: 15, countdown: null });
-        const pl = room.players || {};
-        for (const uid of Object.keys(pl)) {
-          await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null, modeVote: null });
-        }
         console.log('▶ lobby → voting (map)');
       }
       _lastPlayerCount = count;
@@ -1042,19 +1041,25 @@ async function killPlayer(uid) {
 
   if (isInfection) {
     // 감염: alive=false 안 하고 술래 목록에 추가
-    await update(ref(fbDb, `rooms/${myRoomId}/round`), { scores: scores });
-    await update(ref(fbDb, `rooms/${myRoomId}/seekers`), { [uid]: true });
+    // ★ rule: round/scores/$uid = 본인만, round/alive/$uid = 아무나, seekers/$uid = 아무나
+    //   전체 오브젝트 통째로 update 하면 상위 노드 write 룰(=방장만) 이 적용 → 방장 아닌 술래 실패
+    //   개별 경로로 write 해야 함
+    await set(ref(fbDb, `rooms/${myRoomId}/round/scores/${myUid}`), scores[myUid])
+      .catch(e => console.warn('scores:', e.code));
+    await set(ref(fbDb, `rooms/${myRoomId}/seekers/${uid}`), true)
+      .catch(e => console.warn('seekers:', e.code));
     console.log('☣️ 감염 성공:', uid);
   } else {
-    // 클래식: 사망 처리
-    await update(ref(fbDb, `rooms/${myRoomId}/round`), {
-      [`alive/${uid}`]: false,
-      scores: scores
-    });
+    // 클래식: 사망 처리 — round/alive/$uid = 아무나 write 가능
+    await set(ref(fbDb, `rooms/${myRoomId}/round/alive/${uid}`), false)
+      .catch(e => console.warn('alive:', e.code));
+    await set(ref(fbDb, `rooms/${myRoomId}/round/scores/${myUid}`), scores[myUid])
+      .catch(e => console.warn('scores:', e.code));
   }
-  const catches = Object.assign({}, _cachedRoom?.catches || {});
-  catches[myUid] = (catches[myUid] || 0) + 1;
-  await update(ref(fbDb, `rooms/${myRoomId}`), { catches });
+  // catches — rule: catches/$uid = 아무나 write, 상위 catches 통째로는 방장만
+  const catchCount = (_cachedRoom?.catches?.[myUid] || 0) + 1;
+  await set(ref(fbDb, `rooms/${myRoomId}/catches/${myUid}`), catchCount)
+    .catch(e => console.warn('catches:', e.code));
 }
 
 // ============ 사망 먼지 애니메이션 (모두가 봄) ============
@@ -1324,12 +1329,8 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
       whistles: null,
       paint: null
     });
-    // 플레이어들 투표 리셋 (맵 + 모드)
-    const s = await get(ref(fbDb, `rooms/${myRoomId}/players`));
-    const players = s.val() || {};
-    for (const uid of Object.keys(players)) {
-      await update(ref(fbDb, `rooms/${myRoomId}/players/${uid}`), { vote: null, modeVote: null });
-    }
+    // ★ 투표 리셋은 각 클라이언트가 자기 것만 (rule: players/$uid = 본인만 write)
+    //   방장이 남 것 지우려 하면 permission_denied → 각자 handleVoteReset 에서 처리
   }
   currentScreen = 'lobby';
   _backToLobbyPending = false;
@@ -2826,6 +2827,7 @@ function subscribeRoom(roomId) {
   if (roomUnsub) roomUnsub();
   let _nullHits = 0;
   let _roomThrottle = 0;
+  let _lastKnownState = null; // ★ state 전환 감지용
   roomUnsub = onValue(roomRef, snap => {
     const room = snap.val();
     _cachedRoom = room; // ★ 캐시는 항상 최신값으로 (스로틀 무관)
@@ -2838,6 +2840,12 @@ function subscribeRoom(roomId) {
       return;
     }
     _nullHits = 0;
+    // ★ state 전환 감지: lobby→voting 진입 시 내 vote/modeVote 리셋 (rules.md: 본인만 자기 것 쓰기 가능)
+    if (_lastKnownState !== 'voting' && room.state === 'voting' && myUid) {
+      update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: null, modeVote: null })
+        .catch(e => console.warn('vote reset:', e.code));
+    }
+    _lastKnownState = room.state;
     // ★ 최적화: 위치 업데이트마다도 이 콜백 발동 → 8명 방이면 초 80회.
     //   중요 상태(감염)는 즉시 처리, DOM/UI 재렌더는 100ms 스로틀.
     // 감염 모드: 내가 방금 감염됐다면 즉시 술래로 전환 (스로틀 밖에서 처리)
@@ -3031,16 +3039,23 @@ async function leaveToRooms() {
   if (roomUnsub) { roomUnsub(); roomUnsub = null; }
   _cachedRoom = null;
   if (myRoomId && myUid) {
-    await remove(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`));
+    await remove(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`)).catch(()=>{});
     // 방장이었으면 방장 이양 (다른 사람 있으면)
     const roomSnap = await get(ref(fbDb, `rooms/${myRoomId}`));
     const room = roomSnap.val();
     if (room) {
       const others = Object.keys(room.players || {}).filter(u => u !== myUid);
       if (room.hostUid === myUid && others.length > 0) {
-        await update(ref(fbDb, `rooms/${myRoomId}`), { hostUid: others[0] });
-      } else if (others.length === 0) {
-        await remove(ref(fbDb, `rooms/${myRoomId}`));
+        // ★ 방장 이양 시도 → rules.md 에 hostUid write 룰 없으면 실패
+        //   fallback: 이양 실패 시 방을 아예 삭제 (좀비 방 방지)
+        try {
+          await update(ref(fbDb, `rooms/${myRoomId}`), { hostUid: others[0] });
+        } catch(e) {
+          console.warn('방장 이양 실패 (rules.md 확인 필요) → 방 삭제:', e.code);
+          await remove(ref(fbDb, `rooms/${myRoomId}`)).catch(()=>{});
+        }
+      } else if (others.length === 0 || room.hostUid === myUid) {
+        await remove(ref(fbDb, `rooms/${myRoomId}`)).catch(()=>{});
       }
     }
   }
