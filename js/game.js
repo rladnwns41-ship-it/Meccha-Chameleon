@@ -2002,6 +2002,7 @@ function resetMap() {
   // 경계 리셋
   worldBounds = null;
   cachedGroundY = null; _lastSolidGroundY = null; _groundDropStreak = 0;
+  _lastSafePos = null; // ★ 맵 언로드 → 안전 위치 초기화
   // 바닥 원위치
   if (ground) {
     ground.visible = true;
@@ -2268,6 +2269,7 @@ gltfLoader.load(
     }
     velocityY = 0; isGrounded = true;
     cachedGroundY = null; _lastSolidGroundY = null; _groundDropStreak = 0; // 새 맵 바닥 기억 초기화
+    _lastSafePos = null; // ★ 새 맵 → 안전 위치 초기화 (다음 프레임에 스폰이 자동 저장됨)
 
     document.getElementById('barFill').style.width = '100%';
     document.getElementById('pct').textContent = '100%';
@@ -3414,17 +3416,28 @@ let _groundDropStreak = 0;
 let isClimbing = false;
 const CLIMB_SPEED = 6;
 const WALL_DETECT_DIST = 0.85;
+const CLIMB_MIN_WALL_HEIGHT = 2.5; // ★ 등반 가능한 벽 최소 높이 (작은 상자·벤치·난간에 안 붙게)
 const wallRc = new THREE.Raycaster();
 const _wallOrigin = new THREE.Vector3();
+const _wallOriginTop = new THREE.Vector3();
 const _wallDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
 ];
 function checkNearWall() {
   if (!_nearbyColliders || !_nearbyColliders.length) return false;
+  // ★ 진짜 등반 가능한 벽 판정:
+  //   허리 높이(1.0m) 와 머리 위(1.0 + CLIMB_MIN_WALL_HEIGHT) 두 곳에서 광선을 쏴서
+  //   같은 방향에 둘 다 벽이 있어야 = 최소 CLIMB_MIN_WALL_HEIGHT 만큼 높은 벽
+  //   작은 상자(높이 1m) · 벤치 · 계단 난간에는 위쪽 광선이 안 걸림 → 등반 불가
   _wallOrigin.set(player.position.x, player.position.y + 1.0, player.position.z);
+  _wallOriginTop.set(player.position.x, player.position.y + 1.0 + CLIMB_MIN_WALL_HEIGHT, player.position.z);
   for (const d of _wallDirs) {
     wallRc.set(_wallOrigin, d);
+    wallRc.far = WALL_DETECT_DIST;
+    if (wallRc.intersectObjects(_nearbyColliders, false).length === 0) continue;
+    // 아래는 걸림 → 위쪽도 확인
+    wallRc.set(_wallOriginTop, d);
     wallRc.far = WALL_DETECT_DIST;
     if (wallRc.intersectObjects(_nearbyColliders, false).length > 0) return true;
   }
@@ -3482,23 +3495,20 @@ function getGroundHeight(x, z) {
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const _sideOrigin = new THREE.Vector3(); // 어깨(캡슐 옆면) 광선 원점
-const PR = 0.45; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
+const PR = 0.35; // ★ 0.45→0.35: 좁은 곳(박스 안, 문틈) 통과 가능하게
 // ★ 5단 높이: 발끝/무릎/허리/가슴/머리 — 어떤 높이의 벽/구조물도 검출
 const _tryMoveHeights = [0.05, 0.5, 1.0, 1.4, 1.8];
-// ★ 캡슐 어깨 오프셋 (몸 폭의 70%) — 대각선 벽/모서리 검출
-const CAPSULE_SHOULDER = PR * 0.7;
+// ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
+const CAPSULE_SHOULDER = PR * 0.6;
 const _safeDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
-  // ★ 대각선 4방향 추가 → 모서리/코너 안전성 강화
-  new THREE.Vector3(0.7071, 0, 0.7071), new THREE.Vector3(-0.7071, 0, 0.7071),
-  new THREE.Vector3(0.7071, 0, -0.7071), new THREE.Vector3(-0.7071, 0, -0.7071),
 ];
 const _safeRc = new THREE.Raycaster();
 const _safeOrigin = new THREE.Vector3();
-const SAFE_MARGIN = PR * 0.95; // ★ 0.9 → 0.95 (좀 더 여유있게 = 파묻힘 검출 민감도↑)
-// 안전망은 발/허리/어깨 3단계 (벽 파묻힘 정밀 탐지)
-const _safeHeights = [0.2, 0.7, 1.4];
+const SAFE_MARGIN = 0.12; // ★ 파묻힘 판정 임계: 매우 짧게. 진짜 몸통 안에 벽이 파고든 경우만
+// 안전망은 발/허리 2단계 (머리는 벽 뚫리기 힘든 위치)
+const _safeHeights = [0.4, 1.0];
 
 // ★ 성능 최적화: 플레이어 근처 collider 만 캐시 (500ms 또는 3m 이동마다 갱신)
 //   맵에 collider 200개 있어도 근처 20개 정도만 검사 → 라이트하게
@@ -3539,15 +3549,21 @@ function refreshNearbyColliders() {
 
 function isPositionSafe() {
   if (!_nearbyColliders.length) return true;
+  // ★ 완전 파묻힘만 판정: 모든 방향(4방향 × 2높이 = 8) 이 SAFE_MARGIN 안에 다 막혔을 때만 false
+  //   벽 근처에 서있거나 박스 안에 들어간 건 정상 이동으로 허용
+  //   → 진짜 몸이 벽 안에 파고들어 사방이 즉시 벽인 경우만 롤백
+  let blockedCount = 0;
+  const totalChecks = _safeHeights.length * _safeDirs.length;
   for (const hY of _safeHeights) {
     _safeOrigin.set(player.position.x, player.position.y + hY, player.position.z);
     for (const dir of _safeDirs) {
       _safeRc.set(_safeOrigin, dir);
       _safeRc.far = SAFE_MARGIN;
-      if (_safeRc.intersectObjects(_nearbyColliders, false).length) return false;
+      if (_safeRc.intersectObjects(_nearbyColliders, false).length) blockedCount++;
     }
   }
-  return true;
+  // 8회 검사 중 7회 이상 초근접 = 진짜 벽 안에 파묻힘 → 롤백
+  return blockedCount < totalChecks - 1;
 }
 
 function tryMove(dx, dz) {
@@ -3567,7 +3583,8 @@ function tryMove(dx, dz) {
     // 이동 방향에 수직인 벡터 = 캡슐 옆면 (어깨)
     const perpX = -rd.z, perpZ = rd.x;
     const sx = perpX * CAPSULE_SHOULDER, sz = perpZ * CAPSULE_SHOULDER;
-    const farDist = d + PR; // 이동거리 + 몸반경 만큼 앞을 검사
+    // ★ 앞 검사 거리: 이동거리 + 살짝만 (몸반경 절반). 너무 크면 벽 옆 지나갈 때도 멈춤
+    const farDist = d + PR * 0.5;
     for (const hY of _tryMoveHeights) {
       const py = player.position.y + hY;
       // 중심 광선
@@ -3617,6 +3634,69 @@ function clampPlayerToBounds() {
   else if (player.position.x > worldBounds.maxX) player.position.x = worldBounds.maxX;
   if (player.position.z < worldBounds.minZ) player.position.z = worldBounds.minZ;
   else if (player.position.z > worldBounds.maxZ) player.position.z = worldBounds.maxZ;
+}
+
+// ★★ 벽 파묻힘 안전 위치 롤백 시스템 ★★
+//     물리 엔진의 penetration test → last-safe rollback 방식
+//     - 매 프레임 안전 위치면 저장 (_lastSafePos)
+//     - 파묻힘 감지되면 마지막 안전 위치로 순간 복구
+//     - 어떤 이동/등반 로직이 실수해도 다음 프레임에 즉시 회복 → 절대 낑기지 않음
+let _lastSafePos = null;
+let _lastSafePosT = 0;
+const _stuckCheckDirs = [
+  new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+  new THREE.Vector3(0.7071, 0, 0.7071), new THREE.Vector3(-0.7071, 0, 0.7071),
+  new THREE.Vector3(0.7071, 0, -0.7071), new THREE.Vector3(-0.7071, 0, -0.7071),
+];
+const _stuckCheckRc = new THREE.Raycaster();
+const _stuckCheckOrigin = new THREE.Vector3();
+const STUCK_PENETRATION_DIST = 0.08; // 몸 중심 8cm 이내 벽 = 파묻힘 신호
+const STUCK_THRESHOLD = 6;            // 8방향 중 6개 이상 파묻힘 = 진짜 갇힘 (5→6, 등반 중 오탐 방지)
+function _isCurrentlyPenetrating() {
+  if (!_nearbyColliders || !_nearbyColliders.length) return false;
+  // ★ 두 높이(허리 0.9m, 무릎 0.4m)에서 검사 → 낮은 구조물도 정확히 잡음
+  let hits = 0;
+  for (const hY of [0.4, 0.9]) {
+    _stuckCheckOrigin.set(player.position.x, player.position.y + hY, player.position.z);
+    for (const d of _stuckCheckDirs) {
+      _stuckCheckRc.set(_stuckCheckOrigin, d);
+      _stuckCheckRc.far = STUCK_PENETRATION_DIST;
+      if (_stuckCheckRc.intersectObjects(_nearbyColliders, false).length > 0) hits++;
+      if (hits >= STUCK_THRESHOLD) return true;
+    }
+  }
+  return false;
+}
+function enforceSafePosition() {
+  if (!collidableMeshes.length) return;
+  // ★ 등반 중이거나 최근 착지 직후엔 롤백 스킵 (벽 붙는 게 정상, 물리 안정화 필요)
+  if (isClimbing) return;
+  const _now = performance.now();
+  if (window._justLandedAt && (_now - window._justLandedAt < 400)) return;
+  refreshNearbyColliders();
+  const penetrating = _isCurrentlyPenetrating();
+  if (!penetrating) {
+    // 안전한 상태 → 지금 위치를 마지막 안전 위치로 저장
+    if (!_lastSafePos) _lastSafePos = new THREE.Vector3();
+    _lastSafePos.copy(player.position);
+    _lastSafePosT = _now;
+    return;
+  }
+  // 파묻힘 감지됨
+  if (_lastSafePos && (_now - _lastSafePosT) < 5000) {
+    // 5초 이내 안전 위치가 있으면 순간 복구
+    player.position.copy(_lastSafePos);
+    velocityY = 0;
+    isClimbing = false;
+    cachedGroundY = null;
+  } else {
+    // 안전 위치 저장된 적 없거나 너무 오래됨 → 위로 텔포
+    player.position.y += 3;
+    velocityY = 5;
+    cachedGroundY = null;
+    _lastSafePos = null;
+  }
 }
 
 // ================ Painting ================
@@ -4945,6 +5025,7 @@ function animate() {
   updateDustBursts(dt);
   updateSplats(dt);
   clampPlayerToBounds();
+  enforceSafePosition(); // ★ 벽에 파묻혔으면 마지막 안전 위치로 순간 복구 (절대 낑김 방지)
   // 총 부착 watchdog - 500ms throttle (매 프레임 불필요)
   if (!_lastGunCheck || _frameNow - _lastGunCheck > 500) {
     _lastGunCheck = _frameNow;
@@ -5047,44 +5128,16 @@ function animate() {
     ot._wasBlinking = shouldBlink;
   }
   // 내 캐릭터 깜빡임 (throttle - isStuckInWall 매프레임 X)
+  //   ★ 자동 밀어내기 로직 제거됨 — enforceSafePosition 롤백이 담당
+  //     (밀어내기가 등반 중 벽에서 자꾸 떼어놔서 "붙잡힌 느낌" 유발)
+  //     여기선 시각 피드백(빨간 깜빡임)만 처리
   {
     const now = _frameNow;
     if (!window._lastStuckCheck || now - window._lastStuckCheck > 500) {
       window._lastStuckCheck = now;
-      // ★ 착지 후 400ms 는 stuck 검사 스킵 (물리 값 안정화 시간)
       const justLanded = window._justLandedAt && (now - window._justLandedAt < 400);
-      window._myStuck = (!justLanded && collidableMeshes && collidableMeshes.length) ? isStuckInWall() : false;
-      // ★ 파묻힘 감지: 조용히 옆으로 밀어냄 (튕기지 않게)
-      if (window._myStuck && currentScreen === 'game' && myAlive) {
-        window._unstickTries = (window._unstickTries || 0) + 1;
-        // ★ 최적화: 미리 할당된 _stuckDirs 재사용 (매번 new Vector3 X)
-        let bestDir = null, bestDist = -1;
-        for (let di = 0; di < _stuckDirs.length; di++) {
-          const dv = _stuckDirs[di];
-          _stuckOrigin.set(player.position.x, player.position.y + 0.9, player.position.z);
-          _stuckRc.set(_stuckOrigin, dv);
-          _stuckRc.far = 2.0;
-          const h = _stuckRc.intersectObjects(_nearbyColliders, false);
-          const dist = h.length ? h[0].distance : 2.0;
-          if (dist > bestDist) { bestDist = dist; bestDir = dv; }
-        }
-        if (bestDir && bestDist > 0.3) {
-          // 벽에서 먼 방향으로 0.15m 만큼 조용히 이동 (튕김 X)
-          player.position.x += bestDir.x * 0.15;
-          player.position.z += bestDir.z * 0.15;
-          cachedGroundY = null;
-          console.log('🧱 살짝 밀어냄 (방향 x' + bestDir.x + ' z' + bestDir.z + ', 여유 ' + bestDist.toFixed(2) + 'm)');
-        }
-        // 3초 이상 계속 갇혀 있으면 스폰으로 (최후 수단)
-        if (window._unstickTries > 6) {
-          console.warn('🧱 6회 시도 실패 → 스폰 복귀');
-          player.position.set(0, 20, 0);
-          velocityY = 0;
-          window._unstickTries = 0;
-        }
-      } else if (!window._myStuck) {
-        window._unstickTries = 0;
-      }
+      // ★ 등반 중이면 stuck 표시 안 함 (벽 붙는 게 정상)
+      window._myStuck = (!justLanded && !isClimbing && collidableMeshes && collidableMeshes.length) ? isStuckInWall() : false;
     }
     const shouldBlinkMe = window._myStuck || (isEnded && aliveMap[myUid] !== false);
     if (shouldBlinkMe || player._wasBlinking) {
