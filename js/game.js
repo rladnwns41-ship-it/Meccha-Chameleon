@@ -3452,63 +3452,6 @@ function isStuckInWall() {
   return false;
 }
 
-// ★ De-penetration: 매 프레임 벽에 파묻힌 만큼 자동으로 밀어냄
-//   8방향 광선을 3높이(발/허리/어깨)에서 쏴서, 반경 안에 벽 있으면 반대로 밀기
-//   → 어떤 상황에서도 벽/구조물에 끼이지 않음 (물리엔진의 collision resolution 흉내)
-const _depenRc = new THREE.Raycaster();
-const _depenOrig = new THREE.Vector3();
-const _depenDirs = [
-  new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0),
-  new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1),
-  new THREE.Vector3(0.7071,0,0.7071), new THREE.Vector3(-0.7071,0,0.7071),
-  new THREE.Vector3(0.7071,0,-0.7071), new THREE.Vector3(-0.7071,0,-0.7071),
-];
-const DEPEN_RADIUS = 0.42;   // 몸 반경 (PR 0.45 근처)
-const DEPEN_HEIGHTS = [0.25, 0.9, 1.55]; // 발/허리/어깨
-const DEPEN_MAX_PER_FRAME = 0.35; // 한 프레임당 최대 이동량 (튐 방지)
-function depenetratePlayer() {
-  if (!_nearbyColliders || !_nearbyColliders.length) return;
-  let pushX = 0, pushZ = 0, pushed = false;
-  for (let hi = 0; hi < DEPEN_HEIGHTS.length; hi++) {
-    _depenOrig.set(player.position.x, player.position.y + DEPEN_HEIGHTS[hi], player.position.z);
-    for (let di = 0; di < _depenDirs.length; di++) {
-      const d = _depenDirs[di];
-      _depenRc.set(_depenOrig, d);
-      _depenRc.far = DEPEN_RADIUS;
-      const hits = _depenRc.intersectObjects(_nearbyColliders, false);
-      if (hits.length > 0) {
-        const dist = hits[0].distance;
-        // 파묻힘 깊이만큼 반대 방향(-d)으로 밀기 + 살짝 여유(0.02)
-        const penetration = (DEPEN_RADIUS - dist) + 0.02;
-        pushX -= d.x * penetration;
-        pushZ -= d.z * penetration;
-        pushed = true;
-      }
-    }
-  }
-  if (!pushed) return;
-  // 여러 방향에서 눌린 경우 평균 push 벡터 → 프레임당 상한 클램프
-  const mag = Math.hypot(pushX, pushZ);
-  if (mag > DEPEN_MAX_PER_FRAME) {
-    const s = DEPEN_MAX_PER_FRAME / mag;
-    pushX *= s; pushZ *= s;
-  }
-  const npx = player.position.x + pushX;
-  const npz = player.position.z + pushZ;
-  // 경계 안에서만 밀기
-  if (!worldBounds || (npx >= worldBounds.minX && npx <= worldBounds.maxX &&
-                       npz >= worldBounds.minZ && npz <= worldBounds.maxZ)) {
-    player.position.x = npx;
-    player.position.z = npz;
-  } else {
-    // 경계에 걸리면 가능한 축만 밀기
-    if (worldBounds) {
-      if (npx >= worldBounds.minX && npx <= worldBounds.maxX) player.position.x = npx;
-      if (npz >= worldBounds.minZ && npz <= worldBounds.maxZ) player.position.z = npz;
-    }
-  }
-}
-
 const groundRay = new THREE.Raycaster();
 const downV = new THREE.Vector3(0,-1,0);
 const _groundOrigin = new THREE.Vector3();
@@ -3538,17 +3481,24 @@ function getGroundHeight(x, z) {
 
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
+const _sideOrigin = new THREE.Vector3(); // 어깨(캡슐 옆면) 광선 원점
 const PR = 0.45; // 충돌 반경 (몸 폭 근사) — 벽 뚫림 방지
-const _tryMoveHeights = [0.2, 0.6, 1.1, 1.6]; // 발/무릎/허리/어깨 4단계로 촘촘히
+// ★ 5단 높이: 발끝/무릎/허리/가슴/머리 — 어떤 높이의 벽/구조물도 검출
+const _tryMoveHeights = [0.05, 0.5, 1.0, 1.4, 1.8];
+// ★ 캡슐 어깨 오프셋 (몸 폭의 70%) — 대각선 벽/모서리 검출
+const CAPSULE_SHOULDER = PR * 0.7;
 const _safeDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+  // ★ 대각선 4방향 추가 → 모서리/코너 안전성 강화
+  new THREE.Vector3(0.7071, 0, 0.7071), new THREE.Vector3(-0.7071, 0, 0.7071),
+  new THREE.Vector3(0.7071, 0, -0.7071), new THREE.Vector3(-0.7071, 0, -0.7071),
 ];
 const _safeRc = new THREE.Raycaster();
 const _safeOrigin = new THREE.Vector3();
-const SAFE_MARGIN = PR * 0.9;
-// 안전망은 발/허리 2개만 (머리는 벽 뚫리기 힘든 위치)
-const _safeHeights = [0.2, 0.7, 1.4]; // 발/허리/어깨 3단계 (벽 파묻힘 정밀 탐지)
+const SAFE_MARGIN = PR * 0.95; // ★ 0.9 → 0.95 (좀 더 여유있게 = 파묻힘 검출 민감도↑)
+// 안전망은 발/허리/어깨 3단계 (벽 파묻힘 정밀 탐지)
+const _safeHeights = [0.2, 0.7, 1.4];
 
 // ★ 성능 최적화: 플레이어 근처 collider 만 캐시 (500ms 또는 3m 이동마다 갱신)
 //   맵에 collider 200개 있어도 근처 20개 정도만 검사 → 라이트하게
@@ -3607,13 +3557,30 @@ function tryMove(dx, dz) {
     return;
   }
   refreshNearbyColliders();
+  // ★ 캡슐 스윕 체크: 중심 + 좌/우 어깨 3광선 × 5높이 = 15 광선
+  //   단일 광선은 대각선 벽/얇은 기둥/모서리를 놓칠 수 있음
+  //   좌우 어깨 광선이 몸의 폭을 커버해서 어떤 각도의 벽도 검출
   const check = (mx, mz) => {
     const d = Math.hypot(mx, mz);
     if (d < 0.0001) return true;
     rd.set(mx, 0, mz).normalize();
+    // 이동 방향에 수직인 벡터 = 캡슐 옆면 (어깨)
+    const perpX = -rd.z, perpZ = rd.x;
+    const sx = perpX * CAPSULE_SHOULDER, sz = perpZ * CAPSULE_SHOULDER;
+    const farDist = d + PR; // 이동거리 + 몸반경 만큼 앞을 검사
     for (const hY of _tryMoveHeights) {
-      ro.set(player.position.x, player.position.y + hY, player.position.z);
-      rc.set(ro, rd); rc.far = d + PR * 1.5; // 얇은 벽/구조물도 검출
+      const py = player.position.y + hY;
+      // 중심 광선
+      ro.set(player.position.x, py, player.position.z);
+      rc.set(ro, rd); rc.far = farDist;
+      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
+      // 왼쪽 어깨 광선
+      _sideOrigin.set(player.position.x + sx, py, player.position.z + sz);
+      rc.set(_sideOrigin, rd); rc.far = farDist;
+      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
+      // 오른쪽 어깨 광선
+      _sideOrigin.set(player.position.x - sx, py, player.position.z - sz);
+      rc.set(_sideOrigin, rd); rc.far = farDist;
       if (rc.intersectObjects(_nearbyColliders, false).length) return false;
     }
     return true;
@@ -3633,51 +3600,11 @@ function tryMove(dx, dz) {
       player.position.z = nz;
     }
   }
-  // ★ 최종 위치에서 안전망 한 번만 (X/Z 각각 검사 안 함 → 광선 절반으로)
-  //   실제 이동이 있었을 때만
+  // ★ 최종 위치에서 안전망 (8방향 × 3높이) — 이동 발생했을 때만
+  //   조금이라도 파묻혔으면 완전 롤백. 절대 벽 안으로 안 들어감.
   if ((player.position.x !== origX || player.position.z !== origZ) && !isPositionSafe()) {
     player.position.x = origX;
     player.position.z = origZ;
-  }
-
-  // ★ 벽 박힘 탈출: 이동을 시도했는데 전혀 못 움직인 경우, 벽에서 밀어냄
-  // (dx/dz 가 있는데 위치가 안 바뀌었다 = 막혔다 → 반대 방향으로 살짝 밀기)
-  if ((Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) &&
-      player.position.x === origX && player.position.z === origZ &&
-      _nearbyColliders.length > 0) {
-    // 4방향 중 가장 열린 방향을 찾아 살짝 밀어냄
-    let bestPushX = 0, bestPushZ = 0, bestClear = -1;
-    const pushDirs = [
-      [1,0], [-1,0], [0,1], [0,-1],
-      [0.707,0.707], [-0.707,0.707], [0.707,-0.707], [-0.707,-0.707]
-    ];
-    for (const [pdx, pdz] of pushDirs) {
-      let minDist = 999;
-      let blocked = false;
-      for (const hY of [0.35, 1.0]) {
-        ro.set(player.position.x, player.position.y + hY, player.position.z);
-        rd.set(pdx, 0, pdz);
-        rc.set(ro, rd); rc.far = PR + 0.3;
-        const hits = rc.intersectObjects(_nearbyColliders, false);
-        if (hits.length > 0) { blocked = true; break; }
-      }
-      if (!blocked) {
-        // 이 방향은 열려있음 → 가장 이동 방향과 가까운 것 선택
-        const dot = pdx * (dx / (Math.abs(dx)+0.0001)) + pdz * (dz / (Math.abs(dz)+0.0001));
-        if (dot > bestClear) { bestClear = dot; bestPushX = pdx; bestPushZ = pdz; }
-      }
-    }
-    if (bestClear >= 0) {
-      // 열린 방향으로 살짝 밀기 (스텝 크기의 20%)
-      const pushAmt = Math.hypot(dx, dz) * 0.2;
-      const npx = player.position.x + bestPushX * pushAmt;
-      const npz = player.position.z + bestPushZ * pushAmt;
-      if (!worldBounds || (npx >= worldBounds.minX && npx <= worldBounds.maxX &&
-                           npz >= worldBounds.minZ && npz <= worldBounds.maxZ)) {
-        player.position.x = npx;
-        player.position.z = npz;
-      }
-    }
   }
 }
 
@@ -5018,7 +4945,6 @@ function animate() {
   updateDustBursts(dt);
   updateSplats(dt);
   clampPlayerToBounds();
-  depenetratePlayer(); // ★ 매 프레임 벽 파묻힘 자동 해소 → 끼임 완전 방지
   // 총 부착 watchdog - 500ms throttle (매 프레임 불필요)
   if (!_lastGunCheck || _frameNow - _lastGunCheck > 500) {
     _lastGunCheck = _frameNow;
