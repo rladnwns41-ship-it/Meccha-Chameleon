@@ -5436,24 +5436,34 @@ async function _joinVoice() {
     return;
   }
 
-  // ★ 20초 안에 접속 안 되면 오류 처리
+  // ★ 45초 타임아웃 - 접속 신호 없으면 오류 처리
+  //   (Jitsi 서버 느릴 때 20초로도 부족한 경우 있음)
   _voiceJoinTimer = setTimeout(() => {
     if (_voiceStatus === 'joining') {
-      console.warn('🔇 Jitsi 접속 타임아웃');
+      console.warn('🔇 Jitsi 접속 타임아웃 (45초)');
       _voiceStatus = 'error';
       _applyVoiceStatusUI();
       _leaveVoice();
     }
-  }, 20000);
+  }, 45000);
 
-  _voiceApi.addEventListener('videoConferenceJoined', () => {
+  // ★ 접속 완료 판정: 여러 이벤트 중 하나만 와도 joined 로 전환
+  //   videoConferenceJoined 가 안 발동하는 케이스가 있어서 (audio-only 모드 등)
+  //   audioMuteStatusChanged / participantJoined 로도 감지
+  const _markJoined = () => {
+    if (_voiceStatus !== 'joining') return;
     _voiceStatus = 'joined';
-    _voiceMuted = true;
     if (_voiceJoinTimer) { clearTimeout(_voiceJoinTimer); _voiceJoinTimer = null; }
     _applyVoiceStatusUI();
+  };
+
+  _voiceApi.addEventListener('videoConferenceJoined', () => {
+    _voiceMuted = true;
+    _markJoined();
   });
   _voiceApi.addEventListener('participantJoined', () => {
     _voiceParticipantCount++;
+    _markJoined();
     _updateVoiceUI();
   });
   _voiceApi.addEventListener('participantLeft', ev => {
@@ -5463,12 +5473,14 @@ async function _joinVoice() {
   });
   _voiceApi.addEventListener('audioMuteStatusChanged', ev => {
     _voiceMuted = !!ev.muted;
+    _markJoined();                    // ★ 뮤트 상태 변화 = 확실히 연결됨
     if (_voiceMuted) _voiceSpeakingUids.delete(myUid);
     else _voiceSpeakingUids.add(myUid);
     _updateVoiceUI();
     _refreshVoiceUiOnLists();
   });
   _voiceApi.addEventListener('dominantSpeakerChanged', ev => {
+    _markJoined();
     _voiceResolveSpeaker(ev && ev.id);
   });
   _voiceApi.addEventListener('readyToClose', () => {
