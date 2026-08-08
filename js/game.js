@@ -517,11 +517,16 @@ setInterval(async () => {
       
     } else if (state === 'voting') {
       const phase = room.votePhase || 'map';
-      if (room.voteCountdown > 0) {
+      // ★ 모두 투표했는지 확인 → 남은 시간 무시하고 즉시 다음 단계로
+      const players = room.players || {};
+      const uids = Object.keys(players);
+      const voteField = phase === 'map' ? 'vote' : 'modeVote';
+      const allVoted = uids.length > 0 && uids.every(u => players[u] && players[u][voteField] != null);
+      if (room.voteCountdown > 0 && !allVoted) {
         await update(roomRef, { voteCountdown: room.voteCountdown - 1 });
       } else if (phase === 'map') {
         // 맵 투표 집계 → 결과 저장 후 모드 투표로 전환
-        const players = room.players || {};
+        if (allVoted) console.log('▶ 모두 맵 투표 완료 → 즉시 모드 투표로');
         const votes = {};
         Object.values(players).forEach(p => { if (p.vote) votes[p.vote] = (votes[p.vote] || 0) + 1; });
         let maxV = -1, winners = [];
@@ -532,15 +537,16 @@ setInterval(async () => {
         const chosen = winners.length > 0
           ? winners[Math.floor(Math.random()*winners.length)]
           : String(Math.floor(Math.random() * MAPS.length));
+        // ★ rules.md 는 selectedMap 이 Number 여야 통과. String 이면 검증 실패 → update 거부 → 상태 전환 안 됨
         await update(roomRef, {
-          selectedMap: chosen,
+          selectedMap: Number(chosen),
           votePhase: 'mode',
           voteCountdown: 15
         });
         console.log('▶ 맵 투표 종료, 선정=', chosen, '→ 모드 투표 시작');
       } else {
         // 모드 투표 집계
-        const players = room.players || {};
+        if (allVoted) console.log('▶ 모두 모드 투표 완료 → 즉시 게임 시작');
         const modeVotes = {};
         Object.values(players).forEach(p => { if (p.modeVote) modeVotes[p.modeVote] = (modeVotes[p.modeVote] || 0) + 1; });
         let mMax = -1, mWinners = [];
@@ -552,7 +558,6 @@ setInterval(async () => {
           ? mWinners[Math.floor(Math.random()*mWinners.length)]
           : 'classic';
         // 술래 결정 — 팀 모드면 여러 명, 아니면 1명
-        const uids = Object.keys(players);
         const shuffled = [...uids].sort(() => Math.random() - 0.5);
         let seekerUid = shuffled[0];
         let seekersMap = null;
@@ -3108,12 +3113,14 @@ function renderVoteMaps(room) {
       d.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!myUid || !myRoomId) return;
-        // 이미 같은 맵에 투표했으면 무시 (투표수 중복 방지)
+        // 같은 맵 다시 클릭 → 취소 (null 로 unset)
         const cur = _cachedRoom?.players?.[myUid]?.vote;
-        if (String(cur) === String(it.i)) return;
-        console.log('🗳 투표 클릭:', it.i, '→', it.m.name);
+        const isSame = String(cur) === String(it.i);
+        console.log('🗳 투표 클릭:', it.i, '→', it.m.name, isSame ? '(취소)' : '');
         try {
-          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { vote: String(it.i) });
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), {
+            vote: isSame ? null : String(it.i)
+          });
         } catch(err) { console.error('❌ 투표 실패:', err); }
       });
       return d;
@@ -3169,10 +3176,12 @@ function renderVoteModes(room) {
         e.stopPropagation();
         if (!myUid || !myRoomId) return;
         const cur = _cachedRoom?.players?.[myUid]?.modeVote;
-        if (cur === it.m.id) return;
-        console.log('🗳 모드 투표:', it.m.id);
+        const isSame = cur === it.m.id;
+        console.log('🗳 모드 투표:', it.m.id, isSame ? '(취소)' : '');
         try {
-          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), { modeVote: it.m.id });
+          await update(ref(fbDb, `rooms/${myRoomId}/players/${myUid}`), {
+            modeVote: isSame ? null : it.m.id
+          });
         } catch(err) { console.error('❌ 모드 투표 실패:', err); }
       });
       return d;
@@ -3496,8 +3505,10 @@ const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const _sideOrigin = new THREE.Vector3(); // 어깨(캡슐 옆면) 광선 원점
 const PR = 0.35; // ★ 0.45→0.35: 좁은 곳(박스 안, 문틈) 통과 가능하게
-// ★ 5단 높이: 발끝/무릎/허리/가슴/머리 — 어떤 높이의 벽/구조물도 검출
-const _tryMoveHeights = [0.05, 0.5, 1.0, 1.4, 1.8];
+// ★ 4단 높이: 무릎(0.5)/허리(1.0)/가슴(1.4)/머리(1.8)
+//   발끝 광선(0.05) 제거 → 낮은 턱·계단·문턱은 자연스럽게 걸어 넘어감
+//   벽은 위쪽 높이의 광선이 잡으니 뚫림 X
+const _tryMoveHeights = [0.5, 1.0, 1.4, 1.8];
 // ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
 const CAPSULE_SHOULDER = PR * 0.6;
 const _safeDirs = [
