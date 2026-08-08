@@ -5274,21 +5274,65 @@ let _voiceJoinTimer = null;        // 접속 타임아웃
 const _voiceSpeakingUids = new Set();
 let _voiceSpeakerClearTimer = null;
 
-// ★ Jitsi API 스크립트 로드 실패 감지 (10초 내 로드 안 되면 unavailable)
-(function _watchJitsiApiLoad() {
-  const start = Date.now();
-  const check = () => {
-    if (typeof JitsiMeetExternalAPI !== 'undefined') return; // OK
-    if (Date.now() - start > 10000) {
+// ★ Jitsi API 스크립트 동적 로드
+//    - 실패 즉시 감지 (10초 대기 안 함)
+//    - 콘솔 404 노출 최소화 (script.onerror 로 조용히 처리)
+//    - 학원/회사 방화벽에서 meet.jit.si 차단 시 정확한 오류 표시
+let _jitsiApiLoading = false;
+let _jitsiApiLoaded = false;
+let _jitsiApiFailed = false;
+
+function _loadJitsiApi() {
+  if (_jitsiApiLoaded || _jitsiApiLoading) return;
+  if (_jitsiApiFailed) return;
+  _jitsiApiLoading = true;
+
+  const script = document.createElement('script');
+  script.src = 'https://meet.jit.si/external_api.js';
+  script.async = true;
+  script.crossOrigin = 'anonymous';
+
+  const timeout = setTimeout(() => {
+    if (!_jitsiApiLoaded) {
+      _jitsiApiFailed = true;
+      _jitsiApiLoading = false;
       _voiceStatus = 'unavailable';
       _applyVoiceStatusUI();
-      console.warn('🔇 Jitsi API 로드 실패 - 음성 사용 불가');
-      return;
+      console.warn('🔇 Jitsi 로드 타임아웃 (12초) - meet.jit.si 접근 불가');
     }
-    setTimeout(check, 500);
+  }, 12000);
+
+  script.onload = () => {
+    clearTimeout(timeout);
+    _jitsiApiLoading = false;
+    if (typeof JitsiMeetExternalAPI !== 'undefined') {
+      _jitsiApiLoaded = true;
+      // 상태가 이미 unavailable 이면 유지 (덮어쓰기 X)
+      if (_voiceStatus === 'unavailable') {
+        _voiceStatus = 'off';
+        _applyVoiceStatusUI();
+      }
+    } else {
+      _jitsiApiFailed = true;
+      _voiceStatus = 'unavailable';
+      _applyVoiceStatusUI();
+    }
   };
-  setTimeout(check, 500);
-})();
+
+  script.onerror = () => {
+    clearTimeout(timeout);
+    _jitsiApiLoading = false;
+    _jitsiApiFailed = true;
+    _voiceStatus = 'unavailable';
+    _applyVoiceStatusUI();
+    console.warn('🔇 meet.jit.si 접근 불가 - 방화벽 또는 네트워크 차단 가능성');
+  };
+
+  document.head.appendChild(script);
+}
+
+// 페이지 로드 시 백그라운드로 미리 로드 시작 (실제 사용까지 시간 벌기)
+_loadJitsiApi();
 
 function showVoiceWidget(roomId) {
   _voiceRoomId = roomId;
@@ -5308,10 +5352,30 @@ function hideVoiceWidget() {
 async function _joinVoice() {
   if (_voiceApi) return;
   if (!_voiceRoomId) return;
+  // API 아직 로딩 중이면 잠시 대기
+  if (_jitsiApiLoading) {
+    _voiceStatus = 'joining';
+    _applyVoiceStatusUI();
+    // 최대 8초 대기
+    for (let i = 0; i < 80; i++) {
+      if (_jitsiApiLoaded || _jitsiApiFailed) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  // 재시도: 이전에 실패했으면 한 번 더 시도
+  if (_jitsiApiFailed && !_jitsiApiLoaded) {
+    _jitsiApiFailed = false;
+    _loadJitsiApi();
+    _voiceStatus = 'joining';
+    _applyVoiceStatusUI();
+    for (let i = 0; i < 80; i++) {
+      if (_jitsiApiLoaded || _jitsiApiFailed) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
   if (typeof JitsiMeetExternalAPI === 'undefined') {
     _voiceStatus = 'unavailable';
     _applyVoiceStatusUI();
-    alert('음성 서비스 로드 실패\n네트워크 또는 브라우저 확장 프로그램(광고 차단 등) 확인');
     return;
   }
   // 마이크 권한 사전 요청
