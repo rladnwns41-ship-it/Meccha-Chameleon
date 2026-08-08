@@ -2798,6 +2798,8 @@ function enterRoom(roomId) {
   showScreen('lobby');
   subscribeRoom(roomId);
   initChat();
+  // ★ 음성 채팅 위젯 표시 (Jitsi Meet 임베드)
+  showVoiceWidget(roomId);
 }
 
 // ============ 로비 (방 안) ============
@@ -2997,6 +2999,8 @@ document.getElementById('leaveRoomBtn').addEventListener('click', leaveToRooms);
 async function leaveToRooms() {
   unsubscribeChat();
   unsubscribeSplats();
+  // ★ 음성 채팅 정리
+  hideVoiceWidget();
   if (_leavingRoom) return;
   _leavingRoom = true;
   // 게임 중 이탈 시 로컬 상태 강제 리셋
@@ -5243,3 +5247,151 @@ addEventListener('wheel', e => {
   _camZoom += e.deltaY * 0.01;
   _camZoom = Math.max(CAM_ZOOM_MIN, Math.min(CAM_ZOOM_MAX, _camZoom));
 }, { passive: false });
+
+// ============================================================
+// 🎙 음성 채팅 (Jitsi Meet 임베드)
+// 방 안에서만 활성. 게임 화면에서도 백그라운드 오디오는 유지됨.
+// 무료 공용 인스턴스(meet.jit.si) 사용 — SFU 서버 경유라 렉 X.
+// ============================================================
+
+let _voiceApi = null;         // JitsiMeetExternalAPI 인스턴스
+let _voiceMuted = false;
+let _voiceRoomId = null;
+let _voiceParticipantCount = 1;
+
+function showVoiceWidget(roomId) {
+  _voiceRoomId = roomId;
+  const w = document.getElementById('voiceWidget');
+  if (!w) return;
+  w.classList.remove('hidden');
+  // 초기 상태: "참가" 버튼만 보임
+  document.getElementById('voiceJoinBtn').classList.remove('hidden');
+  document.getElementById('voiceStatus').classList.add('hidden');
+}
+
+function hideVoiceWidget() {
+  const w = document.getElementById('voiceWidget');
+  if (w) w.classList.add('hidden');
+  _leaveVoice();
+  _voiceRoomId = null;
+}
+
+async function _joinVoice() {
+  if (_voiceApi) return; // 이미 참가 중
+  if (!_voiceRoomId) return;
+  if (typeof JitsiMeetExternalAPI === 'undefined') {
+    alert('음성 서비스 로드 실패 — 네트워크 확인 후 새로고침');
+    return;
+  }
+  // 마이크 권한 미리 요청 (거절되면 참가 취소)
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop()); // 즉시 해제 (Jitsi 가 다시 잡음)
+  } catch (e) {
+    alert('마이크 권한이 필요합니다.\n브라우저 주소창 왼쪽 자물쇠 → 마이크 → 허용');
+    return;
+  }
+
+  const wrap = document.getElementById('voiceIframeWrap');
+  wrap.innerHTML = '';
+  wrap.classList.remove('hidden');
+
+  // Jitsi 방 ID: 게임 방 ID 앞에 접두사 붙여서 유일성 확보
+  const jitsiRoomName = 'wcc-' + _voiceRoomId.replace(/[^a-zA-Z0-9]/g, '');
+
+  _voiceApi = new JitsiMeetExternalAPI('meet.jit.si', {
+    roomName: jitsiRoomName,
+    parentNode: wrap,
+    width: '100%',
+    height: '100%',
+    userInfo: {
+      displayName: (typeof myNick === 'string' && myNick) ? myNick : '익명'
+    },
+    configOverwrite: {
+      startWithVideoMuted: true,      // 카메라 꺼짐
+      startWithAudioMuted: false,     // 마이크 켜짐
+      prejoinPageEnabled: false,      // "이름 입력" 프리조인 화면 스킵
+      disableDeepLinking: true,
+      enableWelcomePage: false,
+      requireDisplayName: false,
+      p2p: { enabled: false },        // SFU 강제 사용 (10명 방 안정성)
+      startAudioOnly: true,           // 오디오 모드 (대역폭 최소)
+      disableSelfView: true,
+      disableInviteFunctions: true,
+      readOnlyName: true,
+      toolbarButtons: []              // 툴바 숨김 (우리 UI 로 제어)
+    },
+    interfaceConfigOverwrite: {
+      DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+      DEFAULT_BACKGROUND: '#000',
+      SHOW_JITSI_WATERMARK: false,
+      SHOW_WATERMARK_FOR_GUESTS: false,
+      MOBILE_APP_PROMO: false,
+      HIDE_INVITE_MORE_HEADER: true
+    }
+  });
+
+  _voiceApi.addEventListener('videoConferenceJoined', () => {
+    document.getElementById('voiceJoinBtn').classList.add('hidden');
+    document.getElementById('voiceStatus').classList.remove('hidden');
+    _updateVoiceUI();
+  });
+  _voiceApi.addEventListener('participantJoined', () => {
+    _voiceParticipantCount++;
+    _updateVoiceUI();
+  });
+  _voiceApi.addEventListener('participantLeft', () => {
+    _voiceParticipantCount = Math.max(1, _voiceParticipantCount - 1);
+    _updateVoiceUI();
+  });
+  _voiceApi.addEventListener('audioMuteStatusChanged', ev => {
+    _voiceMuted = !!ev.muted;
+    _updateVoiceUI();
+  });
+  _voiceApi.addEventListener('readyToClose', () => {
+    _leaveVoice();
+  });
+}
+
+function _leaveVoice() {
+  if (_voiceApi) {
+    try { _voiceApi.dispose(); } catch(e) {}
+    _voiceApi = null;
+  }
+  _voiceMuted = false;
+  _voiceParticipantCount = 1;
+  const wrap = document.getElementById('voiceIframeWrap');
+  if (wrap) { wrap.innerHTML = ''; wrap.classList.add('hidden'); }
+  document.getElementById('voiceJoinBtn').classList.remove('hidden');
+  document.getElementById('voiceStatus').classList.add('hidden');
+}
+
+function _toggleVoiceMute() {
+  if (!_voiceApi) return;
+  _voiceApi.executeCommand('toggleAudio');
+}
+
+function _updateVoiceUI() {
+  const cnt = document.getElementById('voiceCount');
+  if (cnt) cnt.textContent = _voiceParticipantCount;
+  const muteBtn = document.getElementById('voiceMuteBtn');
+  const dot = document.querySelector('.voice-dot');
+  if (muteBtn) {
+    muteBtn.textContent = _voiceMuted ? '🔇' : '🎙';
+    muteBtn.classList.toggle('muted', _voiceMuted);
+  }
+  if (dot) dot.classList.toggle('muted', _voiceMuted);
+}
+
+// 이벤트 바인딩 (DOMContentLoaded 이후, 여기 이미 그 시점)
+(function bindVoiceUI() {
+  const j = document.getElementById('voiceJoinBtn');
+  const m = document.getElementById('voiceMuteBtn');
+  const l = document.getElementById('voiceLeaveBtn');
+  if (j) j.addEventListener('click', _joinVoice);
+  if (m) m.addEventListener('click', _toggleVoiceMute);
+  if (l) l.addEventListener('click', _leaveVoice);
+})();
+
+// 페이지 나갈 때 정리
+addEventListener('beforeunload', () => { _leaveVoice(); });
