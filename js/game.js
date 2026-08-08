@@ -931,23 +931,35 @@ function createSplatMesh(x, y, z, nx, ny, nz, colorIdx) {
   const color = SPLAT_COLORS[colorIdx % SPLAT_COLORS.length];
   const N = 7 + Math.floor(Math.random() * 5);
   const group = new THREE.Group();
+  // ★ 모든 맵에서 보이게: polygonOffset + renderOrder + offset 0.015→0.08
+  //   (Sponza/마켓/쇼핑몰은 스케일 2.5~3배라 1.5cm offset은 z-fight로 벽 안에 파묻힘)
   const mainGeo = new THREE.CircleGeometry(0.18 + Math.random()*0.14, 10);
-  const mainMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-  group.add(new THREE.Mesh(mainGeo, mainMat));
+  const mainMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+  });
+  const mainMesh = new THREE.Mesh(mainGeo, mainMat);
+  mainMesh.renderOrder = 5;
+  group.add(mainMesh);
   for (let i = 0; i < N; i++) {
     const angle = (i / N) * Math.PI * 2 + Math.random() * 0.9;
     const dist = 0.08 + Math.random() * 0.34;
     const r = 0.04 + Math.random() * 0.11;
     const geo = new THREE.CircleGeometry(r, 7);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+    });
     const blob = new THREE.Mesh(geo, mat);
+    blob.renderOrder = 5;
     blob.position.set(Math.cos(angle) * dist, Math.sin(angle) * dist, 0);
     group.add(blob);
   }
   const normal = new THREE.Vector3(nx, ny, nz).normalize();
   const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), normal);
   group.quaternion.copy(quat);
-  group.position.set(x + normal.x*0.015, y + normal.y*0.015, z + normal.z*0.015);
+  group.position.set(x + normal.x*0.08, y + normal.y*0.08, z + normal.z*0.08);
+  group.renderOrder = 5;
   scene.add(group);
   _activeSplats.push({ group, life: 0, maxLife: 9.0 });
 }
@@ -3440,6 +3452,63 @@ function isStuckInWall() {
   return false;
 }
 
+// ★ De-penetration: 매 프레임 벽에 파묻힌 만큼 자동으로 밀어냄
+//   8방향 광선을 3높이(발/허리/어깨)에서 쏴서, 반경 안에 벽 있으면 반대로 밀기
+//   → 어떤 상황에서도 벽/구조물에 끼이지 않음 (물리엔진의 collision resolution 흉내)
+const _depenRc = new THREE.Raycaster();
+const _depenOrig = new THREE.Vector3();
+const _depenDirs = [
+  new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0),
+  new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1),
+  new THREE.Vector3(0.7071,0,0.7071), new THREE.Vector3(-0.7071,0,0.7071),
+  new THREE.Vector3(0.7071,0,-0.7071), new THREE.Vector3(-0.7071,0,-0.7071),
+];
+const DEPEN_RADIUS = 0.42;   // 몸 반경 (PR 0.45 근처)
+const DEPEN_HEIGHTS = [0.25, 0.9, 1.55]; // 발/허리/어깨
+const DEPEN_MAX_PER_FRAME = 0.35; // 한 프레임당 최대 이동량 (튐 방지)
+function depenetratePlayer() {
+  if (!_nearbyColliders || !_nearbyColliders.length) return;
+  let pushX = 0, pushZ = 0, pushed = false;
+  for (let hi = 0; hi < DEPEN_HEIGHTS.length; hi++) {
+    _depenOrig.set(player.position.x, player.position.y + DEPEN_HEIGHTS[hi], player.position.z);
+    for (let di = 0; di < _depenDirs.length; di++) {
+      const d = _depenDirs[di];
+      _depenRc.set(_depenOrig, d);
+      _depenRc.far = DEPEN_RADIUS;
+      const hits = _depenRc.intersectObjects(_nearbyColliders, false);
+      if (hits.length > 0) {
+        const dist = hits[0].distance;
+        // 파묻힘 깊이만큼 반대 방향(-d)으로 밀기 + 살짝 여유(0.02)
+        const penetration = (DEPEN_RADIUS - dist) + 0.02;
+        pushX -= d.x * penetration;
+        pushZ -= d.z * penetration;
+        pushed = true;
+      }
+    }
+  }
+  if (!pushed) return;
+  // 여러 방향에서 눌린 경우 평균 push 벡터 → 프레임당 상한 클램프
+  const mag = Math.hypot(pushX, pushZ);
+  if (mag > DEPEN_MAX_PER_FRAME) {
+    const s = DEPEN_MAX_PER_FRAME / mag;
+    pushX *= s; pushZ *= s;
+  }
+  const npx = player.position.x + pushX;
+  const npz = player.position.z + pushZ;
+  // 경계 안에서만 밀기
+  if (!worldBounds || (npx >= worldBounds.minX && npx <= worldBounds.maxX &&
+                       npz >= worldBounds.minZ && npz <= worldBounds.maxZ)) {
+    player.position.x = npx;
+    player.position.z = npz;
+  } else {
+    // 경계에 걸리면 가능한 축만 밀기
+    if (worldBounds) {
+      if (npx >= worldBounds.minX && npx <= worldBounds.maxX) player.position.x = npx;
+      if (npz >= worldBounds.minZ && npz <= worldBounds.maxZ) player.position.z = npz;
+    }
+  }
+}
+
 const groundRay = new THREE.Raycaster();
 const downV = new THREE.Vector3(0,-1,0);
 const _groundOrigin = new THREE.Vector3();
@@ -4528,11 +4597,29 @@ function startFirebaseSync(room) {
         // ★ 수신 좌표 검증: 숫자가 아니거나 범위 초과면 무시
         const isNum = v => typeof v === 'number' && isFinite(v);
         if (isNum(p.x) && isNum(p.y) && isNum(p.z)) {
-          ot.targetX = Math.max(-100, Math.min(100, p.x));
-          ot.targetY = Math.max(-5, Math.min(30, p.y));
-          ot.targetZ = Math.max(-100, Math.min(100, p.z));
+          // ★ 스냅샷 버퍼에 추가 (렌더 딜레이 보간용 - 텔포 느낌 제거)
+          if (!ot.snapshots) ot.snapshots = [];
+          const _nowMs = performance.now();
+          const snap2 = {
+            t: _nowMs,
+            x: Math.max(-100, Math.min(100, p.x)),
+            y: Math.max(-5, Math.min(30, p.y)),
+            z: Math.max(-100, Math.min(100, p.z)),
+            r: isNum(p.r) ? p.r : (ot.snapshots.length ? ot.snapshots[ot.snapshots.length-1].r : 0)
+          };
+          ot.snapshots.push(snap2);
+          // 오래된 스냅샷 정리 (최대 20개, 1초 이상 오래된 건 마지막 2개 빼고 제거)
+          if (ot.snapshots.length > 20) ot.snapshots.shift();
+          // 기존 target 필드 유지 (다른 코드가 참조할 수 있음)
+          ot.targetX = snap2.x; ot.targetY = snap2.y; ot.targetZ = snap2.z; ot.targetR = snap2.r;
+          // 첫 스냅샷 - 즉시 위치 세팅 (첫 등장 자연스럽게)
+          if (ot.snapshots.length === 1) {
+            ot.group.position.set(snap2.x, snap2.y, snap2.z);
+            ot.group.rotation.y = snap2.r;
+          }
+        } else if (isNum(p.r)) {
+          ot.targetR = p.r;
         }
-        if (isNum(p.r)) ot.targetR = p.r;
         ot.stuck = p.stuck ? 1 : 0;
         // 포즈 바뀌었으면 mesh 교체
         if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
@@ -4885,6 +4972,7 @@ function animate() {
   updateDustBursts(dt);
   updateSplats(dt);
   clampPlayerToBounds();
+  depenetratePlayer(); // ★ 매 프레임 벽 파묻힘 자동 해소 → 끼임 완전 방지
   // 총 부착 watchdog - 500ms throttle (매 프레임 불필요)
   if (!_lastGunCheck || _frameNow - _lastGunCheck > 500) {
     _lastGunCheck = _frameNow;
@@ -4905,30 +4993,60 @@ function animate() {
     _needBlinkCache = isEnded || hasStuck;
   }
   const blinkPhase = _needBlinkCache ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
+  // ★ 스냅샷 버퍼 보간: 서버 시간보다 150ms 뒤에서 렌더 → 두 스냅샷 사이 보간
+  //   패킷이 100~200ms 간격으로 와도 항상 두 스냅샷 사이에 있어서 완전 부드러움
+  const RENDER_DELAY_MS = 150;
+  const _renderNow = performance.now();
+  const _renderT = _renderNow - RENDER_DELAY_MS;
   for (const uid in otherPlayers) {
     const ot = otherPlayers[uid];
-    if (ot.targetX !== undefined) {
-      // fog 범위 밖 플레이어는 lerp 스킵 (CPU 절약)
-      const _dx = ot.targetX - player.position.x;
-      const _dz = ot.targetZ - player.position.z;
+    const buf = ot.snapshots;
+    if (buf && buf.length > 0) {
+      // 두 스냅샷 사이 보간 위치 찾기
+      let a = null, b = null;
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i].t <= _renderT) { a = buf[i]; b = buf[i+1] || null; break; }
+      }
+      let px, py, pz, pr;
+      if (!a) {
+        // 렌더 시간이 첫 스냅샷보다 이전 → 첫 스냅샷 사용
+        a = buf[0]; px = a.x; py = a.y; pz = a.z; pr = a.r;
+      } else if (!b) {
+        // 렌더 시간 이후 스냅샷 없음 (패킷 늦음) → 마지막 스냅샷으로 살짝 외삽 lerp
+        // 급격한 튐 방지: 목표점으로 0.2 lerp
+        const ogp = ot.group.position;
+        px = ogp.x + (a.x - ogp.x) * 0.2;
+        py = ogp.y + (a.y - ogp.y) * 0.2;
+        pz = ogp.z + (a.z - ogp.z) * 0.2;
+        pr = a.r;
+      } else {
+        // 두 스냅샷 사이 선형 보간 — 이게 부드러움의 핵심
+        const dt = b.t - a.t;
+        const t = dt > 0 ? Math.max(0, Math.min(1, (_renderT - a.t) / dt)) : 0;
+        px = a.x + (b.x - a.x) * t;
+        py = a.y + (b.y - a.y) * t;
+        pz = a.z + (b.z - a.z) * t;
+        // rotation shortest-path 보간
+        let dr = b.r - a.r;
+        dr = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
+        pr = a.r + dr * t;
+      }
+      const _dx = px - player.position.x;
+      const _dz = pz - player.position.z;
       const _distSq = _dx*_dx + _dz*_dz;
-      if (_distSq > 5625) { // 75*75 = fog 70 + 여유
-        // ★ 최적화: 멀리 있는 플레이어는 위치만 순간이동, visibility off로 렌더 스킵
-        ot.group.position.set(ot.targetX, ot.targetY, ot.targetZ);
-        ot.group.rotation.y = ot.targetR;
+      if (_distSq > 5625) {
+        ot.group.position.set(px, py, pz);
+        ot.group.rotation.y = pr;
         if (ot.group.visible) ot.group.visible = false;
       } else {
         if (!ot.group.visible) ot.group.visible = true;
-      ot.group.position.x += (ot.targetX - ot.group.position.x) * 0.15;
-      ot.group.position.y += (ot.targetY - ot.group.position.y) * 0.15;
-      ot.group.position.z += (ot.targetZ - ot.group.position.z) * 0.15;
-      // ★ 최적화: 30유닛 이내 플레이어만 rotation lerp
-      if (_distSq < 900) {
-        const dr = ot.targetR - ot.group.rotation.y;
-        let nd = ((dr + Math.PI) % (Math.PI*2)) - Math.PI;
-        ot.group.rotation.y += nd * 0.15;
+        ot.group.position.set(px, py, pz);
+        if (_distSq < 900) {
+          ot.group.rotation.y = pr;
+        }
       }
-      } // end near lerp
+      // 오래된 스냅샷 정리 (렌더 시간에서 500ms 이상 오래된 건 제거, 최소 2개 유지)
+      while (buf.length > 2 && buf[1].t < _renderT - 500) buf.shift();
     }
     const shouldBlink = ot.stuck === 1 || (isEnded && aliveMap[uid] !== false);
     // idle이고 이전에도 idle이면 아무것도 안 함
