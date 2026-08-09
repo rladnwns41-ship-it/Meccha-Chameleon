@@ -3513,18 +3513,22 @@ const _upV = new THREE.Vector3(0, 1, 0);
 const _groundAndCollidable = [ground]; // ground + collidableMeshes 통합 배열 (매 프레임 스프레드 방지)
 function getGroundHeight(x, z) {
   refreshNearbyColliders();
-  // 머리 위 2유닛에서 아래로 충분히(50) 쏨
-  _groundOrigin.set(x, player.position.y + 2.0, z);
-  groundRay.set(_groundOrigin, downV);
-  groundRay.far = 50;
-  const hits = groundRay.intersectObjects(_nearbyWithGround, false);
-  if (!hits.length) return null;
-  // 현재 발 위치보다 0.6 이상 높은 hit는 천장/위층 구조물 → 제외
+  const startY = player.position.y + 2.0;
   const maxAllowed = player.position.y + 0.6;
+  // ★ 5점 샘플링: 중심 + 동서남북 0.2m 오프셋
+  //   얇은 바닥/가장자리에서 발이 빠지는 현상 방지
+  //   레이캐스터 재사용 → 성능 영향 최소
+  const offsets = [[0,0],[0.2,0],[-0.2,0],[0,0.2],[0,-0.2]];
   let best = null;
-  for (const h of hits) {
-    if (h.point.y <= maxAllowed) {
-      if (best === null || h.point.y > best) best = h.point.y;
+  for (const [ox, oz] of offsets) {
+    _groundOrigin.set(x + ox, startY, z + oz);
+    groundRay.set(_groundOrigin, downV);
+    groundRay.far = 50;
+    const hits = groundRay.intersectObjects(_nearbyWithGround, false);
+    for (const h of hits) {
+      if (h.point.y <= maxAllowed) {
+        if (best === null || h.point.y > best) best = h.point.y;
+      }
     }
   }
   return best;
@@ -3533,20 +3537,20 @@ function getGroundHeight(x, z) {
 const rc = new THREE.Raycaster();
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const _sideOrigin = new THREE.Vector3(); // 어깨(캡슐 옆면) 광선 원점
-const PR = 0.35; // ★ 0.45→0.35: 좁은 곳(박스 안, 문틈) 통과 가능하게
+const PR = 0.42; // 벽 통과 방지: 0.35→0.42 (좁은 문틈은 희생하되 벽 파고들기 방지)
 // ★ 4단 높이: 무릎(0.5)/허리(1.0)/가슴(1.4)/머리(1.8)
 //   발끝 광선(0.05) 제거 → 낮은 턱·계단·문턱은 자연스럽게 걸어 넘어감
 //   벽은 위쪽 높이의 광선이 잡으니 뚫림 X
-const _tryMoveHeights = [0.5, 1.0, 1.4, 1.8];
+const _tryMoveHeights = [0.1, 0.5, 1.0, 1.4, 1.8]; // 발끝 광선 추가 → 낮은 벽 통과 방지
 // ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
-const CAPSULE_SHOULDER = PR * 0.6;
+const CAPSULE_SHOULDER = PR * 0.85; // 어깨 폭 확대 → 대각/모서리 벽 통과 방지
 const _safeDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
 ];
 const _safeRc = new THREE.Raycaster();
 const _safeOrigin = new THREE.Vector3();
-const SAFE_MARGIN = 0.12; // ★ 파묻힘 판정 임계: 매우 짧게. 진짜 몸통 안에 벽이 파고든 경우만
+const SAFE_MARGIN = 0.18; // 파묻힘 판정 강화: 0.12→0.18 더 일찍 감지해 롤백
 // 안전망은 발/허리 2단계 (머리는 벽 뚫리기 힘든 위치)
 const _safeHeights = [0.4, 1.0];
 
@@ -3624,7 +3628,7 @@ function tryMove(dx, dz) {
     const perpX = -rd.z, perpZ = rd.x;
     const sx = perpX * CAPSULE_SHOULDER, sz = perpZ * CAPSULE_SHOULDER;
     // ★ 앞 검사 거리: 이동거리 + 살짝만 (몸반경 절반). 너무 크면 벽 옆 지나갈 때도 멈춤
-    const farDist = d + PR * 0.5;
+    const farDist = d + PR * 0.8; // 감지 거리 확대 → 고속 이동 시 벽 통과 방지
     for (const hY of _tryMoveHeights) {
       const py = player.position.y + hY;
       // 중심 광선
@@ -3691,8 +3695,8 @@ const _stuckCheckDirs = [
 ];
 const _stuckCheckRc = new THREE.Raycaster();
 const _stuckCheckOrigin = new THREE.Vector3();
-const STUCK_PENETRATION_DIST = 0.08; // 몸 중심 8cm 이내 벽 = 파묻힘 신호
-const STUCK_THRESHOLD = 6;            // 8방향 중 6개 이상 파묻힘 = 진짜 갇힘 (5→6, 등반 중 오탐 방지)
+const STUCK_PENETRATION_DIST = 0.14; // 파묻힘 감지 거리 확대: 0.08→0.14
+const STUCK_THRESHOLD = 5;            // 8방향 중 5개 이상 파묻힘 = 갇힘 판정 (더 민감하게)
 function _isCurrentlyPenetrating() {
   if (!_nearbyColliders || !_nearbyColliders.length) return false;
   // ★ 두 높이(허리 0.9m, 무릎 0.4m)에서 검사 → 낮은 구조물도 정확히 잡음
@@ -5274,7 +5278,7 @@ function animate() {
   }
   // ★ Y 이동량 캡: 한 프레임에 최대 1m 만 이동 (프레임 스킵/버그로 인한 순간이동 방지)
   const deltaY = velocityY * dt;
-  const clampedDeltaY = Math.max(-0.6, Math.min(0.6, deltaY)); // 한 프레임 최대 이동량 줄여 바닥 통과 방지
+  const clampedDeltaY = Math.max(-0.4, Math.min(0.4, deltaY)); // 한 프레임 최대 이동량 축소 → 프레임 드랍 시 바닥 통과 방지
   player.position.y += clampedDeltaY;
   
   // 매 프레임 바닥 감지 (단순: null이면 이전값 유지)
