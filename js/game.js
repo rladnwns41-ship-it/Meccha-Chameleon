@@ -3396,7 +3396,7 @@ addEventListener('keydown', e => {
   if (paintMode) return;
   if (pointerLocked) return; // 이미 잠겨있으면 브라우저가 풀 것
   // 이 ESC는 이미 락이 풀린 후의 두 번째 ESC → 재잠금 시도
-  try { renderer.domElement.requestPointerLock(); } catch(err) {}
+  setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
 });
 
 document.addEventListener('mousemove', e => {
@@ -3413,7 +3413,7 @@ addEventListener('keydown', e => {
     document.getElementById('paintIndicator').classList.toggle('on', paintMode);
     document.getElementById('crosshair').classList.toggle('on', paintMode);
     if (paintMode) document.exitPointerLock();
-    else renderer.domElement.requestPointerLock();
+    else setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(e) {} }, 100);
   }
   // 도구 단축키
   if (paintMode) {
@@ -5007,7 +5007,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   }
   // 채팅이 닫혀있고 포인터락도 없으면 재잠금
   if (!pointerLocked) {
-    try { renderer.domElement.requestPointerLock(); } catch(err) {}
+    setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
   }
 });
 
