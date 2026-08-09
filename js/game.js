@@ -3409,22 +3409,24 @@ document.addEventListener('mousemove', e => {
 // 페인트 모드 토글 (Q) — P 는 포즈 휠에 사용
 let _paintRelockTimer = null;
 addEventListener('keydown', e => {
-  if (e.code === 'KeyQ' && !poseWheelOpen) {
+  if (e.code === 'KeyQ' && !poseWheelOpen && currentScreen === 'game') {
     paintMode = !paintMode;
     document.getElementById('paintIndicator').classList.toggle('on', paintMode);
     document.getElementById('crosshair').classList.toggle('on', paintMode);
     // 기존 재잠금 타이머 항상 취소 (빠른 Q 연타 시 중복 방지)
     if (_paintRelockTimer) { clearTimeout(_paintRelockTimer); _paintRelockTimer = null; }
     if (paintMode) {
-      document.exitPointerLock();
+      // 포인터락이 걸려있을 때만 해제 (이미 풀려있으면 호출 불필요)
+      if (document.pointerLockElement) document.exitPointerLock();
     } else {
-      // exitPointerLock 후 브라우저 쿨다운(약 1초) 대기
+      // exitPointerLock이 일어난 경우 브라우저 쿨다운 대기, 아닌 경우 즉시 재잠금
+      const delay = document.pointerLockElement ? 300 : 0;
       _paintRelockTimer = setTimeout(() => {
         _paintRelockTimer = null;
         if (!paintMode && currentScreen === 'game') {
           try { renderer.domElement.requestPointerLock(); } catch(e) {}
         }
-      }, 300);
+      }, delay);
     }
   }
   // 도구 단축키
