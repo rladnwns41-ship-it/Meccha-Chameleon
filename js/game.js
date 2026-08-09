@@ -3361,7 +3361,7 @@ document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
   // 게임 중 락이 풀렸으면 오버레이 다시 띄워서 재잠금 가능하게
   // (단, 채팅 인풋이 열려있거나 포즈휠이 열려있을 때는 오버레이 표시 안 함)
-  if (!pointerLocked && currentScreen === 'game' && !paintMode && !chatInputOpen && !poseWheelOpen) {
+  if (!pointerLocked && currentScreen === 'game' && !paintMode && !chatInputOpen && !poseWheelOpen && !_paintRelockTimer) {
     const ov = document.getElementById('gameStartClick');
     if (ov) {
       ov.style.display = 'flex';
@@ -3407,13 +3407,25 @@ document.addEventListener('mousemove', e => {
 });
 
 // 페인트 모드 토글 (Q) — P 는 포즈 휠에 사용
+let _paintRelockTimer = null;
 addEventListener('keydown', e => {
   if (e.code === 'KeyQ' && !poseWheelOpen) {
     paintMode = !paintMode;
     document.getElementById('paintIndicator').classList.toggle('on', paintMode);
     document.getElementById('crosshair').classList.toggle('on', paintMode);
-    if (paintMode) document.exitPointerLock();
-    else setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(e) {} }, 100);
+    // 기존 재잠금 타이머 항상 취소 (빠른 Q 연타 시 중복 방지)
+    if (_paintRelockTimer) { clearTimeout(_paintRelockTimer); _paintRelockTimer = null; }
+    if (paintMode) {
+      document.exitPointerLock();
+    } else {
+      // exitPointerLock 후 브라우저 쿨다운(약 1초) 대기
+      _paintRelockTimer = setTimeout(() => {
+        _paintRelockTimer = null;
+        if (!paintMode && currentScreen === 'game') {
+          try { renderer.domElement.requestPointerLock(); } catch(e) {}
+        }
+      }, 300);
+    }
   }
   // 도구 단축키
   if (paintMode) {
