@@ -3342,13 +3342,12 @@ async function startGame(room) {
   const clickHandler = () => {
     clickOverlay.style.display = 'none';
     clickOverlay.classList.remove('show');
-    // 캔버스에 포커스 주고 잠금 (다음 프레임에)
     renderer.domElement.tabIndex = 0;
     renderer.domElement.focus();
-    setTimeout(() => {
-      try { renderer.domElement.requestPointerLock(); }
-      catch(err) { console.warn('포인터락 실패:', err.message); }
-    }, 50);
+    // ★ 반드시 클릭 이벤트 안에서 "즉시" 호출해야 브라우저가 락 허용
+    //   setTimeout 으로 미루면 사용자 제스처가 끊겨 락 거부 → locked:false → 카메라 폭주
+    try { renderer.domElement.requestPointerLock(); }
+    catch(err) { console.warn('포인터락 실패:', err.message); }
     clickOverlay.removeEventListener('click', clickHandler);
   };
   clickOverlay.addEventListener('click', clickHandler);
