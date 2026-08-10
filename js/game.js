@@ -1259,7 +1259,7 @@ async function showScoreboard() {
     if (rows[0]?.uid === myUid) earned += 50;
     if (earned > 0) {
       addCoins(earned);
-      console.log('🪙 코인 획득:', earned, '(총:', getCoins(), ')');
+      console.log('💰 코인 획득:', earned, '(총:', getCoins(), ')');
       // 스코어보드 상단에 획득 알림 잠깐 (있으면)
       showCoinEarned(earned);
     }
@@ -2538,12 +2538,16 @@ function loadHomeCharObject() {
   _homeScene.add(cloned);
   _homeObj = cloned;
 }
+let _homePreviewLast = 0;
 function renderHomePreview() {
   if (currentScreen !== 'home' || !_homeScene || !_homeObj) return;
+  // ★ 성능: 60ms(~16fps) 쓰로틀 — readRenderTargetPixels GPU stall 매 프레임 방지
+  const now = performance.now();
+  if (now - _homePreviewLast < 60) return;
+  _homePreviewLast = now;
   const canvas = document.getElementById('homeCharCanvas');
   if (!canvas) return;
   const w = canvas.width || 200, h = canvas.height || 200;
-  // RenderTarget 크기 변경 감지 시 재생성
   if (!_homeRT || _homeRTW !== w || _homeRTH !== h) {
     if (_homeRT) _homeRT.dispose();
     _homeRT = new THREE.WebGLRenderTarget(w, h, {
@@ -2552,16 +2556,14 @@ function renderHomePreview() {
       samples: 0
     });
     _homeRTW = w; _homeRTH = h;
-    // ★ 최적화: readback 버퍼도 사이즈에 맞게 재사용용으로 캐시
     _homePixBuf = new Uint8Array(w * h * 4);
   }
-  _homeObj.rotation.y = _homeDrag.rotY + performance.now() * 0.0003;
+  _homeObj.rotation.y = _homeDrag.rotY + now * 0.0003;
   const prevTarget = renderer.getRenderTarget();
   renderer.setRenderTarget(_homeRT);
   renderer.setClearColor(0x000000, 0);
   renderer.clear();
   renderer.render(_homeScene, _homeCamera);
-  // GPU → CPU → 2D canvas (버퍼 재사용, 매 프레임 alloc 없음)
   renderer.readRenderTargetPixels(_homeRT, 0, 0, w, h, _homePixBuf);
   renderer.setRenderTarget(prevTarget);
   const ctx = canvas.getContext('2d');
@@ -2635,7 +2637,7 @@ function openPoseShop() {
     card.innerHTML = `
       <div class="psc-icon">${isOwned ? '✅' : '🔒'}</div>
       <div class="psc-name">${displayName}</div>
-      <div class="psc-price">${isOwned ? '보유중' : ('🪙 ' + cost)}</div>
+      <div class="psc-price">${isOwned ? '보유중' : ('💰 ' + cost)}</div>
     `;
     const btn = document.createElement('button');
     if (isOwned) {
@@ -2661,7 +2663,7 @@ document.getElementById('poseShopCloseBtn').addEventListener('click', () => {
 // 코인 획득 알림 (스코어보드에서 잠깐 뜸)
 function showCoinEarned(amount) {
   const toast = document.createElement('div');
-  toast.textContent = '🪙 +' + amount + ' 코인 획득을 하다!';
+  toast.textContent = '💰 +' + amount + ' 코인 획득을 하다!';
   toast.style.cssText = `
     position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
     background:linear-gradient(135deg, #ffcf3c, #ff9838);
@@ -3401,9 +3403,13 @@ addEventListener('keydown', e => {
 
 document.addEventListener('mousemove', e => {
   if (!pointerLocked || paintMode) return;
-  cameraYaw -= e.movementX * 0.0025;
-  cameraPitch += e.movementY * 0.002;
-  cameraPitch = Math.max(-1.3, Math.min(1.3, cameraPitch));
+  // ★ 감도 수정: movementX/Y 스파이크 클램핑 (탭 전환·렉 시 카메라 요동 방지)
+  //   150 정도까진 정상 빠른 시점 전환, 그 이상은 렉으로 인한 스파이크로 간주
+  const mx = Math.max(-150, Math.min(150, e.movementX));
+  const my = Math.max(-150, Math.min(150, e.movementY));
+  cameraYaw -= mx * 0.002;
+  cameraPitch += my * 0.0016;
+  cameraPitch = Math.max(-1.2, Math.min(1.2, cameraPitch));
 });
 
 // 페인트 모드 토글 (Q) — P 는 포즈 휠에 사용
@@ -3515,10 +3521,8 @@ function getGroundHeight(x, z) {
   refreshNearbyColliders();
   const startY = player.position.y + 2.0;
   const maxAllowed = player.position.y + 0.6;
-  // ★ 5점 샘플링: 중심 + 동서남북 0.2m 오프셋
-  //   얇은 바닥/가장자리에서 발이 빠지는 현상 방지
-  //   레이캐스터 재사용 → 성능 영향 최소
-  const offsets = [[0,0],[0.2,0],[-0.2,0],[0,0.2],[0,-0.2]];
+  // ★ 3점 샘플링: 중심 + 전후 (성능과 정확도 균형)
+  const offsets = [[0,0],[0.2,0],[0,0.2]];
   let best = null;
   for (const [ox, oz] of offsets) {
     _groundOrigin.set(x + ox, startY, z + oz);
@@ -3541,7 +3545,7 @@ const PR = 0.42; // 벽 통과 방지: 0.35→0.42 (좁은 문틈은 희생하�
 // ★ 4단 높이: 무릎(0.5)/허리(1.0)/가슴(1.4)/머리(1.8)
 //   발끝 광선(0.05) 제거 → 낮은 턱·계단·문턱은 자연스럽게 걸어 넘어감
 //   벽은 위쪽 높이의 광선이 잡으니 뚫림 X
-const _tryMoveHeights = [0.1, 0.5, 1.0, 1.4, 1.8]; // 발끝 광선 추가 → 낮은 벽 통과 방지
+const _tryMoveHeights = [0.2, 1.0, 1.7]; // ★ 3단 높이 (발/허리/머리) — 성능 40% 감소, 벽 통과 방지 유지
 // ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
 const CAPSULE_SHOULDER = PR * 0.85; // 어깨 폭 확대 → 대각/모서리 벽 통과 방지
 const _safeDirs = [
@@ -3786,7 +3790,7 @@ function bucketFill() {
   addRecentColor(currentColor);
   let total = 0;
   characterMeshes.forEach(m => { total += m.geometry.attributes.color?.count || 0; });
-  console.log('🪣 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
+  console.log('🎨 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
   // Firebase 로 브로드캐스트 (특수 스트로크)
   if (myRoomId && myUid) {
     const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
@@ -4016,15 +4020,16 @@ function pickColor(clientX, clientY) {
   setTool('brush');
 }
 
+const _paintMv = new THREE.Vector2(); // ★ 재사용 (paint 호출당 GC 압박 제거)
 function paint(clientX, clientY) {
   if (!characterMeshes.length) { return; }
   const rect = renderer.domElement.getBoundingClientRect();
-  const mv = new THREE.Vector2(
+  _paintMv.set(
     ((clientX - rect.left)/rect.width)*2 - 1,
     -((clientY - rect.top)/rect.height)*2 + 1
   );
-  paintRc.camera = camera; // ★ 스프라이트 경고 방지
-  paintRc.setFromCamera(mv, camera);
+  paintRc.camera = camera;
+  paintRc.setFromCamera(_paintMv, camera);
   // ★ characterMeshes는 Mesh만 있으므로 스프라이트 충돌 없음
   const hits = paintRc.intersectObjects(characterMeshes, true);
   if (!hits.length) return;
@@ -4146,14 +4151,13 @@ renderer.domElement.addEventListener('mousedown', e => {
 addEventListener('mouseup', () => { isPainting = false; _lastPaintX = null; _lastPaintY = null; });
 addEventListener('mousemove', e => {
   if (!paintMode || !isPainting) return;
-  // 이전 지점과 현재 지점 사이를 보간해서 끊김 없이 그리기
   const cx = e.clientX, cy = e.clientY;
   if (_lastPaintX !== null) {
     const dx = cx - _lastPaintX, dy = cy - _lastPaintY;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    // 브러시 크기의 30%마다 샘플 (작을수록 촘촘히) — 부드러운 스트로크
-    const step = Math.max(1, brushSize * 0.3);
-    const steps = Math.max(1, Math.ceil(dist / step));
+    // ★ 성능: 보간 스텝 최대 8개로 제한 (멀리 움직여도 raycast 폭탄 방지)
+    const step = Math.max(3, brushSize * 0.4);
+    const steps = Math.min(8, Math.max(1, Math.ceil(dist / step)));
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       paint(_lastPaintX + dx*t, _lastPaintY + dy*t);
@@ -5360,12 +5364,11 @@ function animate() {
   const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
   const idealCamY = Math.max(0.5, focusY + vo);
 
-  // ★ 카메라 벽 체크 - focusPoint → idealCam 방향으로 레이캐스트
-  // (플레이어-카메라 사이 벽을 정확히 감지, 몸 속 파묻힘 방지)
+  // ★ 카메라 벽 체크 + 스무딩 (요동 방지: 즉시 점프 대신 lerp)
+  let _goalCamX = idealCamX, _goalCamY = idealCamY, _goalCamZ = idealCamZ;
   if (collidableMeshes.length > 0) {
     _camFocusPt.set(player.position.x, focusY, player.position.z);
     _idealCamPt.set(idealCamX, idealCamY, idealCamZ);
-    // 방향: 초점 → 이상적 카메라 위치
     _camToFocus.subVectors(_idealCamPt, _camFocusPt).normalize();
     const _camDist = _camFocusPt.distanceTo(_idealCamPt);
     _camRc.set(_camFocusPt, _camToFocus);
@@ -5373,18 +5376,25 @@ function animate() {
     _camRc.far = _camDist + 0.5;
     const _camHits = _camRc.intersectObjects(_nearbyColliders, false);
     if (_camHits.length > 0) {
-      // 벽에 닿기 0.3m 앞에 카메라 배치 (안전 마진)
-      const safeDist = Math.max(0, _camHits[0].distance - 0.3);
-      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, safeDist);
-    } else {
-      camera.position.set(idealCamX, idealCamY, idealCamZ);
+      const safeDist = Math.max(0.5, _camHits[0].distance - 0.3);
+      _goalCamX = _camFocusPt.x + _camToFocus.x * safeDist;
+      _goalCamY = _camFocusPt.y + _camToFocus.y * safeDist;
+      _goalCamZ = _camFocusPt.z + _camToFocus.z * safeDist;
     }
-    // 최소 거리 보장: 카메라가 포커스 포인트에 너무 가까우면 약간 뒤로
-    if (camera.position.distanceTo(_camFocusPt) < 0.5) {
-      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, 0.5);
-    }
+  }
+  // ★ 카메라 lerp: 벽 근처에서도 부드럽게 (벽으로 가까워질 땐 빠르게, 벌어질 땐 느리게)
+  //   단, 거리가 너무 크면 (스폰/텔레포트/관전 전환) 즉시 스냅
+  const _camDX = _goalCamX - camera.position.x;
+  const _camDY = _goalCamY - camera.position.y;
+  const _camDZ = _goalCamZ - camera.position.z;
+  const _camDSq = _camDX*_camDX + _camDY*_camDY + _camDZ*_camDZ;
+  if (_camDSq > 100) { // 10m 이상 → 즉시 스냅 (드리프트 방지)
+    camera.position.set(_goalCamX, _goalCamY, _goalCamZ);
   } else {
-    camera.position.set(idealCamX, idealCamY, idealCamZ);
+    const camLerp = 1 - Math.pow(0.001, dt);
+    camera.position.x += _camDX * camLerp;
+    camera.position.y += _camDY * camLerp;
+    camera.position.z += _camDZ * camLerp;
   }
   camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
   }
