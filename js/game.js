@@ -1694,7 +1694,7 @@ function closePoseWheel(commitSelection) {
   }
   poseWheelHover = null;
   if (currentScreen === 'game' && !paintMode) {
-    setTimeout(() => renderer.domElement.requestPointerLock(), 30);
+    setTimeout(() => lockPointer(), 30);
   }
 }
 
@@ -2311,6 +2311,26 @@ addEventListener('keyup', e => keys[e.code] = false);
 
 let cameraYaw = Math.PI, cameraPitch = 0.15;
 let pointerLocked = false, paintMode = false;
+
+// ★ 포인터락 헬퍼 — OS 마우스 가속으로 인한 movementX/Y 폭주 방지
+//   unadjustedMovement:true = 브라우저가 OS 가속 무시하고 raw 델타만 전달
+//   → 이게 "값이 미친듯이 튀는" 회전목마 버그의 진짜 해결책
+//   지원 안 하는 브라우저/실패 시 일반 락으로 자동 폴백 (돌다 멈춤 방지)
+function lockPointer() {
+  const el = renderer.domElement;
+  try {
+    const p = el.requestPointerLock({ unadjustedMovement: true });
+    // 최신 브라우저는 Promise 반환 — raw 모드 거부되면 일반 모드로 재시도
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        try { el.requestPointerLock(); } catch(e) {}
+      });
+    }
+  } catch(err) {
+    // 옵션 자체를 모르는 구형 브라우저 → 일반 락
+    try { el.requestPointerLock(); } catch(e) {}
+  }
+}
 
 // ============================================================
 // 로비/방/투표/뽑기 시스템
@@ -3345,9 +3365,7 @@ async function startGame(room) {
     renderer.domElement.tabIndex = 0;
     renderer.domElement.focus();
     // ★ 반드시 클릭 이벤트 안에서 "즉시" 호출해야 브라우저가 락 허용
-    //   setTimeout 으로 미루면 사용자 제스처가 끊겨 락 거부 → locked:false → 카메라 폭주
-    try { renderer.domElement.requestPointerLock(); }
-    catch(err) { console.warn('포인터락 실패:', err.message); }
+    lockPointer();
     clickOverlay.removeEventListener('click', clickHandler);
   };
   clickOverlay.addEventListener('click', clickHandler);
@@ -3376,7 +3394,7 @@ document.addEventListener('pointerlockchange', () => {
       if (!ov._relockBound) {
         ov._relockBound = true;
         const relock = () => {
-          try { renderer.domElement.requestPointerLock(); } catch(e){}
+          lockPointer();
         };
         ov.addEventListener('click', relock);
         ov._relockFn = relock;
@@ -3397,7 +3415,7 @@ addEventListener('keydown', e => {
   if (paintMode) return;
   if (pointerLocked) return; // 이미 잠겨있으면 브라우저가 풀 것
   // 이 ESC는 이미 락이 풀린 후의 두 번째 ESC → 재잠금 시도
-  setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
+  setTimeout(() => lockPointer(), 100);
 });
 
 document.addEventListener('mousemove', e => {
@@ -3452,7 +3470,7 @@ addEventListener('keydown', e => {
       _paintRelockTimer = setTimeout(() => {
         _paintRelockTimer = null;
         if (!paintMode && currentScreen === 'game') {
-          try { renderer.domElement.requestPointerLock(); } catch(e) {}
+          lockPointer();
         }
       }, delay);
     }
@@ -5045,13 +5063,13 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (chatInputOpen) {
     closeChatInput();
     setTimeout(() => {
-      try { renderer.domElement.requestPointerLock(); } catch(err) {}
+      lockPointer();
     }, 30);
     return;
   }
   // 채팅이 닫혀있고 포인터락도 없으면 재잠금
   if (!pointerLocked) {
-    setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
+    setTimeout(() => lockPointer(), 100);
   }
 });
 
