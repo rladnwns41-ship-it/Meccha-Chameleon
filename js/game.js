@@ -5377,8 +5377,9 @@ function animate() {
   const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
   const idealCamY = Math.max(0.5, focusY + vo);
 
-  // ★ 카메라 벽 체크 + 스무딩 (요동 방지: 즉시 점프 대신 lerp)
+  // ★ 카메라 벽 체크 + 스무딩 (벽 걸릴 때만 lerp, 나머진 즉시 → 시점 반응성 유지)
   let _goalCamX = idealCamX, _goalCamY = idealCamY, _goalCamZ = idealCamZ;
+  let _camBlocked = false;
   if (collidableMeshes.length > 0) {
     _camFocusPt.set(player.position.x, focusY, player.position.z);
     _idealCamPt.set(idealCamX, idealCamY, idealCamZ);
@@ -5393,21 +5394,17 @@ function animate() {
       _goalCamX = _camFocusPt.x + _camToFocus.x * safeDist;
       _goalCamY = _camFocusPt.y + _camToFocus.y * safeDist;
       _goalCamZ = _camFocusPt.z + _camToFocus.z * safeDist;
+      _camBlocked = true;
     }
   }
-  // ★ 카메라 lerp: 벽 근처에서도 부드럽게 (벽으로 가까워질 땐 빠르게, 벌어질 땐 느리게)
-  //   단, 거리가 너무 크면 (스폰/텔레포트/관전 전환) 즉시 스냅
-  const _camDX = _goalCamX - camera.position.x;
-  const _camDY = _goalCamY - camera.position.y;
-  const _camDZ = _goalCamZ - camera.position.z;
-  const _camDSq = _camDX*_camDX + _camDY*_camDY + _camDZ*_camDZ;
-  if (_camDSq > 100) { // 10m 이상 → 즉시 스냅 (드리프트 방지)
-    camera.position.set(_goalCamX, _goalCamY, _goalCamZ);
+  // 벽 안 걸리면 즉시 이동 (시점 반응성 최대), 걸리면 살짝만 lerp (튐 방지)
+  if (_camBlocked) {
+    const camLerp = 1 - Math.pow(0.0001, dt); // ~0.95 at 60fps (거의 즉시지만 살짝 부드러움)
+    camera.position.x += (_goalCamX - camera.position.x) * camLerp;
+    camera.position.y += (_goalCamY - camera.position.y) * camLerp;
+    camera.position.z += (_goalCamZ - camera.position.z) * camLerp;
   } else {
-    const camLerp = 1 - Math.pow(0.001, dt);
-    camera.position.x += _camDX * camLerp;
-    camera.position.y += _camDY * camLerp;
-    camera.position.z += _camDZ * camLerp;
+    camera.position.set(_goalCamX, _goalCamY, _goalCamZ);
   }
   camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
   }
