@@ -2318,16 +2318,18 @@ let pointerLocked = false, paintMode = false;
 //   지원 안 하는 브라우저/실패 시 일반 락으로 자동 폴백 (돌다 멈춤 방지)
 function lockPointer() {
   const el = renderer.domElement;
+  // ★ 이미 이 캔버스에 락이 걸려있으면 재호출 금지
+  //   (걸린 상태에서 또 requestPointerLock 하면 브라우저가 풀었다 다시 걸어 → 카메라 끊김/멈춤)
+  if (document.pointerLockElement === el) return;
   try {
     const p = el.requestPointerLock({ unadjustedMovement: true });
-    // 최신 브라우저는 Promise 반환 — raw 모드 거부되면 일반 모드로 재시도
     if (p && typeof p.catch === 'function') {
       p.catch(() => {
+        if (document.pointerLockElement === el) return;
         try { el.requestPointerLock(); } catch(e) {}
       });
     }
   } catch(err) {
-    // 옵션 자체를 모르는 구형 브라우저 → 일반 락
     try { el.requestPointerLock(); } catch(e) {}
   }
 }
@@ -3378,6 +3380,7 @@ async function startGame(room) {
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
+  window._lockChanges = (window._lockChanges || 0) + 1;
   // 게임 중 락이 풀렸으면 오버레이 다시 띄워서 재잠금 가능하게
   // (단, 채팅 인풋이 열려있거나 포즈휠이 열려있을 때는 오버레이 표시 안 함)
   if (!pointerLocked && currentScreen === 'game' && !paintMode && !chatInputOpen && !poseWheelOpen && !_paintRelockTimer) {
@@ -3437,7 +3440,8 @@ document.addEventListener('mousemove', e => {
     `locked:${locked} paint:${paintMode}\n` +
     `mX:${mx} mY:${my}\n` +
     `yaw:${cameraYaw.toFixed(3)} pitch:${cameraPitch.toFixed(3)}\n` +
-    `lockEl:${document.pointerLockElement ? document.pointerLockElement.tagName : 'null'}`;
+    `lockEl:${document.pointerLockElement ? document.pointerLockElement.tagName : 'null'}\n` +
+    `lockChanges:${window._lockChanges || 0}`;
   // ================================
 
   if (!locked) return;
