@@ -3401,12 +3401,25 @@ addEventListener('keydown', e => {
   setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
 });
 
+// ★ 포인터락 걸린 직후 첫 몇 프레임은 movementX/Y 에 누적 델타가 튀어나옴
+//   → 회전 회오리 버그 원인. 락 전환 시 워머프 카운터로 스파이크 완전 폐기
+let _lockWarmup = 0;
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) {
+    _lockWarmup = 3; // 첫 3개 이벤트 폐기
+  }
+}, true); // capture=true → 다른 리스너보다 먼저 실행
+
 document.addEventListener('mousemove', e => {
   if (!pointerLocked || paintMode) return;
-  // ★ 감도 수정: movementX/Y 스파이크 클램핑 (탭 전환·렉 시 카메라 요동 방지)
-  //   150 정도까진 정상 빠른 시점 전환, 그 이상은 렉으로 인한 스파이크로 간주
-  const mx = Math.max(-150, Math.min(150, e.movementX));
-  const my = Math.max(-150, Math.min(150, e.movementY));
+  const rawX = e.movementX, rawY = e.movementY;
+  // ★ 락 직후 워머프: 첫 몇 이벤트 완전 무시 (누적 델타 스파이크 방지)
+  if (_lockWarmup > 0) { _lockWarmup--; return; }
+  // ★ 이상값 폐기: 300 초과는 프레임 스킵/버그로 인한 스파이크로 간주 (마우스가 이렇게 빨리 움직일 수 없음)
+  if (Math.abs(rawX) > 300 || Math.abs(rawY) > 300) return;
+  // ★ 클램핑: 정상 범위 내에서도 상한 (150)
+  const mx = Math.max(-150, Math.min(150, rawX));
+  const my = Math.max(-150, Math.min(150, rawY));
   cameraYaw -= mx * 0.002;
   cameraPitch += my * 0.0016;
   cameraPitch = Math.max(-1.2, Math.min(1.2, cameraPitch));
