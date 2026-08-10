@@ -2318,20 +2318,10 @@ let pointerLocked = false, paintMode = false;
 //   지원 안 하는 브라우저/실패 시 일반 락으로 자동 폴백 (돌다 멈춤 방지)
 function lockPointer() {
   const el = renderer.domElement;
-  // ★ 이미 이 캔버스에 락이 걸려있으면 재호출 금지
-  //   (걸린 상태에서 또 requestPointerLock 하면 브라우저가 풀었다 다시 걸어 → 카메라 끊김/멈춤)
   if (document.pointerLockElement === el) return;
-  try {
-    const p = el.requestPointerLock({ unadjustedMovement: true });
-    if (p && typeof p.catch === 'function') {
-      p.catch(() => {
-        if (document.pointerLockElement === el) return;
-        try { el.requestPointerLock(); } catch(e) {}
-      });
-    }
-  } catch(err) {
-    try { el.requestPointerLock(); } catch(e) {}
-  }
+  // unadjustedMovement 는 일부 마우스에서 특정 축 값이 0으로 죽는 버그가 있어 사용 안 함.
+  // 값 폭주는 mousemove 핸들러에서 부드럽게 제한.
+  try { el.requestPointerLock(); } catch(e) {}
 }
 
 // ============================================================
@@ -3428,20 +3418,21 @@ document.addEventListener('mousemove', e => {
   const mx = Number(e.movementX) || 0;
   const my = Number(e.movementY) || 0;
 
-  // ===== 진단 표시 (항상 ON) =====
-  let dbg = document.getElementById('_mouseDbg');
-  if (!dbg) {
-    dbg = document.createElement('div');
-    dbg.id = '_mouseDbg';
-    dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:#000;color:#0f0;font:13px monospace;padding:6px 10px;pointer-events:none;white-space:pre;';
-    document.body.appendChild(dbg);
+  // ===== 진단 표시 (게임 화면에서만) =====
+  if (currentScreen === 'game') {
+    let dbg = document.getElementById('_mouseDbg');
+    if (!dbg) {
+      dbg = document.createElement('div');
+      dbg.id = '_mouseDbg';
+      dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:#000;color:#0f0;font:13px monospace;padding:6px 10px;pointer-events:none;white-space:pre;';
+      document.body.appendChild(dbg);
+    }
+    dbg.textContent =
+      `locked:${locked} paint:${paintMode}\n` +
+      `mX:${mx} mY:${my}\n` +
+      `yaw:${cameraYaw.toFixed(3)} pitch:${cameraPitch.toFixed(3)}\n` +
+      `lockChanges:${window._lockChanges || 0}`;
   }
-  dbg.textContent =
-    `locked:${locked} paint:${paintMode}\n` +
-    `mX:${mx} mY:${my}\n` +
-    `yaw:${cameraYaw.toFixed(3)} pitch:${cameraPitch.toFixed(3)}\n` +
-    `lockEl:${document.pointerLockElement ? document.pointerLockElement.tagName : 'null'}\n` +
-    `lockChanges:${window._lockChanges || 0}`;
   // ================================
 
   if (!locked) return;
