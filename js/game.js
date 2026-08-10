@@ -3406,23 +3406,18 @@ addEventListener('keydown', e => {
 let _lockWarmup = 0;
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === renderer.domElement) {
-    _lockWarmup = 3; // 첫 3개 이벤트 폐기
+    _lockWarmup = 3;
   }
-}, true); // capture=true → 다른 리스너보다 먼저 실행
+}, true);
 
 document.addEventListener('mousemove', e => {
   if (!pointerLocked || paintMode) return;
-  const rawX = e.movementX, rawY = e.movementY;
-  // ★ 락 직후 워머프: 첫 몇 이벤트 완전 무시 (누적 델타 스파이크 방지)
   if (_lockWarmup > 0) { _lockWarmup--; return; }
-  // ★ 이상값 폐기: 300 초과는 프레임 스킵/버그로 인한 스파이크로 간주 (마우스가 이렇게 빨리 움직일 수 없음)
-  if (Math.abs(rawX) > 300 || Math.abs(rawY) > 300) return;
-  // ★ 클램핑: 정상 범위 내에서도 상한 (150)
-  const mx = Math.max(-150, Math.min(150, rawX));
-  const my = Math.max(-150, Math.min(150, rawY));
-  cameraYaw -= mx * 0.002;
-  cameraPitch += my * 0.0016;
-  cameraPitch = Math.max(-1.2, Math.min(1.2, cameraPitch));
+  // 회오리 스파이크만 폐기 (물리적으로 불가능한 값)
+  if (Math.abs(e.movementX) > 500 || Math.abs(e.movementY) > 500) return;
+  cameraYaw -= e.movementX * 0.0025;
+  cameraPitch += e.movementY * 0.002;
+  cameraPitch = Math.max(-1.3, Math.min(1.3, cameraPitch));
 });
 
 // 페인트 모드 토글 (Q) — P 는 포즈 휠에 사용
@@ -5377,9 +5372,7 @@ function animate() {
   const idealCamZ = player.position.z + Math.cos(cameraYaw) * hd;
   const idealCamY = Math.max(0.5, focusY + vo);
 
-  // ★ 카메라 벽 체크 + 스무딩 (벽 걸릴 때만 lerp, 나머진 즉시 → 시점 반응성 유지)
-  let _goalCamX = idealCamX, _goalCamY = idealCamY, _goalCamZ = idealCamZ;
-  let _camBlocked = false;
+  // 카메라 벽 체크 - 원래 코드 (단순)
   if (collidableMeshes.length > 0) {
     _camFocusPt.set(player.position.x, focusY, player.position.z);
     _idealCamPt.set(idealCamX, idealCamY, idealCamZ);
@@ -5390,21 +5383,16 @@ function animate() {
     _camRc.far = _camDist + 0.5;
     const _camHits = _camRc.intersectObjects(_nearbyColliders, false);
     if (_camHits.length > 0) {
-      const safeDist = Math.max(0.5, _camHits[0].distance - 0.3);
-      _goalCamX = _camFocusPt.x + _camToFocus.x * safeDist;
-      _goalCamY = _camFocusPt.y + _camToFocus.y * safeDist;
-      _goalCamZ = _camFocusPt.z + _camToFocus.z * safeDist;
-      _camBlocked = true;
+      const safeDist = Math.max(0, _camHits[0].distance - 0.3);
+      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, safeDist);
+    } else {
+      camera.position.set(idealCamX, idealCamY, idealCamZ);
     }
-  }
-  // 벽 안 걸리면 즉시 이동 (시점 반응성 최대), 걸리면 살짝만 lerp (튐 방지)
-  if (_camBlocked) {
-    const camLerp = 1 - Math.pow(0.0001, dt); // ~0.95 at 60fps (거의 즉시지만 살짝 부드러움)
-    camera.position.x += (_goalCamX - camera.position.x) * camLerp;
-    camera.position.y += (_goalCamY - camera.position.y) * camLerp;
-    camera.position.z += (_goalCamZ - camera.position.z) * camLerp;
+    if (camera.position.distanceTo(_camFocusPt) < 0.5) {
+      camera.position.copy(_camFocusPt).addScaledVector(_camToFocus, 0.5);
+    }
   } else {
-    camera.position.set(_goalCamX, _goalCamY, _goalCamZ);
+    camera.position.set(idealCamX, idealCamY, idealCamZ);
   }
   camera.lookAt(player.position.x, focusY - 0.3, player.position.z);
   }
