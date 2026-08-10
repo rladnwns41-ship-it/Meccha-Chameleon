@@ -450,7 +450,7 @@ setInterval(async () => {
       const count = Object.keys(room.players || {}).length;
       const age = room.createdAt ? Date.now() - room.createdAt : 0;
       if (count === 0 || age > 10 * 60 * 1000) {
-        // 방장이거나 빈 방이면 삭제
+        // 방장이면 무조건, 아니면 빈 방일 때만 (룰이 빈 방은 아무나 삭제 허용)
         if (room.hostUid === myUid || count === 0) {
           await remove(ref(fbDb, `rooms/${rid}`));
           console.log('🧹 자동 방 삭제:', rid, count === 0 ? '빈방' : '10분초과');
