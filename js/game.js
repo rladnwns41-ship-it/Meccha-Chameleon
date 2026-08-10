@@ -1694,7 +1694,7 @@ function closePoseWheel(commitSelection) {
   }
   poseWheelHover = null;
   if (currentScreen === 'game' && !paintMode) {
-    setTimeout(() => renderer.domElement.requestPointerLock(), 30);
+    setTimeout(() => renderer.domElement.requestPointerLock({unadjustedMovement:true}), 30);
   }
 }
 
@@ -3346,7 +3346,7 @@ async function startGame(room) {
     renderer.domElement.tabIndex = 0;
     renderer.domElement.focus();
     setTimeout(() => {
-      try { renderer.domElement.requestPointerLock(); }
+      try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); }
       catch(err) { console.warn('포인터락 실패:', err.message); }
     }, 50);
     clickOverlay.removeEventListener('click', clickHandler);
@@ -3377,7 +3377,7 @@ document.addEventListener('pointerlockchange', () => {
       if (!ov._relockBound) {
         ov._relockBound = true;
         const relock = () => {
-          try { renderer.domElement.requestPointerLock(); } catch(e){}
+          try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); } catch(e){}
         };
         ov.addEventListener('click', relock);
         ov._relockFn = relock;
@@ -3398,23 +3398,11 @@ addEventListener('keydown', e => {
   if (paintMode) return;
   if (pointerLocked) return; // 이미 잠겨있으면 브라우저가 풀 것
   // 이 ESC는 이미 락이 풀린 후의 두 번째 ESC → 재잠금 시도
-  setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
+  setTimeout(() => { try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); } catch(err) {} }, 100);
 });
-
-// ★ 포인터락 걸린 직후 첫 몇 프레임은 movementX/Y 에 누적 델타가 튀어나옴
-//   → 회전 회오리 버그 원인. 락 전환 시 워머프 카운터로 스파이크 완전 폐기
-let _lockWarmup = 0;
-document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement === renderer.domElement) {
-    _lockWarmup = 3;
-  }
-}, true);
 
 document.addEventListener('mousemove', e => {
   if (!pointerLocked || paintMode) return;
-  if (_lockWarmup > 0) { _lockWarmup--; return; }
-  // 회오리 스파이크만 폐기 (물리적으로 불가능한 값)
-  if (Math.abs(e.movementX) > 500 || Math.abs(e.movementY) > 500) return;
   cameraYaw -= e.movementX * 0.0025;
   cameraPitch += e.movementY * 0.002;
   cameraPitch = Math.max(-1.3, Math.min(1.3, cameraPitch));
@@ -3438,7 +3426,7 @@ addEventListener('keydown', e => {
       _paintRelockTimer = setTimeout(() => {
         _paintRelockTimer = null;
         if (!paintMode && currentScreen === 'game') {
-          try { renderer.domElement.requestPointerLock(); } catch(e) {}
+          try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); } catch(e) {}
         }
       }, delay);
     }
@@ -5031,13 +5019,13 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (chatInputOpen) {
     closeChatInput();
     setTimeout(() => {
-      try { renderer.domElement.requestPointerLock(); } catch(err) {}
+      try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); } catch(err) {}
     }, 30);
     return;
   }
   // 채팅이 닫혀있고 포인터락도 없으면 재잠금
   if (!pointerLocked) {
-    setTimeout(() => { try { renderer.domElement.requestPointerLock(); } catch(err) {} }, 100);
+    setTimeout(() => { try { renderer.domElement.requestPointerLock({unadjustedMovement:true}); } catch(err) {} }, 100);
   }
 });
 
