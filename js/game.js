@@ -3403,21 +3403,34 @@ addEventListener('keydown', e => {
 
 document.addEventListener('mousemove', e => {
   // 락이 실제로 canvas 에 걸려있을 때만 카메라 회전 (플래그 대신 실시간 확인)
-  if (document.pointerLockElement !== renderer.domElement) return;
-  if (paintMode) return;
+  const locked = (document.pointerLockElement === renderer.domElement);
 
-  // movementX/Y 를 안전하게 숫자로 변환 (undefined/NaN 이면 0 → 무시)
   const mx = Number(e.movementX) || 0;
   const my = Number(e.movementY) || 0;
+
+  // ===== 진단 표시 (항상 ON) =====
+  let dbg = document.getElementById('_mouseDbg');
+  if (!dbg) {
+    dbg = document.createElement('div');
+    dbg.id = '_mouseDbg';
+    dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:#000;color:#0f0;font:13px monospace;padding:6px 10px;pointer-events:none;white-space:pre;';
+    document.body.appendChild(dbg);
+  }
+  dbg.textContent =
+    `locked:${locked} paint:${paintMode}\n` +
+    `mX:${mx} mY:${my}\n` +
+    `yaw:${cameraYaw.toFixed(3)} pitch:${cameraPitch.toFixed(3)}\n` +
+    `lockEl:${document.pointerLockElement ? document.pointerLockElement.tagName : 'null'}`;
+  // ================================
+
+  if (!locked) return;
+  if (paintMode) return;
 
   cameraYaw   -= mx * 0.0025;
   cameraPitch += my * 0.002;
 
-  // pitch(위아래) 만 제한. yaw(좌우) 는 무제한 회전.
   if (cameraPitch >  1.3) cameraPitch =  1.3;
   if (cameraPitch < -1.3) cameraPitch = -1.3;
-
-  // yaw 값이 무한정 커지는 것 방지 (부동소수 정밀도 유지) — 회전 느낌엔 영향 없음
   if (cameraYaw >  Math.PI) cameraYaw -= Math.PI * 2;
   if (cameraYaw < -Math.PI) cameraYaw += Math.PI * 2;
 });
