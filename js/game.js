@@ -1385,10 +1385,8 @@ function processGlb(gltf, poseName) {
       o.receiveShadow = false;
       // geometry 클론 (다른 mesh와 공유 방지 - 색 독립 적용)
       o.geometry = o.geometry.clone();
-      // indexed geometry → non-indexed 변환 (vertex color 면 단위 독립 적용)
-      if (o.geometry.index) {
-        o.geometry = o.geometry.toNonIndexed();
-      }
+      // ★ indexed geometry 그대로 유지 (toNonIndexed 하면 정점 3-5배 증가 → paint 루프 렉)
+      //   vertex color는 index 기준 unique 정점에만 칠하면 됨 — 면 단위 색 분리 불필요
       // 정점 컬러 속성 확실히 (흰색 초기화)
       const posCount = o.geometry.attributes.position.count;
       const colorArr = new Float32Array(posCount * 3).fill(1);
@@ -1396,7 +1394,6 @@ function processGlb(gltf, poseName) {
       colorAttr.setUsage(THREE.DynamicDrawUsage); // GPU에 dynamic 힌트
       o.geometry.setAttribute('color', colorAttr);
       // Lambert 재질 - 조명 있으면서 vertex color 확실히 반영
-      // DoubleSide: toNonIndexed 후 법선 뒤집힌 face 및 원본 양면 mesh 안쪽 뚫림 방지
       o.material = new THREE.MeshLambertMaterial({
         color: 0xffffff, vertexColors: true, side: THREE.DoubleSide
       });
@@ -3794,6 +3791,7 @@ const paintRc = new THREE.Raycaster();
 let lastPaintTime = 0;
 let _lastPaintSyncTime = 0;
 const _paintColor = new THREE.Color(); // 재사용 (매 paint() 호출마다 new 방지)
+const _paintDirtyMeshes = new Set(); // paint 후 updateRange 리셋 대상 추적
 
 // 버텍스 컬러 페인트 시스템 (UV 필요없음)
 const _tmpMat = new THREE.Matrix4();
@@ -3801,16 +3799,19 @@ const _tmpVec = new THREE.Vector3();
 
 function bucketFill() {
   const c = new THREE.Color(currentColor);
+  const cr = c.r, cg = c.g, cb = c.b;
   characterMeshes.forEach(mesh => {
     const colors = mesh.geometry.attributes.color;
     if (!colors) return;
-    for (let i = 0; i < colors.count; i++) colors.setXYZ(i, c.r, c.g, c.b);
+    // ★ typed array 직접 fill (setXYZ 루프보다 10배 빠름)
+    const arr = colors.array;
+    const n3 = arr.length;
+    for (let i = 0; i < n3; i += 3) { arr[i] = cr; arr[i+1] = cg; arr[i+2] = cb; }
+    colors.updateRange.offset = 0;
+    colors.updateRange.count = n3;
     colors.needsUpdate = true;
   });
   addRecentColor(currentColor);
-  let total = 0;
-  characterMeshes.forEach(m => { total += m.geometry.attributes.color?.count || 0; });
-  console.log('🎨 버킷 전체 채움:', currentColor, '/ 총 정점:', total);
   // Firebase 로 브로드캐스트 (특수 스트로크)
   if (myRoomId && myUid) {
     const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
@@ -4067,31 +4068,43 @@ function paint(clientX, clientY) {
   
   const positions = mesh.geometry.attributes.position;
   const colors = mesh.geometry.attributes.color;
-  if (!colors) { console.warn('color attribute 없음 - processGlb 확인 필요'); return; }
+  if (!colors) return;
   
-  // 붓 크기를 월드 반경으로 (brushSize 픽셀 → 대략 캐릭터 스케일)
-  // 브러시 반경 - 최소 3cm 보장 (정점 하나는 확실히 잡히게)
+  // 붓 크기를 월드 반경으로
   const worldScale = mesh.getWorldScale(_tmpVec).x || 1;
   let radiusLocal = brushSize * 0.008 / worldScale;
-  // 작은 브러시일 때 정점 하나도 잡히도록 최소값을 아주 작게만 유지 (부드러운 그리기)
   if (radiusLocal < 0.006) radiusLocal = 0.006;
   const radiusSq = radiusLocal * radiusLocal;
   
   const paintColor = _paintColor.set(currentTool === 'eraser' ? '#ffffff' : currentColor);
-  
-  // 반경 내 모든 정점 색 변경
-  let painted = 0;
-  for (let i = 0; i < positions.count; i++) {
-    const dx = positions.getX(i) - localPoint.x;
-    const dy = positions.getY(i) - localPoint.y;
-    const dz = positions.getZ(i) - localPoint.z;
+  const pr = paintColor.r, pg = paintColor.g, pb = paintColor.b;
+  const lx = localPoint.x, ly = localPoint.y, lz = localPoint.z;
+
+  // ★ typed array 직접 접근 (getX/Y/Z 호출 오버헤드 제거 — 매 정점 6회 메서드 → 0)
+  const posArr = positions.array;
+  const colArr = colors.array;
+  const n = positions.count;
+  let minDirty = n, maxDirty = -1;
+  for (let i = 0; i < n; i++) {
+    const i3 = i * 3;
+    const dx = posArr[i3]   - lx;
+    const dy = posArr[i3+1] - ly;
+    const dz = posArr[i3+2] - lz;
     if (dx*dx + dy*dy + dz*dz < radiusSq) {
-      colors.setXYZ(i, paintColor.r, paintColor.g, paintColor.b);
-      painted++;
+      colArr[i3]   = pr;
+      colArr[i3+1] = pg;
+      colArr[i3+2] = pb;
+      if (i < minDirty) minDirty = i;
+      if (i > maxDirty) maxDirty = i;
     }
   }
-  colors.needsUpdate = true;
-  mesh.geometry.attributes.color.needsUpdate = true;
+  // ★ dirty range 기반 부분 업로드 (변경된 구간만 GPU로 전송 — 전체 업로드 X)
+  if (maxDirty >= 0) {
+    colors.updateRange.offset = minDirty * 3;
+    colors.updateRange.count  = (maxDirty - minDirty + 1) * 3;
+    colors.needsUpdate = true;
+    _paintDirtyMeshes.add(mesh);
+  }
   addRecentColor(currentColor);
 
   // ★ 페인트 스트로크 배칭 — throttle 로 스트로크 손실되던 문제 해결
@@ -4129,8 +4142,8 @@ function paint(clientX, clientY) {
 // ★ 페인트 스트로크 큐 & flush 스케줄러
 const _paintStrokeQueue = [];
 let _paintFlushTimer = null;
-const PAINT_FLUSH_MS = 60;         // 60ms 마다 배치 전송
-const PAINT_MAX_BATCH = 40;        // 한 번에 최대 40개 (안전 상한)
+const PAINT_FLUSH_MS = 80;         // 80ms 마다 배치 전송 (RAF 기반이므로 실제 빈도 낮음)
+const PAINT_MAX_BATCH = 20;        // 한 번에 최대 20개 (RAF 기반으로 쌓일 일 거의 없음)
 function _schedulePaintFlush() {
   if (_paintFlushTimer) return;
   _paintFlushTimer = setTimeout(_flushPaintQueue, PAINT_FLUSH_MS);
@@ -4145,48 +4158,60 @@ function _flushPaintQueue() {
   const batch = _paintStrokeQueue.splice(0);
   try {
     const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
-    // 각 스트로크에 개별 push key 부여 → 한 번의 update() 로 원자적 전송
+    // ★ push key 대신 타임스탬프+카운터 키 사용 (Firebase push().key 호출 비용 제거)
     const updates = {};
+    const base = Date.now();
     for (let i = 0; i < batch.length; i++) {
-      const k = push(strokesRef).key;
-      updates[k] = batch[i];
+      updates[`${base}_${i}`] = batch[i];
     }
     update(strokesRef, updates);
-  } catch(e) { /* 실패해도 다음 flush 시 큐가 비어있으면 그만, 이미 로컬은 반영됨 */ }
+  } catch(e) { /* 로컬은 이미 반영됨 */ }
   // 큐에 뭐 더 쌓였으면 다시 예약
   if (_paintStrokeQueue.length > 0) _schedulePaintFlush();
 }
 
 let isPainting = false;
 let _lastPaintX = null, _lastPaintY = null;
-renderer.domElement.addEventListener('mousedown', e => {
-  if (!paintMode || e.button !== 0) return;
-  // 스포이드는 mousedown 에 즉시 실행
-  if (currentTool === 'picker') { pickColor(e.clientX, e.clientY); return; }
-  isPainting = true;
-  _lastPaintX = e.clientX; _lastPaintY = e.clientY;
-  paint(e.clientX, e.clientY);
-  if (currentTool === 'bucket') isPainting = false;
-});
-addEventListener('mouseup', () => { isPainting = false; _lastPaintX = null; _lastPaintY = null; });
-addEventListener('mousemove', e => {
-  if (!paintMode || !isPainting) return;
-  const cx = e.clientX, cy = e.clientY;
+// ★ RAF 기반 페인트: mousemove 마다 paint() 직접 호출 금지
+//   좌표만 기록 → rAF(다음 프레임)에서 한 번만 처리 = 60fps 기준 최대 1회/frame
+let _paintPendingX = null, _paintPendingY = null, _paintRafId = null;
+function _flushPaintFrame() {
+  _paintRafId = null;
+  if (!isPainting || _paintPendingX === null) return;
+  const cx = _paintPendingX, cy = _paintPendingY;
+  _paintPendingX = null; _paintPendingY = null;
   if (_lastPaintX !== null) {
     const dx = cx - _lastPaintX, dy = cy - _lastPaintY;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    // ★ 성능: 보간 스텝 최대 8개로 제한 (멀리 움직여도 raycast 폭탄 방지)
-    const step = Math.max(3, brushSize * 0.4);
-    const steps = Math.min(8, Math.max(1, Math.ceil(dist / step)));
+    // 보간 스텝 최대 6개 (raycast 폭탄 방지)
+    const step = Math.max(4, brushSize * 0.5);
+    const steps = Math.min(6, Math.max(1, Math.ceil(dist / step)));
     for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      paint(_lastPaintX + dx*t, _lastPaintY + dy*t);
+      paint(_lastPaintX + dx*(i/steps), _lastPaintY + dy*(i/steps));
     }
   } else {
     paint(cx, cy);
   }
   _lastPaintX = cx; _lastPaintY = cy;
   lastPaintTime = Date.now();
+}
+renderer.domElement.addEventListener('mousedown', e => {
+  if (!paintMode || e.button !== 0) return;
+  if (currentTool === 'picker') { pickColor(e.clientX, e.clientY); return; }
+  isPainting = true;
+  _lastPaintX = e.clientX; _lastPaintY = e.clientY;
+  paint(e.clientX, e.clientY);
+  if (currentTool === 'bucket') isPainting = false;
+});
+addEventListener('mouseup', () => {
+  isPainting = false; _lastPaintX = null; _lastPaintY = null;
+  _paintPendingX = null; _paintPendingY = null;
+  if (_paintRafId) { cancelAnimationFrame(_paintRafId); _paintRafId = null; }
+});
+addEventListener('mousemove', e => {
+  if (!paintMode || !isPainting) return;
+  _paintPendingX = e.clientX; _paintPendingY = e.clientY;
+  if (!_paintRafId) _paintRafId = requestAnimationFrame(_flushPaintFrame);
 });
 
 // ================ 색 선택기 ================
@@ -4355,12 +4380,13 @@ function startFirebaseSync(room) {
     function applyStrokeToMeshes(meshes, stroke) {
       if (stroke.bucket) {
         _remoteColor.set(stroke.c);
+        const br = _remoteColor.r, bg = _remoteColor.g, bb = _remoteColor.b;
         meshes.forEach(mesh => {
           const colors = mesh.geometry.attributes.color;
           if (!colors) return;
-          for (let i = 0; i < colors.count; i++) {
-            colors.setXYZ(i, _remoteColor.r, _remoteColor.g, _remoteColor.b);
-          }
+          const arr = colors.array;
+          for (let i = 0; i < arr.length; i += 3) { arr[i] = br; arr[i+1] = bg; arr[i+2] = bb; }
+          colors.updateRange.offset = 0; colors.updateRange.count = arr.length;
           colors.needsUpdate = true;
         });
         return;
@@ -4371,17 +4397,29 @@ function startFirebaseSync(room) {
       const positions = mesh.geometry.attributes.position;
       if (!colors || !positions) return;
       _remoteColor.set(stroke.c);
+      const rr = _remoteColor.r, rg = _remoteColor.g, rb = _remoteColor.b;
       const rSq = stroke.r * stroke.r;
       const lx = stroke.x, ly = stroke.y, lz = stroke.z;
-      for (let i = 0; i < positions.count; i++) {
-        const dx = positions.getX(i) - lx;
-        const dy = positions.getY(i) - ly;
-        const dz = positions.getZ(i) - lz;
+      // ★ typed array 직접 접근
+      const posArr = positions.array;
+      const colArr = colors.array;
+      const n = positions.count;
+      let minD = n, maxD = -1;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const dx = posArr[i3]   - lx;
+        const dy = posArr[i3+1] - ly;
+        const dz = posArr[i3+2] - lz;
         if (dx*dx + dy*dy + dz*dz < rSq) {
-          colors.setXYZ(i, _remoteColor.r, _remoteColor.g, _remoteColor.b);
+          colArr[i3] = rr; colArr[i3+1] = rg; colArr[i3+2] = rb;
+          if (i < minD) minD = i; if (i > maxD) maxD = i;
         }
       }
-      colors.needsUpdate = true;
+      if (maxD >= 0) {
+        colors.updateRange.offset = minD * 3;
+        colors.updateRange.count  = (maxD - minD + 1) * 3;
+        colors.needsUpdate = true;
+      }
     }
     function applyRemotePaint(uid, stroke) {
       const ot = otherPlayers[uid];
@@ -5075,10 +5113,10 @@ function animate() {
   // ★ 포즈 애니메이션 mixer 갱신
   if (selfMixer) selfMixer.update(dt);
   // ★ 최적화: 화면 밖/멀리 있는 다른 플레이어는 mixer 스킵 (fog 밖은 이미 visible=false)
-  otherMixers.forEach((m, uid) => {
+  for (const [uid, m] of otherMixers) {
     const op = otherPlayers[uid];
     if (!op || !op.group || op.group.visible !== false) m.mixer.update(dt);
-  });
+  }
   // ★ 분신 애니메이션 mixer 갱신 (포즈 모션 공유)
   if (window._decoys) {
     for (const key in window._decoys) {
@@ -5411,6 +5449,16 @@ function animate() {
 
   // 게임 화면(인게임)일 때만 렌더
   if (currentScreen === 'game') renderer.render(scene, camera);
+  // ★ paint 모드 끝났을 때 GPU 버퍼 정리 (누적 updateRange 리셋)
+  if (!paintMode && _paintDirtyMeshes.size > 0) {
+    for (const mesh of _paintDirtyMeshes) {
+      if (mesh.geometry?.attributes?.color) {
+        mesh.geometry.attributes.color.updateRange.offset = 0;
+        mesh.geometry.attributes.color.updateRange.count = -1;
+      }
+    }
+    _paintDirtyMeshes.clear();
+  }
   // ★ 최적화: 포즈휠 닫혀 있으면 함수 호출조차 스킵
   if (poseWheelOpen) renderPoseWheel();
   renderHomePreview();
