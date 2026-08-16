@@ -2875,9 +2875,9 @@ function subscribeRoom(roomId) {
       // 화면 중앙에 감염 팝업
       showInfectionPopup();
     }
-    // ★ 나머지 무거운 DOM 처리는 100ms 스로틀
+    // ★ 나머지 무거운 DOM 처리는 150ms 스로틀
     const _now = performance.now();
-    if (_now - _roomThrottle < 100) return;
+    if (_now - _roomThrottle < 150) return;
     _roomThrottle = _now;
     // 다른 사람 감염 상태 변화 → 총 부착 갱신
     refreshOtherSeekerGuns();
@@ -3418,22 +3418,7 @@ document.addEventListener('mousemove', e => {
   const mx = Number(e.movementX) || 0;
   const my = Number(e.movementY) || 0;
 
-  // ===== 진단 표시 (게임 화면에서만) =====
-  if (currentScreen === 'game') {
-    let dbg = document.getElementById('_mouseDbg');
-    if (!dbg) {
-      dbg = document.createElement('div');
-      dbg.id = '_mouseDbg';
-      dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:#000;color:#0f0;font:13px monospace;padding:6px 10px;pointer-events:none;white-space:pre;';
-      document.body.appendChild(dbg);
-    }
-    dbg.textContent =
-      `locked:${locked} paint:${paintMode}\n` +
-      `mX:${mx} mY:${my}\n` +
-      `yaw:${cameraYaw.toFixed(3)} pitch:${cameraPitch.toFixed(3)}\n` +
-      `lockChanges:${window._lockChanges || 0}`;
-  }
-  // ================================
+
 
   if (!locked) return;
   if (paintMode) return;
@@ -4344,9 +4329,9 @@ function startFirebaseSync(room) {
           Math.abs(pr - _lastSyncR) >= 0.1 ||
           currentPose !== _lastSyncPose ||
           stuck !== _lastSyncStuck;
-      // 움직임 있으면 100ms, 없으면 500ms 주기
-      const minInterval = moved ? 100 : 500;
-      if (!moved && now - _lastSyncTime < minInterval) return;
+      // 움직임 있으면 120ms, 없으면 800ms 주기 (Firebase write 절감)
+      const minInterval = moved ? 120 : 800;
+      if (now - _lastSyncTime < minInterval) return;
       _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck; _lastSyncTime = now;
       // ★ 좌표 범위 클램핑 (맵 밖 이탈/텔레포트 방지, 최대 맵 크기 100)
       const clamp = (v, mn, mx) => Math.max(mn, Math.min(mx, v));
@@ -4652,12 +4637,12 @@ function startFirebaseSync(room) {
       } catch(err) { console.warn('분신 실패:', err); }
     };
 
-    // ✅ 위치 수신 throttle: 100ms (10명 대회 기준 - Firebase 이벤트 폭증 방지)
+    // ✅ 위치 수신 throttle: 120ms (Firebase 이벤트 폭증 방지)
     // ★ 수신 데이터 검증: 범위 밖 좌표·비정상 포즈 무시
     let _posRecvThrottle = 0;
     onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
       const _now3 = Date.now();
-      if (_now3 - _posRecvThrottle < 100) return;
+      if (_now3 - _posRecvThrottle < 120) return;
       _posRecvThrottle = _now3;
       const data = snap.val() || {};
       const uids = Object.keys(data);
