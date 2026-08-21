@@ -2518,8 +2518,19 @@ document.getElementById('changeNickBtn')?.addEventListener('click', () => {
 function __goHome() {
   try { if (typeof roomListUnsub === 'function') roomListUnsub(); } catch(e){}
   try { roomListUnsub = null; } catch(e){}
-  showScreen('rooms');
-  subscribeRoomList();
+  // 로그아웃 처리
+  logOut();
+  // 인증 화면으로
+  showScreen('nick');
+  // 인증 패널 보이기 (닉네임/로그인/가입 패널 숨기기)
+  const ap = document.getElementById('authPanel');
+  const lp = document.getElementById('loginPanel');
+  const sp = document.getElementById('signupPanel');
+  const np = document.getElementById('nickPanel');
+  if (ap) ap.style.display = '';
+  if (lp) lp.style.display = 'none';
+  if (sp) sp.style.display = 'none';
+  if (np) np.style.display = 'none';
 }
 window.__goHome = __goHome;
 document.getElementById('roomsBackBtn').addEventListener('click', (ev) => {
