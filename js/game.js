@@ -1253,6 +1253,43 @@ async function showScoreboard() {
   }));
   rows.sort((a, b) => b.score - a.score);
 
+  // ★ 전적 기록 (라운드당 1회)
+  const matchKey = 'wc_match_' + myRoomId + '_' + (round?.startedAt || 0);
+  if (!sessionStorage.getItem(matchKey)) {
+    sessionStorage.setItem(matchKey, '1');
+    const myRow = rows.find(r => r.uid === myUid);
+    if (myRow) {
+      const isWin = myRow.alive || rows[0]?.uid === myUid;
+      const myCatches = room.catches?.[myUid] || 0;
+      // recordMatch에 상세 정보 포함
+      if (myProfile) {
+        myProfile.gamesPlayed = (myProfile.gamesPlayed || 0) + 1;
+        if (isWin) { myProfile.wins = (myProfile.wins || 0) + 1; myProfile.trophy = (myProfile.trophy || 0) + 30; }
+        else { myProfile.losses = (myProfile.losses || 0) + 1; myProfile.trophy = Math.max(0, (myProfile.trophy || 0) - 10); }
+        if (myCatches > 0) { myProfile.kills = (myProfile.kills || 0) + myCatches; myProfile.trophy = (myProfile.trophy || 0) + myCatches * 5; }
+        // 전적 기록 (24시간 후 자동 만료)
+        if (!myProfile.history) myProfile.history = [];
+        myProfile.history.unshift({
+          result: isWin ? 'win' : 'lose',
+          score: myRow.score,
+          role: myRow.isSeeker ? 'seeker' : 'hider',
+          kills: myCatches,
+          rank: rows.indexOf(myRow) + 1,
+          total: rows.length,
+          map: room.selectedMap ?? 0,
+          mode: room.gameMode || 'classic',
+          at: Date.now()
+        });
+        // 24시간 지난 전적 삭제
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        myProfile.history = myProfile.history.filter(h => h.at > cutoff);
+        if (myProfile.history.length > 50) myProfile.history.length = 50;
+        saveProfile();
+        updateProfileHUD();
+      }
+    }
+  }
+
   // ★ 코인(코인) 지급 — 내 점수 비례 (한 라운드당 1회만)
   const myRow = rows.find(r => r.uid === myUid);
   const roundKey = 'wc_paid_' + myRoomId + '_' + (round?.startTs || 0);
@@ -2505,6 +2542,56 @@ function updateProfileHUD() {
   const hc = document.getElementById('homeCoinCount');
   if (hc) hc.textContent = myProfile?.trophy || 0;
 }
+
+// ============ 전적 보기 ============
+const MODE_NAMES = { classic: '클래식', infection: '감염', team: '팀' };
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  if (!list) return;
+  // 24시간 지난 전적 필터링
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const history = (myProfile?.history || []).filter(h => h.at > cutoff);
+  if (!history.length) {
+    list.innerHTML = '<div class="history-empty">전적 없음</div>';
+    return;
+  }
+  list.innerHTML = '';
+  history.forEach(h => {
+    const row = document.createElement('div');
+    row.className = 'history-row ' + (h.result || '');
+    const ago = Math.floor((Date.now() - h.at) / 60000);
+    let timeStr;
+    if (ago < 1) timeStr = '방금';
+    else if (ago < 60) timeStr = ago + '분 전';
+    else timeStr = Math.floor(ago / 60) + '시간 전';
+    const role = h.role === 'seeker' ? '🎯술래' : '🦎숨기';
+    const mode = MODE_NAMES[h.mode] || h.mode || '';
+    row.innerHTML = `
+      <span class="history-result ${h.result}">${h.result === 'win' ? 'W' : 'L'}</span>
+      <div class="history-detail">
+        <span>${role}</span>
+        <span>${h.rank || '?'}/${h.total || '?'}위</span>
+        <span>${h.score || 0}점</span>
+        ${h.kills ? `<span>${h.kills}킬</span>` : ''}
+        <span>${mode}</span>
+      </div>
+      <span class="history-time">${timeStr}</span>
+    `;
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('historyBtn')?.addEventListener('click', () => {
+  renderHistory();
+  document.getElementById('historyOverlay')?.classList.remove('hidden');
+});
+document.getElementById('historyCloseBtn')?.addEventListener('click', () => {
+  document.getElementById('historyOverlay')?.classList.add('hidden');
+});
+// 오버레이 배경 클릭으로도 닫기
+document.getElementById('historyOverlay')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+});
 
 // 홈 화면 버튼들
 document.getElementById('homePlayBtn').addEventListener('click', () => {
