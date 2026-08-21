@@ -145,6 +145,21 @@
       <div class="profile-stats">
         <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
         <div class="stat-pill" id="profileWL">0승 0패</div>
+        <button class="stat-pill stat-btn" id="historyBtn">📋 전적</button>
+      </div>
+    </div>
+
+    <!-- 전적 오버레이 -->
+    <div id="historyOverlay" class="history-overlay hidden">
+      <div class="history-panel">
+        <div class="history-header">
+          <h2 class="history-title">전적 기록</h2>
+          <span class="history-note">24시간 후 자동 삭제</span>
+        </div>
+        <div id="historyList" class="history-list">
+          <div class="history-empty">전적 없음</div>
+        </div>
+        <button id="historyCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
       </div>
     </div>
 
