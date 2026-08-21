@@ -947,3 +947,229 @@
       background: rgba(37,45,63,0.85) !important;
     }
   }
+
+/* =========================================================
+   AUTH & LOBBY REDESIGN — 깔끔하고 모던한 게임 UI
+   ========================================================= */
+
+/* 인증 화면 */
+.auth-wrapper {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-height:100vh; padding:24px; gap:0;
+}
+.auth-brand { text-align:center; margin-bottom:32px; }
+.auth-logo {
+  font-size:56px; line-height:1;
+  filter:drop-shadow(0 0 20px rgba(0,230,118,0.3));
+}
+.auth-title {
+  font-family:'Space Grotesk','Inter',sans-serif !important;
+  font-size:clamp(32px,6vw,48px) !important; font-weight:700 !important;
+  color:#fff !important; letter-spacing:4px !important;
+  margin:8px 0 0 !important;
+}
+.auth-sub {
+  font-family:'Inter',sans-serif !important; font-size:14px; font-weight:400 !important;
+  color:rgba(255,255,255,0.4); letter-spacing:2px; margin-top:4px;
+}
+.auth-card {
+  background:rgba(255,255,255,0.04) !important;
+  border:1px solid rgba(255,255,255,0.08) !important;
+  border-radius:16px !important; padding:28px 32px !important;
+  width:min(380px,92vw); display:flex; flex-direction:column; gap:12px;
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  box-shadow:0 8px 32px rgba(0,0,0,0.4) !important;
+  border-image:none !important;
+  transform:none !important;
+  animation:authFadeIn .4s ease !important;
+}
+.auth-card::after { display:none !important; }
+@keyframes authFadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+
+.auth-card-title {
+  font-family:'Space Grotesk','Inter',sans-serif !important;
+  font-size:20px !important; font-weight:700 !important;
+  color:#fff; margin:0 0 4px; text-align:center;
+}
+.auth-input {
+  width:100%; padding:12px 16px !important;
+  background:rgba(255,255,255,0.06) !important;
+  border:1px solid rgba(255,255,255,0.12) !important;
+  border-radius:10px !important; color:#fff !important;
+  font-family:'Inter',sans-serif !important; font-size:15px !important;
+  font-weight:500 !important;
+  outline:none; transition:border-color .2s;
+  box-shadow:none !important; border-style:solid !important;
+}
+.auth-input:focus {
+  border-color:rgba(0,230,118,0.5) !important;
+  background:rgba(0,230,118,0.04) !important;
+}
+.auth-input::placeholder { color:rgba(255,255,255,0.25); }
+
+.auth-btn {
+  width:100%; padding:14px; border:none; border-radius:10px !important;
+  font-family:'Inter',sans-serif !important; font-size:15px !important;
+  font-weight:700 !important; cursor:pointer; transition:all .15s;
+  letter-spacing:0.5px;
+}
+.auth-btn-primary {
+  background:#00e676 !important; color:#0a1a10 !important;
+  box-shadow:0 2px 12px rgba(0,230,118,0.25) !important;
+  border:none !important; text-shadow:none !important;
+}
+.auth-btn-primary:hover { background:#00ff88 !important; transform:translateY(-1px) !important; box-shadow:0 4px 20px rgba(0,230,118,0.35) !important; }
+.auth-btn-primary:active { transform:translateY(0) !important; }
+.auth-btn-primary:disabled { opacity:0.5; cursor:wait; }
+
+.auth-btn-outline {
+  background:transparent !important; color:#fff !important;
+  border:1px solid rgba(255,255,255,0.15) !important;
+  box-shadow:none !important; text-shadow:none !important;
+}
+.auth-btn-outline:hover { background:rgba(255,255,255,0.06) !important; border-color:rgba(255,255,255,0.25) !important; transform:none !important; }
+
+.auth-btn-ghost {
+  background:transparent !important; color:rgba(255,255,255,0.5) !important;
+  border:none !important; box-shadow:none !important; text-shadow:none !important;
+  font-size:13px !important; padding:8px !important;
+}
+.auth-btn-ghost:hover { color:#fff !important; transform:none !important; }
+
+.auth-divider {
+  display:flex; align-items:center; gap:12px;
+  color:rgba(255,255,255,0.2); font-size:12px; margin:4px 0;
+}
+.auth-divider::before, .auth-divider::after {
+  content:''; flex:1; height:1px; background:rgba(255,255,255,0.08);
+}
+
+.auth-error { color:#ff5252; font-size:13px; min-height:18px; text-align:center; }
+.auth-note { color:rgba(255,255,255,0.3); font-size:12px; text-align:center; margin:0; }
+.auth-footer {
+  position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+  color:rgba(255,255,255,0.15); font-size:11px; letter-spacing:2px;
+  font-family:'Space Grotesk',sans-serif;
+}
+
+.nick-row { display:flex; gap:8px; }
+.nick-row .auth-input { flex:1; }
+.nick-dice {
+  width:48px; height:48px; border-radius:10px; border:1px solid rgba(255,255,255,0.12);
+  background:rgba(255,255,255,0.06); font-size:22px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition:all .15s;
+}
+.nick-dice:hover { background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.2); }
+
+/* 방 목록 화면 */
+.rooms-shell { width:min(560px,94vw); display:flex; flex-direction:column; gap:12px; }
+
+.profile-bar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:12px; gap:12px;
+}
+.profile-info { display:flex; align-items:center; gap:10px; }
+.profile-avatar { font-size:28px; }
+.profile-nick { font-weight:700; font-size:16px; color:#fff; }
+.profile-stats { display:flex; gap:8px; }
+.stat-pill {
+  display:flex; align-items:center; gap:4px;
+  padding:4px 12px; background:rgba(255,255,255,0.06);
+  border-radius:8px; font-size:13px; font-weight:600; color:rgba(255,255,255,0.7);
+}
+
+.rooms-card {
+  border-image:none !important; transform:none !important;
+  box-shadow:0 4px 24px rgba(0,0,0,0.3) !important;
+}
+.rooms-card::after { display:none !important; }
+.rooms-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.rooms-title {
+  font-family:'Space Grotesk','Inter',sans-serif !important;
+  font-size:20px !important; font-weight:700 !important;
+  color:#fff !important; margin:0 !important;
+}
+.rooms-badge {
+  display:flex; align-items:center; gap:6px;
+  font-size:12px; font-weight:600; color:rgba(255,255,255,0.5);
+  letter-spacing:1px;
+}
+.dot-live {
+  width:6px; height:6px; border-radius:50%; background:#00e676;
+  box-shadow:0 0 6px #00e676; animation:pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.room-create-row {
+  display:flex; gap:8px; margin-top:12px;
+}
+.room-create-row .auth-input {
+  border-radius:8px !important; padding:10px 14px !important; font-size:14px !important;
+}
+
+/* 대기실 */
+#scr-lobby .ui-card {
+  border-image:none !important; transform:none !important;
+  box-shadow:0 4px 24px rgba(0,0,0,0.3) !important;
+}
+#scr-lobby .ui-card::after { display:none !important; }
+
+/* 스코어보드 */
+#scr-scoreboard .ui-card {
+  border-image:none !important; transform:none !important;
+  box-shadow:0 4px 24px rgba(0,0,0,0.3) !important;
+}
+#scr-scoreboard .ui-card::after { display:none !important; }
+
+/* 공통 btn 오버라이드 */
+.btn {
+  font-family:'Inter',sans-serif !important;
+  font-weight:600 !important;
+  border-radius:8px !important;
+  border:1px solid rgba(255,255,255,0.1) !important;
+  box-shadow:none !important;
+  text-shadow:none !important;
+  padding:10px 20px;
+  font-size:14px !important;
+  cursor:pointer; transition:all .15s;
+}
+.btn:hover { transform:translateY(-1px) !important; }
+.btn:active { transform:translateY(0) !important; }
+.btn-green {
+  background:#00e676 !important; color:#0a1a10 !important;
+  border-color:#00e676 !important;
+}
+.btn-green:hover { background:#00ff88 !important; }
+.btn-ghost {
+  background:transparent !important; color:rgba(255,255,255,0.6) !important;
+  border:1px solid rgba(255,255,255,0.12) !important;
+}
+.btn-ghost:hover { background:rgba(255,255,255,0.05) !important; color:#fff !important; }
+
+/* 로비 타이틀 통일 */
+.lobby-title {
+  font-family:'Space Grotesk','Inter',sans-serif !important;
+  font-size:20px !important; font-weight:700 !important; color:#fff !important;
+}
+.lobby-header { display:flex; align-items:center; justify-content:space-between; }
+.lobby-badge {
+  font-size:13px; font-weight:600; color:rgba(255,255,255,0.5);
+  display:flex; align-items:center; gap:6px;
+}
+
+/* 화면 전환 배경 통일 */
+.screen {
+  background:#0a0c12 !important;
+}
+
+/* 투표/뽑기 화면 */
+.screen-title {
+  font-family:'Space Grotesk','Inter',sans-serif !important;
+  font-size:24px !important; font-weight:700 !important; color:#fff !important;
+}
+.screen-sub {
+  font-family:'Inter',sans-serif !important;
+  color:rgba(255,255,255,0.4) !important; font-size:14px !important;
+}
