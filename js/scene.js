@@ -14,9 +14,8 @@ export const renderer = new THREE.WebGLRenderer({
   stencil: false,
   precision: 'mediump'
 });
-// ★ 렉 감소를 위해 픽셀비율 낮춤 (선명도 유지하면서 GPU 부하 30% 감소)
-const _dpr = window.devicePixelRatio || 1;
-renderer.setPixelRatio(Math.min(_dpr * 0.55, 0.85));
+// ★ 21명 최적화: 픽셀비율 = DPR 1.0 캡 (레티나 2x 디스플레이에서 렌더 픽셀 75% 감소)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -25,7 +24,7 @@ renderer.shadowMap.enabled = false;      // 그림자 완전 끄기 (성능)
 renderer.info.autoReset = false;          // info 트래킹 오버헤드 제거
 document.body.appendChild(renderer.domElement);
 
-export const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.05, 320);
+export const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 180); // ★ near 0.05→0.1 (depth buffer 정밀도 2배), far 320→180
 
 // 하늘 그라디언트 (셰이더 안 쓰고 canvas 텍스처 하나 — 렉 X)
 function makeSkyTexture() {
@@ -46,7 +45,7 @@ function makeSkyTexture() {
   return tex;
 }
 scene.background = makeSkyTexture();
-scene.fog = new THREE.Fog(0xb8c8d8, 55, 220);
+scene.fog = new THREE.Fog(0xb8c8d8, 50, 160); // ★ 21명 최적화: 먼 거리 컬링 강화
 
 // ========== 조명 ==========
 export const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
