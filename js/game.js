@@ -2493,10 +2493,17 @@ document.getElementById('nickInput').addEventListener('keydown', e => {
 
 // 프로필 HUD 갱신
 function updateProfileHUD() {
+  const nickEl = document.getElementById('profileNick');
+  if (nickEl) nickEl.textContent = myNick || myProfile?.nick || '—';
   const el = document.getElementById('profileTrophy');
-  if (el && myProfile) el.textContent = myProfile.trophy || 0;
+  if (el) el.textContent = myProfile?.trophy || 0;
   const wl = document.getElementById('profileWL');
   if (wl && myProfile) wl.textContent = `${myProfile.wins || 0}승 ${myProfile.losses || 0}패`;
+  // 홈 닉네임도 동기화
+  const hn = document.getElementById('homeNickLabel');
+  if (hn) hn.textContent = myNick || myProfile?.nick || '—';
+  const hc = document.getElementById('homeCoinCount');
+  if (hc) hc.textContent = myProfile?.trophy || 0;
 }
 
 // 홈 화면 버튼들
@@ -2782,6 +2789,7 @@ function showCoinEarned(amount) {
 
 // ============ 방 목록 ============
 function subscribeRoomList() {
+  updateProfileHUD(); // 프로필 바 갱신
   const roomsRef = ref(fbDb, 'rooms');
   if (roomListUnsub) roomListUnsub();
   let _rlThrottle = 0;
