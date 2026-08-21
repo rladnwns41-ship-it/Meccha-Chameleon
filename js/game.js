@@ -16,7 +16,7 @@ import { ref, set, onValue, onDisconnect, serverTimestamp,
          push, update, get, remove, off, onChildAdded, onChildChanged, onChildRemoved, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 // 분리된 파일에서 import
-import { fbApp, fbAuth, fbDb, myUid, myProfile, authReady,
+import { fbApp, fbAuth, fbDb, myUid, myProfile,
          loginAsGuest, loginWithEmail, signUpWithEmail, logOut, saveProfile, recordMatch, addKills } from './firebase.js';
 import { scene, renderer, camera,
          ambientLight, hemiLight, dir, fillLight,
