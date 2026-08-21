@@ -16,7 +16,8 @@ import { ref, set, onValue, onDisconnect, serverTimestamp,
          push, update, get, remove, off, onChildAdded, onChildChanged, onChildRemoved, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 // 분리된 파일에서 import
-import { fbApp, fbAuth, fbDb, myUid } from './firebase.js';
+import { fbApp, fbAuth, fbDb, myUid, myProfile, authReady,
+         loginAsGuest, loginWithEmail, signUpWithEmail, logOut, saveProfile, recordMatch, addKills } from './firebase.js';
 import { scene, renderer, camera,
          ambientLight, hemiLight, dir, fillLight,
          ground, wallGroup, wallMat, capMat, cornerMat, buildWalls } from './scene.js';
@@ -2404,58 +2405,121 @@ function isPoseOwned(id) { return getOwnedPoses().includes(id); }
 function saveBodyTint(hex) { try { localStorage.setItem(STORAGE_TINT, hex); } catch(e){} }
 function loadBodyTint() { try { return localStorage.getItem(STORAGE_TINT) || null; } catch(e){ return null; } }
 
-// 1단계: 닉네임 입력 완료 → 방 목록으로
-document.getElementById('nickNext').addEventListener('click', () => {
+// 1단계: 인증 (게스트/로그인/회원가입) → 닉네임 → 방 목록
+// 게스트 버튼
+document.getElementById('authGuestBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('authGuestBtn');
+  btn.disabled = true; btn.textContent = '접속 중...';
+  await loginAsGuest();
+  btn.disabled = false; btn.textContent = '게스트로 시작';
+  // 게스트는 닉 입력 단계로
+  document.getElementById('authPanel').style.display = 'none';
+  document.getElementById('nickPanel').style.display = '';
+  const inp = document.getElementById('nickInput');
+  if (myProfile?.nick) inp.value = myProfile.nick;
+  inp.focus();
+});
+
+// 로그인 폼 토글
+document.getElementById('showLoginBtn')?.addEventListener('click', () => {
+  document.getElementById('authPanel').style.display = 'none';
+  document.getElementById('loginPanel').style.display = '';
+  document.getElementById('loginEmail')?.focus();
+});
+document.getElementById('loginBackBtn')?.addEventListener('click', () => {
+  document.getElementById('loginPanel').style.display = 'none';
+  document.getElementById('authPanel').style.display = '';
+  document.getElementById('loginError').textContent = '';
+});
+document.getElementById('loginSubmitBtn')?.addEventListener('click', async () => {
+  const email = document.getElementById('loginEmail')?.value?.trim();
+  const pw = document.getElementById('loginPw')?.value;
+  if (!email || !pw) return;
+  const btn = document.getElementById('loginSubmitBtn');
+  btn.disabled = true;
+  const res = await loginWithEmail(email, pw);
+  btn.disabled = false;
+  if (!res.ok) { document.getElementById('loginError').textContent = res.error; return; }
+  myNick = myProfile?.nick || '카멜레온';
+  try { localStorage.setItem('wc_nick_v1', myNick); } catch(e){}
+  showScreen('rooms');
+  subscribeRoomList();
+});
+
+// 회원가입 폼 토글
+document.getElementById('showSignupBtn')?.addEventListener('click', () => {
+  document.getElementById('authPanel').style.display = 'none';
+  document.getElementById('signupPanel').style.display = '';
+  document.getElementById('signupNick')?.focus();
+});
+document.getElementById('signupBackBtn')?.addEventListener('click', () => {
+  document.getElementById('signupPanel').style.display = 'none';
+  document.getElementById('authPanel').style.display = '';
+  document.getElementById('signupError').textContent = '';
+});
+document.getElementById('signupSubmitBtn')?.addEventListener('click', async () => {
+  const nick = document.getElementById('signupNick')?.value?.trim();
+  const email = document.getElementById('signupEmail')?.value?.trim();
+  const pw = document.getElementById('signupPw')?.value;
+  if (!nick || !email || !pw) return;
+  const btn = document.getElementById('signupSubmitBtn');
+  btn.disabled = true;
+  const res = await signUpWithEmail(email, pw, nick);
+  btn.disabled = false;
+  if (!res.ok) { document.getElementById('signupError').textContent = res.error; return; }
+  myNick = nick;
+  try { localStorage.setItem('wc_nick_v1', myNick); } catch(e){}
+  showScreen('rooms');
+  subscribeRoomList();
+});
+
+// 닉네임 확인 (게스트용)
+document.getElementById('nickNext').addEventListener('click', async () => {
   try {
     const rawNick = document.getElementById('nickInput').value.trim();
     const cleaned = (typeof sanitizeNick === 'function') ? sanitizeNick(rawNick, 16) : rawNick.replace(/[^\p{L}\p{N}_\-]/gu,'').slice(0,16);
     myNick = cleaned || '익명' + Math.floor(Math.random()*100);
     try { localStorage.setItem('wc_nick_v1', myNick); } catch(e){}
-    if (typeof showScreen === 'function') {
-      showScreen('rooms');
-    } else {
-      document.querySelectorAll('.screen').forEach(s => { s.classList.add('hidden'); s.style.setProperty('display','none','important'); });
-      const r = document.getElementById('scr-rooms');
-      if (r) { r.classList.remove('hidden'); r.style.setProperty('display','flex','important'); }
-    }
-    if (typeof subscribeRoomList === 'function') subscribeRoomList();
+    if (myProfile) { myProfile.nick = myNick; saveProfile(); }
+    showScreen('rooms');
+    subscribeRoomList();
   } catch (err) {
-    window.__nickErr = { m: err.message, s: err.stack };
-    console.warn('nickNext handler error:', err);
-    alert('오류: ' + err.message);
+    console.warn('nickNext error:', err);
   }
 });
 document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('nickNext').click();
 });
 
+// 프로필 HUD 갱신
+function updateProfileHUD() {
+  const el = document.getElementById('profileTrophy');
+  if (el && myProfile) el.textContent = myProfile.trophy || 0;
+  const wl = document.getElementById('profileWL');
+  if (wl && myProfile) wl.textContent = `${myProfile.wins || 0}승 ${myProfile.losses || 0}패`;
+}
+
 // 홈 화면 버튼들
 document.getElementById('homePlayBtn').addEventListener('click', () => {
   showScreen('rooms');
   subscribeRoomList();
 });
-document.getElementById('changeNickBtn').addEventListener('click', () => {
+document.getElementById('changeNickBtn')?.addEventListener('click', () => {
   try { localStorage.removeItem(STORAGE_NICK); } catch(e){}
   showScreen('nick');
+  // 인증 화면이 아니라 닉 변경만
+  document.getElementById('authPanel').style.display = 'none';
+  document.getElementById('loginPanel').style.display = 'none';
+  document.getElementById('signupPanel').style.display = 'none';
+  document.getElementById('nickPanel').style.display = '';
   const inp = document.getElementById('nickInput');
   if (inp) { inp.value = myNick || ''; inp.focus(); }
 });
 function __goHome() {
   try { if (typeof roomListUnsub === 'function') roomListUnsub(); } catch(e){}
   try { roomListUnsub = null; } catch(e){}
-  document.querySelectorAll('.screen').forEach(s => {
-    s.classList.add('hidden');
-    s.style.setProperty('display','none','important');
-  });
-  const el = document.getElementById('scr-nick');
-  if (el) {
-    el.classList.remove('hidden');
-    el.style.setProperty('display','flex','important');
-  }
-  try { currentScreen = 'nick'; } catch(e){}
-  const inp = document.getElementById('nickInput');
-  if (inp) { try { inp.value = (typeof myNick === 'string' ? myNick : '') || ''; } catch(e){} inp.focus(); }
-  console.log('[goHome] → nick');
+  showScreen('rooms');
+  subscribeRoomList();
 }
 window.__goHome = __goHome;
 document.getElementById('roomsBackBtn').addEventListener('click', (ev) => {
@@ -2466,8 +2530,8 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest && ev.target.closest('#roomsBackBtn');
   if (t) { ev.preventDefault(); ev.stopPropagation(); __goHome(); }
 }, true);
-document.getElementById('homeClosetBtn').addEventListener('click', openCloset);
-document.getElementById('homePoseBtn').addEventListener('click', openPoseShop);
+document.getElementById('homeClosetBtn')?.addEventListener('click', openCloset);
+document.getElementById('homePoseBtn')?.addEventListener('click', openPoseShop);
 
 // ============ 홈 3D 캐릭터 프리뷰 ============
 // ★ 홈 캐릭터 미리보기 — 메인 renderer 재활용 (별도 WebGL 컨텍스트 생성 안 함)
