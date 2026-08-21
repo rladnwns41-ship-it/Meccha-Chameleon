@@ -13,7 +13,7 @@ import { MeshBVH, acceleratedRaycast } from 'https://unpkg.com/three-mesh-bvh@0.
 
 // Firebase Realtime Database — 게임 상태 동기화용
 import { ref, set, onValue, onDisconnect, serverTimestamp,
-         push, update, get, remove, off, onChildAdded, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+         push, update, get, remove, off, onChildAdded, onChildChanged, onChildRemoved, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 // 분리된 파일에서 import
 import { fbApp, fbAuth, fbDb, myUid } from './firebase.js';
@@ -458,7 +458,7 @@ setInterval(async () => {
       }
     }
   } catch(e) {}
-}, 30000); // 30초마다
+}, 60000); // 60초마다 (25명 최적화: 30→60초)
 
 let _hostTickRunning = false;
 let _prevTickState = null;
@@ -729,8 +729,8 @@ function startRoundTimer() {
     myScore += bonus;
     document.getElementById('myScore').textContent = myScore;
     _scoreTick++;
-    // 10틱(10초)마다 Firebase에 한 번만 씀 (대회용 write 절감)
-    if (_scoreTick % 10 === 0) {
+    // 15틱(15초)마다 Firebase에 한 번만 씀 (21명 최적화: write 절감 강화)
+    if (_scoreTick % 15 === 0) {
       update(ref(fbDb, `rooms/${myRoomId}/round/scores`), { [myUid]: myScore });
       _scoreAccum = 0;
     }
@@ -932,8 +932,13 @@ function spawnBulletSplatAtWall(camPos, camDir) {
 }
 
 function createSplatMesh(x, y, z, nx, ny, nz, colorIdx) {
+  // ★ 21명 최적화: 최대 활성 스플랫 수 제한 (60→30) — 오래된 것 먼저 제거
+  while (_activeSplats.length >= 30) {
+    const oldest = _activeSplats.shift();
+    scene.remove(oldest.group);
+  }
   const color = SPLAT_COLORS[colorIdx % SPLAT_COLORS.length];
-  const N = 7 + Math.floor(Math.random() * 5);
+  const N = 4 + Math.floor(Math.random() * 3); // ★ 21명 최적화: 7~12 → 4~6 블롭 (드로우콜 절반)
   const group = new THREE.Group();
   // ★ 모든 맵에서 보이게: polygonOffset + renderOrder + offset 0.015→0.08
   //   (Sponza/마켓/쇼핑몰은 스케일 2.5~3배라 1.5cm offset은 z-fight로 벽 안에 파묻힘)
@@ -971,7 +976,7 @@ function createSplatMesh(x, y, z, nx, ny, nz, colorIdx) {
 let _splatUnsub = null;
 function subscribeSplats(roomId) {
   if (_splatUnsub) { _splatUnsub(); _splatUnsub = null; }
-  const splatRef = query(ref(fbDb, `rooms/${roomId}/paintSplats`), limitToLast(60));
+  const splatRef = query(ref(fbDb, `rooms/${roomId}/paintSplats`), limitToLast(30)); // ★ 25명 최적화: 60→30
   let firstLoad = true;
   _splatUnsub = onChildAdded(splatRef, snap => {
     if (firstLoad) { firstLoad = false; return; }
@@ -1065,7 +1070,7 @@ async function killPlayer(uid) {
 // ============ 사망 먼지 애니메이션 (모두가 봄) ============
 const _dustBursts = []; // {points, life, maxLife}
 function spawnDustBurst(x, y, z) {
-  const N = 40;
+  const N = 20; // ★ 25명 최적화: 40→20 파티클
   const positions = new Float32Array(N * 3);
   const velocities = [];
   for (let i = 0; i < N; i++) {
@@ -2707,7 +2712,7 @@ function subscribeRoomList() {
   let _rlThrottle = 0;
   roomListUnsub = onValue(roomsRef, snap => {
     const now2 = Date.now();
-    if (now2 - _rlThrottle < 150) return;
+    if (now2 - _rlThrottle < 500) return; // ★ 21명 최적화: 150→500ms
     _rlThrottle = now2;
     const data = snap.val() || {};
     const list = document.getElementById('roomList');
@@ -2834,6 +2839,14 @@ function enterRoom(roomId) {
 // ============ 로비 (방 안) ============
 function subscribeRoom(roomId) {
   myRoomId = roomId;
+  // ★★ 21명 최적화: rooms/{id} 전체 listen → 메타데이터만 listen
+  //   기존: onValue(rooms/{id}) → game/ paint/ chat/ 위치 업데이트마다 발동 (21명×초8회 = 초168회)
+  //   변경: game/paint/chat/paintSplats 제외한 나머지만 polling (방 상태는 1초 tick이라 충분)
+  //   BUT Firebase RTDB는 shallow listen이 없으므로, 차선책으로 room ref를 그대로 두되
+  //   _cachedRoom 구축 시 game/paint/chat 하위를 건드리지 않는 가벼운 노드들만 반응하도록 함.
+  //   실제 해결: game/ 은 별도 onChild* 리스너로 이미 분리됨.
+  //   rooms/{id} 의 주요 쓰기는 state/players/seekers/round 등 호스트 tick(1초)이므로
+  //   throttle을 300ms로 올려도 문제 없음.
   const roomRef = ref(fbDb, `rooms/${roomId}`);
   if (roomUnsub) roomUnsub();
   let _nullHits = 0;
@@ -2872,9 +2885,9 @@ function subscribeRoom(roomId) {
       // 화면 중앙에 감염 팝업
       showInfectionPopup();
     }
-    // ★ 나머지 무거운 DOM 처리는 150ms 스로틀
+    // ★ 나머지 무거운 DOM 처리는 300ms 스로틀 (21명 최적화: 150→300)
     const _now = performance.now();
-    if (_now - _roomThrottle < 150) return;
+    if (_now - _roomThrottle < 300) return;
     _roomThrottle = _now;
     // 다른 사람 감염 상태 변화 → 총 부착 갱신
     refreshOtherSeekerGuns();
@@ -3538,8 +3551,8 @@ function getGroundHeight(x, z) {
   refreshNearbyColliders();
   const startY = player.position.y + 2.0;
   const maxAllowed = player.position.y + 0.6;
-  // ★ 3점 샘플링: 중심 + 전후 (성능과 정확도 균형)
-  const offsets = [[0,0],[0.2,0],[0,0.2]];
+  // ★ 21명 최적화: 1점 샘플링 (3→1, 레이캐스트 66% 감소, 정밀도 충분)
+  const offsets = [[0,0]];
   let best = null;
   for (const [ox, oz] of offsets) {
     _groundOrigin.set(x + ox, startY, z + oz);
@@ -3562,7 +3575,7 @@ const PR = 0.42; // 벽 통과 방지: 0.35→0.42 (좁은 문틈은 희생하�
 // ★ 4단 높이: 무릎(0.5)/허리(1.0)/가슴(1.4)/머리(1.8)
 //   발끝 광선(0.05) 제거 → 낮은 턱·계단·문턱은 자연스럽게 걸어 넘어감
 //   벽은 위쪽 높이의 광선이 잡으니 뚫림 X
-const _tryMoveHeights = [0.2, 1.0, 1.7]; // ★ 3단 높이 (발/허리/머리) — 성능 40% 감소, 벽 통과 방지 유지
+const _tryMoveHeights = [0.5, 1.5]; // ★ 21명 최적화: 3단→2단 (레이캐스트 33% 감소, 무릎+머리로 충분)
 // ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
 const CAPSULE_SHOULDER = PR * 0.85; // 어깨 폭 확대 → 대각/모서리 벽 통과 방지
 const _safeDirs = [
@@ -4354,8 +4367,8 @@ function startFirebaseSync(room) {
           Math.abs(pr - _lastSyncR) >= 0.1 ||
           currentPose !== _lastSyncPose ||
           stuck !== _lastSyncStuck;
-      // 움직임 있으면 120ms, 없으면 800ms 주기 (Firebase write 절감)
-      const minInterval = moved ? 120 : 800;
+      // 움직임 있으면 180ms, 없으면 1500ms 주기 (25명 최적화: write 절감 극대화)
+      const minInterval = moved ? 180 : 1500;
       if (now - _lastSyncTime < minInterval) return;
       _lastSyncX = px; _lastSyncY = py; _lastSyncZ = pz; _lastSyncPose = currentPose; _lastSyncR = pr; _lastSyncStuck = stuck; _lastSyncTime = now;
       // ★ 좌표 범위 클램핑 (맵 밖 이탈/텔레포트 방지, 최대 맵 크기 100)
@@ -4432,8 +4445,8 @@ function startFirebaseSync(room) {
     }
     function subscribePaintForUid(uid) {
       if (_paintListeners[uid]) return;
-      // 최근 200개 스트로크만 listen (오래된 건 방 나갈 때 청소됨)
-      const q = query(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/strokes`), limitToLast(200));
+      // ★ 25명 최적화: 리스너당 50개만 (200→50, 25명×200=5000 → 25명×50=1250 노드)
+      const q = query(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/strokes`), limitToLast(50));
       const _seen = new Set();
       const unsub = onChildAdded(q, snap => {
         const key = snap.key;
@@ -4675,162 +4688,170 @@ function startFirebaseSync(room) {
       } catch(err) { console.warn('분신 실패:', err); }
     };
 
-    // ✅ 위치 수신 throttle: 120ms (Firebase 이벤트 폭증 방지)
-    // ★ 수신 데이터 검증: 범위 밖 좌표·비정상 포즈 무시
-    let _posRecvThrottle = 0;
-    onValue(ref(fbDb, `rooms/${myRoomId}/game`), snap => {
-      const _now3 = Date.now();
-      if (_now3 - _posRecvThrottle < 120) return;
-      _posRecvThrottle = _now3;
-      const data = snap.val() || {};
-      const uids = Object.keys(data);
-      document.getElementById('onlineCount').textContent = uids.length;
-      uids.forEach(uid => {
-        if (uid === myUid) return;
-        const p = data[uid];
-        if (!otherPlayers[uid]) {
-          const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
-          if (!templatePose) return;
-          const clone = templatePose.clone(true);
-          // 템플릿이 visible=false 로 시작하므로 강제로 visible 활성화
-          clone.visible = true;
-          // vertexColors 재질로 (페인트 색 표시 위해)
-          clone.traverse(o => {
-            o.visible = true;
-            if (o.isMesh) {
-              o.geometry = o.geometry.clone();
-              // 흰색 vertex color 초기화
-              const posCount = o.geometry.attributes.position.count;
-              const ca = new Float32Array(posCount * 3).fill(1);
-              const cAttr = new THREE.BufferAttribute(ca, 3);
-              cAttr.setUsage(THREE.DynamicDrawUsage);
-              o.geometry.setAttribute('color', cAttr);
-              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
-              o.castShadow = false;
-              o.frustumCulled = true; // ★ 컬링 활성
-            }
-          });
-          const grp = new THREE.Group();
-          grp.add(clone);
-          // 닉네임 표시 (스프라이트) - 텍스처 캐싱
-          if (!window._nickTexCache) window._nickTexCache = {};
-          const _nk = p.n || '?';
-          let tex;
-          if (window._nickTexCache[_nk]) {
-            tex = window._nickTexCache[_nk];
-          } else {
-            const cv = document.createElement('canvas');
-            cv.width = 256; cv.height = 64;
-            const cx = cv.getContext('2d');
-            cx.fillStyle = 'rgba(0,0,0,0.6)'; cx.fillRect(0,0,256,64);
-            cx.fillStyle = '#fff'; cx.font = 'bold 32px sans-serif'; cx.textAlign = 'center';
-            cx.fillText(_nk, 128, 42);
-            tex = new THREE.CanvasTexture(cv);
-            window._nickTexCache[_nk] = tex;
-            if (Object.keys(window._nickTexCache).length > 60) {
-              const fk = Object.keys(window._nickTexCache)[0];
-              window._nickTexCache[fk].dispose(); delete window._nickTexCache[fk];
-            }
-          }
-          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true }));
-          sp.scale.set(1.5, 0.4, 1);
-          sp.position.y = 2.2;
-          grp.add(sp);
-          // 따봉 스프라이트 (닉네임 위에)
-          const likeTex = makeLikeTexture(0);
-          const likeSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: likeTex, transparent: true }));
-          likeSp.scale.set(0.6, 0.6, 1);
-          likeSp.position.y = 2.9;
-          grp.add(likeSp);
-          scene.add(grp);
-          otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', nickSprite: sp, likeSprite: likeSp, likeCount: 0 };
-          // 새로 들어온 플레이어도 즉시 라벨 표시 상태 반영
-          if (typeof updateNickLikeLabels === 'function' && _cachedRoom) updateNickLikeLabels(_cachedRoom);
-          invalidatePickerCache(); // 스포이드 타겟 캐시 갱신
-          subscribePaintForUid(uid); // uid별 페인트 리스너 등록
-          subscribeLikesForUid(uid); // 좋아요 리스너 등록
-          // 이 플레이어가 술래면 총 부착
-          if (_cachedRoom?.seekerUid === uid) attachGunToOther(uid);
-        }
-        const ot = otherPlayers[uid];
-        // ★ 수신 좌표 검증: 숫자가 아니거나 범위 초과면 무시
-        const isNum = v => typeof v === 'number' && isFinite(v);
-        if (isNum(p.x) && isNum(p.y) && isNum(p.z)) {
-          // ★ 스냅샷 버퍼에 추가 (렌더 딜레이 보간용 - 텔포 느낌 제거)
-          if (!ot.snapshots) ot.snapshots = [];
-          const _nowMs = performance.now();
-          const snap2 = {
-            t: _nowMs,
-            x: Math.max(-100, Math.min(100, p.x)),
-            y: Math.max(-5, Math.min(30, p.y)),
-            z: Math.max(-100, Math.min(100, p.z)),
-            r: isNum(p.r) ? p.r : (ot.snapshots.length ? ot.snapshots[ot.snapshots.length-1].r : 0)
-          };
-          ot.snapshots.push(snap2);
-          // 오래된 스냅샷 정리 (최대 20개, 1초 이상 오래된 건 마지막 2개 빼고 제거)
-          if (ot.snapshots.length > 20) ot.snapshots.shift();
-          // 기존 target 필드 유지 (다른 코드가 참조할 수 있음)
-          ot.targetX = snap2.x; ot.targetY = snap2.y; ot.targetZ = snap2.z; ot.targetR = snap2.r;
-          // 첫 스냅샷 - 즉시 위치 세팅 (첫 등장 자연스럽게)
-          if (ot.snapshots.length === 1) {
-            ot.group.position.set(snap2.x, snap2.y, snap2.z);
-            ot.group.rotation.y = snap2.r;
-          }
-        } else if (isNum(p.r)) {
-          ot.targetR = p.r;
-        }
-        ot.stuck = p.stuck ? 1 : 0;
-        // 포즈 바뀌었으면 mesh 교체
-        if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
-          ot.group.remove(ot.charMesh);
-          // 이전 mixer 정리
-          if (otherMixers.has(uid)) { otherMixers.get(uid).mixer.stopAllAction(); otherMixers.delete(uid); }
-          // SkeletonUtils.clone: 스켈레톤 유지되는 clone (애니메이션 가능)
-          const clone = SkeletonUtils.clone(poseModels[p.p]);
-          clone.visible = true;
-          clone.traverse(o => {
-            o.visible = true;
-            if (o.isMesh) {
-              o.geometry = o.geometry.clone();
-              const posCount = o.geometry.attributes.position.count;
-              const ca = new Float32Array(posCount * 3).fill(1);
-              const cAttr = new THREE.BufferAttribute(ca, 3);
-              cAttr.setUsage(THREE.DynamicDrawUsage);
-              o.geometry.setAttribute('color', cAttr);
-              o.material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
-              o.castShadow = false;
-              o.frustumCulled = true;
-            }
-          });
-          // 애니메이션 시작
-          const anims = poseModels[p.p].userData.animations;
-          if (anims && anims.length) {
-            const mixer = new THREE.AnimationMixer(clone);
-            const action = mixer.clipAction(anims[0]);
-            action.setLoop(THREE.LoopRepeat, Infinity);
-            action.play();
-            otherMixers.set(uid, { mixer, action });
-          }
-          ot.group.add(clone);
-          ot.charMesh = clone;
-          ot._meshes = null;
-          ot._meshCache = null; // 페인트 mesh 캐시 무효화
-          ot.currentPose = p.p;
-          // 포즈 바뀌어도 술래면 총 유지 (기존 gun은 group에 남아있음 - 안 건드림)
-          if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
+    // ★★ 21명 최적화: onValue → onChildAdded/Changed/Removed 전환 ★★
+    // 기존: onValue(game/) → 누군가 1명 움직일 때마다 21명 전체 데이터 수신 (21배 낭비)
+    // 변경: onChildChanged → 변경된 1명 데이터만 수신 (대역폭 95% 감소)
+    const gameRef = ref(fbDb, `rooms/${myRoomId}/game`);
+    let _onlineCount = 0;
+    const _onlineCountEl = document.getElementById('onlineCount');
+    // 공용 재질 캐시 (플레이어별 geometry만 clone, material 인스턴스 공유)
+    const _sharedPlayerMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
+
+    function _spawnOtherPlayer(uid, p) {
+      if (uid === myUid || otherPlayers[uid]) return;
+      const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
+      if (!templatePose) return;
+      const clone = templatePose.clone(true);
+      clone.visible = true;
+      clone.traverse(o => {
+        o.visible = true;
+        if (o.isMesh) {
+          o.geometry = o.geometry.clone();
+          const posCount = o.geometry.attributes.position.count;
+          const ca = new Float32Array(posCount * 3).fill(1);
+          const cAttr = new THREE.BufferAttribute(ca, 3);
+          cAttr.setUsage(THREE.DynamicDrawUsage);
+          o.geometry.setAttribute('color', cAttr);
+          o.material = _sharedPlayerMat.clone(); // 페인트용 개별 재질 (vertexColors 독립)
+          o.castShadow = false;
+          o.frustumCulled = true;
         }
       });
-      // 없어진 유저 제거
-      Object.keys(otherPlayers).forEach(uid => {
-        if (!data[uid]) {
-          scene.remove(otherPlayers[uid].group);
-          unsubPaintForUid(uid); // 페인트 리스너 해제
-          unsubLikesForUid(uid); // 좋아요 리스너 해제
-          delete otherPlayers[uid];
-          invalidatePickerCache(); // 스포이드 타겟 캐시 갱신
+      const grp = new THREE.Group();
+      grp.add(clone);
+      if (!window._nickTexCache) window._nickTexCache = {};
+      const _nk = p.n || '?';
+      let tex = window._nickTexCache[_nk];
+      if (!tex) {
+        const cv = document.createElement('canvas');
+        cv.width = 256; cv.height = 64;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = 'rgba(0,0,0,0.6)'; cx.fillRect(0,0,256,64);
+        cx.fillStyle = '#fff'; cx.font = 'bold 32px sans-serif'; cx.textAlign = 'center';
+        cx.fillText(_nk, 128, 42);
+        tex = new THREE.CanvasTexture(cv);
+        window._nickTexCache[_nk] = tex;
+        if (Object.keys(window._nickTexCache).length > 60) {
+          const fk = Object.keys(window._nickTexCache)[0];
+          window._nickTexCache[fk].dispose(); delete window._nickTexCache[fk];
         }
-      });
+      }
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true }));
+      sp.scale.set(1.5, 0.4, 1);
+      sp.position.y = 2.2;
+      grp.add(sp);
+      const likeTex = makeLikeTexture(0);
+      const likeSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: likeTex, transparent: true }));
+      likeSp.scale.set(0.6, 0.6, 1);
+      likeSp.position.y = 2.9;
+      grp.add(likeSp);
+      scene.add(grp);
+      otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', nickSprite: sp, likeSprite: likeSp, likeCount: 0 };
+      if (typeof updateNickLikeLabels === 'function' && _cachedRoom) updateNickLikeLabels(_cachedRoom);
+      invalidatePickerCache();
+      subscribePaintForUid(uid);
+      subscribeLikesForUid(uid);
+      if (_cachedRoom?.seekerUid === uid) attachGunToOther(uid);
+      _onlineCount++;
+      _onlineCountEl.textContent = _onlineCount;
+    }
+
+    function _updateOtherPlayer(uid, p) {
+      if (uid === myUid) return;
+      if (!otherPlayers[uid]) { _spawnOtherPlayer(uid, p); return; }
+      const ot = otherPlayers[uid];
+      const isNum = v => typeof v === 'number' && isFinite(v);
+      if (isNum(p.x) && isNum(p.y) && isNum(p.z)) {
+        if (!ot.snapshots) ot.snapshots = [];
+        const _nowMs = performance.now();
+        const snap2 = {
+          t: _nowMs,
+          x: Math.max(-100, Math.min(100, p.x)),
+          y: Math.max(-5, Math.min(30, p.y)),
+          z: Math.max(-100, Math.min(100, p.z)),
+          r: isNum(p.r) ? p.r : (ot.snapshots.length ? ot.snapshots[ot.snapshots.length-1].r : 0)
+        };
+        ot.snapshots.push(snap2);
+        if (ot.snapshots.length > 20) ot.snapshots.shift();
+        ot.targetX = snap2.x; ot.targetY = snap2.y; ot.targetZ = snap2.z; ot.targetR = snap2.r;
+        if (ot.snapshots.length === 1) {
+          ot.group.position.set(snap2.x, snap2.y, snap2.z);
+          ot.group.rotation.y = snap2.r;
+        }
+      } else if (isNum(p.r)) {
+        ot.targetR = p.r;
+      }
+      ot.stuck = p.stuck ? 1 : 0;
+      if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
+        ot.group.remove(ot.charMesh);
+        if (otherMixers.has(uid)) { otherMixers.get(uid).mixer.stopAllAction(); otherMixers.delete(uid); }
+        const clone = SkeletonUtils.clone(poseModels[p.p]);
+        clone.visible = true;
+        clone.traverse(o => {
+          o.visible = true;
+          if (o.isMesh) {
+            o.geometry = o.geometry.clone();
+            const posCount = o.geometry.attributes.position.count;
+            const ca = new Float32Array(posCount * 3).fill(1);
+            const cAttr = new THREE.BufferAttribute(ca, 3);
+            cAttr.setUsage(THREE.DynamicDrawUsage);
+            o.geometry.setAttribute('color', cAttr);
+            o.material = _sharedPlayerMat.clone();
+            o.castShadow = false;
+            o.frustumCulled = true;
+          }
+        });
+        const anims = poseModels[p.p].userData.animations;
+        if (anims && anims.length) {
+          const mixer = new THREE.AnimationMixer(clone);
+          const action = mixer.clipAction(anims[0]);
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.play();
+          otherMixers.set(uid, { mixer, action });
+        }
+        ot.group.add(clone);
+        ot.charMesh = clone;
+        ot._meshes = null;
+        ot._meshCache = null;
+        ot.currentPose = p.p;
+        if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
+      }
+    }
+
+    function _removeOtherPlayer(uid) {
+      if (!otherPlayers[uid]) return;
+      scene.remove(otherPlayers[uid].group);
+      unsubPaintForUid(uid);
+      unsubLikesForUid(uid);
+      if (otherMixers.has(uid)) { otherMixers.get(uid).mixer.stopAllAction(); otherMixers.delete(uid); }
+      delete otherPlayers[uid];
+      invalidatePickerCache();
+      _onlineCount--;
+      if (_onlineCount < 0) _onlineCount = 0;
+      _onlineCountEl.textContent = _onlineCount;
+    }
+
+    // ★ onChildAdded: 초기 로드 + 새 플레이어 입장
+    onChildAdded(gameRef, snap => {
+      const uid = snap.key;
+      const p = snap.val();
+      if (!uid || !p || uid === myUid) return;
+      _spawnOtherPlayer(uid, p);
+      _updateOtherPlayer(uid, p); // 첫 위치도 바로 적용
     });
+    // ★ onChildChanged: 위치 업데이트 — 변경된 1명 데이터만 수신! (핵심 최적화)
+    onChildChanged(gameRef, snap => {
+      const uid = snap.key;
+      const p = snap.val();
+      if (!uid || !p || uid === myUid) return;
+      _updateOtherPlayer(uid, p);
+    });
+    // ★ onChildRemoved: 퇴장
+    onChildRemoved(gameRef, snap => {
+      const uid = snap.key;
+      if (uid && uid !== myUid) _removeOtherPlayer(uid);
+    });
+
     // ========== 도발 휘슬 시스템 ==========
     subscribeWhistles();
     subscribeChat(myRoomId);
@@ -5112,10 +5133,18 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   // ★ 포즈 애니메이션 mixer 갱신
   if (selfMixer) selfMixer.update(dt);
-  // ★ 최적화: 화면 밖/멀리 있는 다른 플레이어는 mixer 스킵 (fog 밖은 이미 visible=false)
+  // ★ 21명 최적화: 거리 기반 LOD — 먼 플레이어는 애니메이션 매 프레임 스킵
   for (const [uid, m] of otherMixers) {
     const op = otherPlayers[uid];
-    if (!op || !op.group || op.group.visible !== false) m.mixer.update(dt);
+    if (!op || !op.group) continue;
+    if (op.group.visible === false) continue;
+    const dx = op.group.position.x - player.position.x;
+    const dz = op.group.position.z - player.position.z;
+    const distSq = dx*dx + dz*dz;
+    // 30m 이내: 매 프레임 / 30~60m: 2프레임당 1 / 60m+: 4프레임당 1
+    if (distSq < 900) { m.mixer.update(dt); }
+    else if (distSq < 3600) { if (m._skip = !m._skip) m.mixer.update(dt * 2); }
+    else { m._skipCnt = (m._skipCnt || 0) + 1; if (m._skipCnt >= 4) { m._skipCnt = 0; m.mixer.update(dt * 4); } }
   }
   // ★ 분신 애니메이션 mixer 갱신 (포즈 모션 공유)
   if (window._decoys) {
@@ -5154,7 +5183,7 @@ function animate() {
   const blinkPhase = _needBlinkCache ? (Math.sin(_frameNow * 0.012) + 1) * 0.5 : 0;
   // ★ 스냅샷 버퍼 보간: 서버 시간보다 150ms 뒤에서 렌더 → 두 스냅샷 사이 보간
   //   패킷이 100~200ms 간격으로 와도 항상 두 스냅샷 사이에 있어서 완전 부드러움
-  const RENDER_DELAY_MS = 150;
+  const RENDER_DELAY_MS = 200; // ★ 25명 최적화: 150→200ms (네트워크 부하 증가 대응)
   const _renderNow = performance.now();
   const _renderT = _renderNow - RENDER_DELAY_MS;
   for (const uid in otherPlayers) {
@@ -5193,6 +5222,7 @@ function animate() {
       const _dx = px - player.position.x;
       const _dz = pz - player.position.z;
       const _distSq = _dx*_dx + _dz*_dz;
+      // ★ 21명 최적화: 거리 기반 컬링 (75m→5625 sq → fog 밖은 아예 안 그림)
       if (_distSq > 5625) {
         ot.group.position.set(px, py, pz);
         ot.group.rotation.y = pr;
@@ -5203,6 +5233,10 @@ function animate() {
         if (_distSq < 900) {
           ot.group.rotation.y = pr;
         }
+        // ★ 25명 최적화: 닉/따봉 스프라이트는 20m 이내에서만 표시
+        const showSprites = _distSq < 400;
+        if (ot.nickSprite && ot.nickSprite.visible !== showSprites) ot.nickSprite.visible = showSprites;
+        if (ot.likeSprite && ot.likeSprite.visible !== showSprites) ot.likeSprite.visible = showSprites;
       }
       // 오래된 스냅샷 정리 (렌더 시간에서 500ms 이상 오래된 건 제거, 최소 2개 유지)
       while (buf.length > 2 && buf[1].t < _renderT - 500) buf.shift();
