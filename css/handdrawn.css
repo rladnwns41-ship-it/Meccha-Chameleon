@@ -592,3 +592,29 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
 .rank-nick { flex: 1; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank-trophy { font-weight: 700; color: #ffd740; min-width: 70px; }
 .rank-stat { color: rgba(255,255,255,0.35); font-size: 12px; min-width: 45px; text-align: right; }
+
+/* ---- 메탈릭/러프니스 ---- */
+.mat-sliders { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.mat-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(255,255,255,0.5); }
+.mat-row label { min-width: 48px; }
+.mat-row input[type=range] { flex: 1; height: 4px; accent-color: #00e676; }
+.mat-row span { min-width: 22px; text-align: right; font-weight: 600; color: rgba(255,255,255,0.7); }
+
+/* ---- 호스트 설정 ---- */
+.room-host-settings {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;
+  font-size: 12px; color: rgba(255,255,255,0.4);
+}
+.room-host-settings label {
+  display: flex; align-items: center; gap: 4px; cursor: pointer;
+}
+.room-host-settings input[type=checkbox] { accent-color: #00e676; }
+
+/* ---- Petit 모드 표시 ---- */
+.petit-badge {
+  font-size: 10px; background: rgba(0,230,118,0.15); color: #00e676;
+  padding: 1px 6px; border-radius: 4px; font-weight: 700;
+}
+
+/* ---- 비번 방 표시 ---- */
+.room-lock { font-size: 14px; margin-right: 4px; }
