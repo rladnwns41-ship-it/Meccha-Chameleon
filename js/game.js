@@ -604,29 +604,24 @@ let _lastPlayerCount = 0;
 
 // 방 데이터는 subscribeRoom의 onValue에서 _cachedRoom으로 캐시됨
 
-// ★ 전체 방 자동 정리 (방에 들어가지 않아도 오래된/빈 방 삭제)
-// 방 목록 화면에서도 주기적으로 실행
+// ★ 전체 방 자동 정리 (내가 호스트인 방만 삭제)
 setInterval(async () => {
   if (!myUid) return;
-  if (currentScreen !== 'rooms') return; // 방 목록 화면에서만
+  if (currentScreen !== 'rooms') return;
   try {
-    // ★ 최적화: 상단에서 이미 import 된 get 사용 (매번 dynamic import 안 함)
     const snap = await get(ref(fbDb, 'rooms'));
     const data = snap.val() || {};
     for (const [rid, room] of Object.entries(data)) {
-      if (!room) continue;
+      if (!room || room.hostUid !== myUid) continue; // ★ 내 방만
       const count = Object.keys(room.players || {}).length;
       const age = room.createdAt ? Date.now() - room.createdAt : 0;
       if (count === 0 || age > 10 * 60 * 1000) {
-        // 방장이면 무조건, 아니면 빈 방일 때만 (룰이 빈 방은 아무나 삭제 허용)
-        if (room.hostUid === myUid || count === 0) {
-          await remove(ref(fbDb, `rooms/${rid}`));
-          console.log('🧹 자동 방 삭제:', rid, count === 0 ? '빈방' : '10분초과');
-        }
+        await remove(ref(fbDb, `rooms/${rid}`)).catch(() => {});
+        console.log('🧹 자동 방 삭제:', rid);
       }
     }
   } catch(e) {}
-}, 60000); // 60초마다 (25명 최적화: 30→60초)
+}, 60000);
 
 let _hostTickRunning = false;
 let _prevTickState = null;
@@ -4894,9 +4889,10 @@ function startFirebaseSync(room) {
         z: clamp(pz, -100, 100),
         r: pr,
         n: sanitizeNick(myNick || '익명', 16),
-        p: (POSE_LIST.includes(currentPose) ? currentPose : 'stand'), // 유효한 포즈만
+        p: (POSE_LIST.includes(currentPose) ? currentPose : 'stand'),
         role: (myRole === 'seeker' || myRole === 'hider') ? myRole : 'hider',
         stuck,
+        s: isPetitMode ? 0.5 : 1, // ★ Petit 크기 동기화
         t: now
       });
     }, 100);
@@ -5297,6 +5293,9 @@ function startFirebaseSync(room) {
         ot.targetR = p.r;
       }
       ot.stuck = p.stuck ? 1 : 0;
+      // ★ Petit 크기 동기화 — 상대방 화면에서도 작게 보임
+      const otherScale = (p.s && p.s > 0 && p.s <= 1) ? p.s : 1;
+      if (ot.group.scale.x !== otherScale) ot.group.scale.set(otherScale, otherScale, otherScale);
       if (p.p && ot.currentPose !== p.p && poseModels[p.p]) {
         ot.group.remove(ot.charMesh);
         if (otherMixers.has(uid)) { otherMixers.get(uid).mixer.stopAllAction(); otherMixers.delete(uid); }
@@ -5755,8 +5754,9 @@ function animate() {
         if (_distSq < 900) {
           ot.group.rotation.y = pr;
         }
-        // ★ 25명 최적화: 닉/따봉 스프라이트는 20m 이내에서만 표시
-        const showSprites = _distSq < 400;
+        // ★ 닉/따봉 스프라이트: 게임 중(playing)에는 절대 안 보임, ended에서만 표시
+        const isPlaying = _cachedRoom?.state === 'playing';
+        const showSprites = !isPlaying && _distSq < 400;
         if (ot.nickSprite && ot.nickSprite.visible !== showSprites) ot.nickSprite.visible = showSprites;
         if (ot.likeSprite && ot.likeSprite.visible !== showSprites) ot.likeSprite.visible = showSprites;
       }
