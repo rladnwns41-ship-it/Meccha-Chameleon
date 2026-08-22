@@ -2608,7 +2608,11 @@ function lockPointer() {
   if (document.pointerLockElement === el) return;
   // unadjustedMovement 는 일부 마우스에서 특정 축 값이 0으로 죽는 버그가 있어 사용 안 함.
   // 값 폭주는 mousemove 핸들러에서 부드럽게 제한.
-  try { el.requestPointerLock(); } catch(e) {}
+  try {
+    // ★ 포인터락 해제 직후 재잠금 방지 (브라우저 보안 정책)
+    if (window._lastPointerUnlock && Date.now() - window._lastPointerUnlock < 1500) return;
+    el.requestPointerLock();
+  } catch(e) {}
 }
 
 // ============================================================
@@ -2696,9 +2700,16 @@ function loadBodyTint() { try { return localStorage.getItem(STORAGE_TINT) || nul
 document.getElementById('authGuestBtn')?.addEventListener('click', async () => {
   const btn = document.getElementById('authGuestBtn');
   btn.disabled = true; btn.textContent = '접속 중...';
-  await loginAsGuest();
+  const res = await loginAsGuest();
   btn.disabled = false; btn.textContent = '게스트로 시작';
-  // 게스트는 닉 입력 단계로
+  if (!res.ok) {
+    // ★ 에러 표시
+    let errEl = document.getElementById('authError');
+    if (!errEl) { errEl = document.createElement('div'); errEl.id = 'authError'; errEl.className = 'auth-error'; document.getElementById('authPanel')?.appendChild(errEl); }
+    errEl.textContent = res.error || '로그인 실패';
+    console.error('게스트 로그인 실패:', res.error);
+    return;
+  }
   document.getElementById('authPanel').style.display = 'none';
   document.getElementById('nickPanel').style.display = '';
   const inp = document.getElementById('nickInput');
@@ -3871,6 +3882,7 @@ async function startGame(room) {
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
+  if (!pointerLocked) window._lastPointerUnlock = Date.now(); // ★ 해제 시간 기록
   window._lockChanges = (window._lockChanges || 0) + 1;
   // 게임 중 락이 풀렸으면 오버레이 다시 띄워서 재잠금 가능하게
   // (단, 채팅 인풋이 열려있거나 포즈휠이 열려있을 때는 오버레이 표시 안 함)
