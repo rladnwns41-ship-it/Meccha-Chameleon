@@ -27,6 +27,16 @@ let myRef = null, myNick = '익명';
 // 포즈휠 미리보기 렌더 타겟 (renderPoseWheel 안에서 lazy-init 됨)
 let _poseWheelRT = null;
 
+// ★★ 신규 기능 전역 변수 ★★
+let paintMetallic = 0;    // 0~1
+let paintRoughness = 1;   // 0~1
+let myAmmo = Infinity;    // 탄약 (Infinity = 무한)
+let roomAmmoLimit = false; // 호스트 설정: 탄약 제한
+let roomForcedTaunt = false; // 호스트 설정: 강제 도발
+let roomPetitAllowed = false; // 호스트 설정: Petit 허용
+let isPetitMode = false;  // 내가 Petit 모드인지
+let roomPassword = '';    // 방 비밀번호
+
 // ================ Player ================
 const player = new THREE.Group();
 player.position.set(0, 20, 0);
@@ -409,12 +419,41 @@ function closeChat() { unsubscribeChat(); }
 function setRole(role) {
   myRole = role;
   console.log('🎭 내 역할:', role);
+  // ★ 탄약 초기화
+  if (role === 'seeker') {
+    myAmmo = roomAmmoLimit ? 8 : Infinity;
+    _updateAmmoHUD();
+  } else {
+    myAmmo = Infinity;
+    const ammoHud = document.getElementById('ammoHUD');
+    if (ammoHud) ammoHud.style.display = 'none';
+  }
+  // ★ 강제 도발 타이머
+  if (window._forcedTauntInterval) { clearInterval(window._forcedTauntInterval); window._forcedTauntInterval = null; }
+  if (role === 'hider' && roomForcedTaunt) {
+    window._forcedTauntInterval = setInterval(() => {
+      if (currentScreen !== 'game' || !myAlive || myRole !== 'hider') return;
+      // 자동 도발 — 휘슬 발동
+      if (typeof triggerWhistle === 'function') triggerWhistle();
+      else if (myRoomId && myUid) {
+        push(ref(fbDb, `rooms/${myRoomId}/whistles`), { uid: myUid, t: Date.now() }).catch(() => {});
+      }
+      console.log('📢 강제 도발!');
+    }, 30000); // 30초마다
+  }
   // 크로스헤어/조준점 표시
   const ch = document.getElementById('gameCrosshair');
   if (ch) ch.style.display = role === 'seeker' ? 'block' : 'none';
   // 항상 먼저 뗀 뒤 다시 붙임 (이전 라운드 잔재 방지)
   detachGunFromPlayer();
   if (role === 'seeker') attachGunToPlayer();
+  // ★ Petit 모드 적용
+  if (isPetitMode && roomPetitAllowed) {
+    player.scale.set(0.5, 0.5, 0.5);
+  } else {
+    player.scale.set(1, 1, 1);
+    isPetitMode = false;
+  }
   switchPose(currentPose);
 }
 
@@ -811,6 +850,23 @@ addEventListener('keydown', e => {
   }
 });
 
+// ★ 2 키로 Petit 모드 토글 (호스트 허용 시, 숨는자만)
+addEventListener('keydown', e => {
+  if (e.code !== 'Digit2') return;
+  if (window._chatTyping) return;
+  if (currentScreen !== 'game') return;
+  if (myRole === 'seeker') return;
+  if (!roomPetitAllowed) { console.log('🐜 Petit 모드 비활성화 (호스트 미허용)'); return; }
+  isPetitMode = !isPetitMode;
+  if (isPetitMode) {
+    player.scale.set(0.5, 0.5, 0.5);
+    console.log('🐜 Petit 모드 ON (x0.5)');
+  } else {
+    player.scale.set(1, 1, 1);
+    console.log('🐜 Petit 모드 OFF');
+  }
+});
+
 // L 키로 조준한 플레이어에게 좋아요
 addEventListener('keydown', async e => {
   if (e.code !== 'KeyL') return;
@@ -856,6 +912,8 @@ function shootFromCamera() {
   if (!myAlive) { console.log('🔫 발사 취소: 사망 상태'); return; }
   if (currentScreen !== 'game') { console.log('🔫 발사 취소: 스크린=', currentScreen); return; }
   if (!myRoomId || !_cachedRoom) { console.log('🔫 발사 취소: 방 정보 없음'); return; }
+  // ★ 탄약 체크
+  if (myAmmo !== Infinity && myAmmo <= 0) { console.log('🔫 탄약 없음!'); return; }
   // ★ 원조 술래 OR 감염된 술래여야 함
   if (!isSeekerUid(myUid, _cachedRoom)) {
     console.log('🔫 발사 취소: Firebase 기준 나는 술래 아님');
@@ -918,15 +976,28 @@ function shootFromCamera() {
 
   if (!best) {
     console.log(`❌ 빗나감 (hider ${hiderCount}명, 분신 ${decoyCount}개, 술래제외 ${seekerSkip}, 사망제외 ${deadSkip})`);
+    // ★ 빗나가면 탄약 안 씀 (원본과 동일)
     return;
   }
   if (best.decoyKey) {
     console.log('🎭 분신 명중! 글리치 (수직거리 ' + best.side.toFixed(2) + 'm)');
+    // ★ 분신 명중 → 탄약 1발 소모
+    if (myAmmo !== Infinity) { myAmmo--; _updateAmmoHUD(); }
     triggerGlitch();
     return;
   }
   console.log(`🎯 명중: ${best.uid} (앞거리 ${best.along.toFixed(1)}m, 수직거리 ${best.side.toFixed(2)}m)`);
+  // ★ 플레이어 명중 → 탄약 1발 소모 후 1발 복구 (원본: 맞추면 탄약 회복)
+  // 결과적으로 순소모 0
   killPlayer(best.uid);
+}
+
+// ★ 탄약 HUD 갱신
+function _updateAmmoHUD() {
+  const el = document.getElementById('ammoCount');
+  if (el) el.textContent = myAmmo === Infinity ? '∞' : myAmmo;
+  const hud = document.getElementById('ammoHUD');
+  if (hud) hud.style.display = (myRole === 'seeker' && myAmmo !== Infinity) ? '' : 'none';
 }
 
 // ================ 물감 스플랫 시스템 ================
@@ -1334,6 +1405,14 @@ async function showScoreboard() {
   
   const box = document.getElementById('scoreList');
   box.innerHTML = '';
+  // ★ Answer Check — 놓친 숨은자(Missed Enemies) 표시
+  const missedHiders = rows.filter(r => !r.isSeeker && r.alive);
+  if (missedHiders.length > 0) {
+    const missedDiv = document.createElement('div');
+    missedDiv.style.cssText = 'margin-bottom:10px;padding:8px 12px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:13px;color:#00e676;';
+    missedDiv.innerHTML = `🦎 <b>놓친 숨은자 ${missedHiders.length}명:</b> ${missedHiders.map(r => escHtml(sanitizeNick(r.nick,16))).join(', ')}`;
+    box.appendChild(missedDiv);
+  }
   rows.forEach((r, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === 0 ? ' first' : '');
@@ -2993,10 +3072,15 @@ function subscribeRoomList() {
         const info = el.querySelector('.info');
         const cnt = el.querySelector('.count');
         const st  = el.querySelector('.state');
-        const infoTxt = room.name;
+        const infoTxt = (room.password ? '🔒 ' : '') + room.name;
         const cntTxt  = `👥 ${count}/25`;
         const stTxt   = state === 'playing' ? '게임 중' : '대기';
-        if (info.textContent !== infoTxt) info.textContent = infoTxt;
+        // ★ 호스트 설정 표시
+        let badges = '';
+        if (room.ammoLimit) badges += ' 🔫';
+        if (room.forcedTaunt) badges += ' 📢';
+        if (room.petitAllowed) badges += ' 🐜';
+        if (info.textContent !== infoTxt + badges) info.textContent = infoTxt + badges;
         if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
         if (st.textContent !== stTxt) st.textContent = stTxt;
         const wantPlaying = state === 'playing';
@@ -3024,16 +3108,25 @@ document.getElementById('createRoomBtn').addEventListener('click', async () => {
   if (myHostedRoom) { alert('이미 내가 만든 방이 있어요!'); return; }
   const rawName = document.getElementById('newRoomName').value.trim() || (myNick + '의 방');
   const name = sanitizeNick(rawName, 20);
+  const pw = (document.getElementById('newRoomPw')?.value || '').trim();
+  const ammoLimit = document.getElementById('hostAmmoLimit')?.checked || false;
+  const forcedTaunt = document.getElementById('hostForcedTaunt')?.checked || false;
+  const petitAllowed = document.getElementById('hostPetit')?.checked || false;
   _lastRoomCreateTime = now;
   const roomsRef = ref(fbDb, 'rooms');
   const newRoom = push(roomsRef);
-  await set(newRoom, {
+  const roomData = {
     name: name,
     hostUid: myUid,
     state: 'lobby',
     countdownEndAt: null,
     createdAt: Date.now()
-  });
+  };
+  if (pw) roomData.password = pw;
+  if (ammoLimit) roomData.ammoLimit = true;
+  if (forcedTaunt) roomData.forcedTaunt = true;
+  if (petitAllowed) roomData.petitAllowed = true;
+  await set(newRoom, roomData);
   console.log('✅ 방 생성:', newRoom.key, '방장=', myUid);
   await set(ref(fbDb, `rooms/${newRoom.key}/players/${myUid}`), {
     nick: myNick, joinedAt: Date.now()
@@ -3053,6 +3146,15 @@ async function joinRoom(roomId) {
   const roomSnap = await get(ref(fbDb, `rooms/${roomId}`));
   const room = roomSnap.val();
   if (!room) { alert('방이 없음'); _joiningRoom = false; return; }
+  // ★ 비밀번호 체크
+  if (room.password && room.hostUid !== myUid) {
+    const pw = prompt('비밀번호를 입력하세요:');
+    if (pw !== room.password) { alert('비밀번호 틀림'); _joiningRoom = false; return; }
+  }
+  // ★ 호스트 설정 로컬 저장
+  roomAmmoLimit = !!room.ammoLimit;
+  roomForcedTaunt = !!room.forcedTaunt;
+  roomPetitAllowed = !!room.petitAllowed;
   const count = Object.keys(room.players || {}).length;
   if (count >= 25) { alert('방이 꽉 참'); _joiningRoom = false; return; }
   if (room.state === 'playing') { alert('이미 게임 중'); _joiningRoom = false; return; }
@@ -4358,6 +4460,12 @@ function paint(clientX, clientY) {
     colors.updateRange.count  = (maxDirty - minDirty + 1) * 3;
     colors.needsUpdate = true;
     _paintDirtyMeshes.add(mesh);
+    // ★ 메탈릭/러프니스 적용 — 원본 Meccha Chameleon 핵심 기능
+    if (mesh.material) {
+      if (mesh.material.metalness !== undefined) mesh.material.metalness = paintMetallic;
+      if (mesh.material.roughness !== undefined) mesh.material.roughness = paintRoughness;
+      mesh.material.needsUpdate = true;
+    }
   }
   addRecentColor(currentColor);
 
@@ -4554,6 +4662,16 @@ document.getElementById('hexInput').addEventListener('change', e => {
     document.getElementById('preview').style.background = v;
     // TODO: rgb→hsv 역변환
   }
+});
+
+// ★ 메탈릭/러프니스 슬라이더
+document.getElementById('metallicSlider')?.addEventListener('input', e => {
+  paintMetallic = parseInt(e.target.value) / 100;
+  document.getElementById('metallicVal').textContent = e.target.value;
+});
+document.getElementById('roughnessSlider')?.addEventListener('input', e => {
+  paintRoughness = parseInt(e.target.value) / 100;
+  document.getElementById('roughnessVal').textContent = e.target.value;
 });
 
 function addRecentColor(color) {
