@@ -24,6 +24,62 @@ import { scene, renderer, camera,
 
 // game.js 로컬 상태 (firebase.js 의 myUid 와 별도)
 let myRef = null, myNick = '익명';
+// ★ 로그인 화면 3D 캐릭터 배경
+let _authRenderer = null, _authScene = null, _authCamera = null, _authObj = null, _authRaf = null;
+function initAuthChar() {
+  const canvas = document.getElementById('authCharCanvas');
+  if (!canvas || !characterTemplate || _authRenderer) return;
+  try {
+    _authRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    _authRenderer.setSize(window.innerWidth, window.innerHeight);
+    _authRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    _authScene = new THREE.Scene();
+    // 카메라: 상반신 클로즈업 (하반신은 화면 아래로)
+    _authCamera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 50);
+    _authCamera.position.set(0, 1.8, 4);
+    _authCamera.lookAt(0, 1.2, 0);
+    // 조명
+    const amb = new THREE.AmbientLight(0xffffff, 0.6);
+    _authScene.add(amb);
+    const dir = new THREE.DirectionalLight(0x00e676, 1.2);
+    dir.position.set(2, 4, 3);
+    _authScene.add(dir);
+    const rim = new THREE.DirectionalLight(0x4488ff, 0.5);
+    rim.position.set(-3, 2, -2);
+    _authScene.add(rim);
+    // 캐릭터 복제
+    _authObj = characterTemplate.clone(true);
+    _authObj.visible = true;
+    _authObj.traverse(o => { o.visible = true; if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+    _authObj.position.set(0.8, -0.5, 0); // 약간 오른쪽 + 아래로 (하반신 가림)
+    _authScene.add(_authObj);
+    // 애니메이션 루프
+    let _rotY = 0;
+    function authLoop() {
+      _authRaf = requestAnimationFrame(authLoop);
+      if (currentScreen !== 'nick') { return; } // 다른 화면이면 렌더 스킵
+      _rotY += 0.003;
+      _authObj.rotation.y = Math.sin(_rotY) * 0.4; // 좌우 살짝 회전
+      _authRenderer.render(_authScene, _authCamera);
+    }
+    authLoop();
+    // 리사이즈
+    window.addEventListener('resize', () => {
+      if (!_authRenderer) return;
+      _authRenderer.setSize(window.innerWidth, window.innerHeight);
+      _authCamera.aspect = window.innerWidth / window.innerHeight;
+      _authCamera.updateProjectionMatrix();
+    });
+  } catch (e) { console.warn('Auth 3D 초기화 실패:', e); }
+}
+function destroyAuthChar() {
+  if (_authRaf) { cancelAnimationFrame(_authRaf); _authRaf = null; }
+  if (_authRenderer) { _authRenderer.dispose(); _authRenderer = null; }
+  _authScene = null; _authCamera = null; _authObj = null;
+  const canvas = document.getElementById('authCharCanvas');
+  if (canvas) canvas.style.display = 'none';
+}
+
 // 포즈휠 미리보기 렌더 타겟 (renderPoseWheel 안에서 lazy-init 됨)
 let _poseWheelRT = null;
 
@@ -1765,6 +1821,8 @@ POSE_LIST.forEach(poseId => {
     if (poseId === 'stand') {
       if (!currentPoseGlb) switchPose('stand');
       characterTemplate = poseModels.stand;
+      // ★ 로그인 화면 3D 캐릭터 배경 초기화
+      initAuthChar();
     }
     if (poseId in loadProgress) { loadProgress[poseId] = 100; updateLoadingText(); }
   }, xhr => {
@@ -2552,6 +2610,8 @@ let roomUnsub = null;
 
 function showScreen(name) {
   currentScreen = name;
+  // ★ 로그인 화면 벗어나면 3D 배경 정리
+  if (name !== 'nick' && _authRenderer) destroyAuthChar();
   // CSS specificity 우회: inline style 로 직접 강제
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.add('hidden');
@@ -2724,11 +2784,9 @@ const MODE_NAMES = { classic: '클래식', infection: '감염', team: '팀', pet
 function renderHistory() {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const history = (myProfile?.history || []).filter(h => h.at > cutoff);
-  // 사이드 패널 (데스크탑)
+  // 사이드 패널에 렌더
   const sideList = document.getElementById('historyList');
-  // 모바일 오버레이
-  const mobileList = document.getElementById('historyListMobile');
-  [sideList, mobileList].forEach(list => {
+  [sideList].forEach(list => {
     if (!list) return;
     if (!history.length) { list.innerHTML = '<div class="history-empty">전적 없음</div>'; return; }
     list.innerHTML = '';
@@ -2748,19 +2806,18 @@ function renderHistory() {
 // 랭킹도 사이드 + 모바일 양쪽에
 async function loadRanking() {
   const sideList = document.getElementById('rankingList');
-  const mobileList = document.getElementById('rankingListMobile');
-  [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로딩 중...</div>'; });
+  [sideList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로딩 중...</div>'; });
   try {
     const snap = await get(ref(fbDb, 'users'));
     const data = snap.val();
-    if (!data) { [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">랭킹 없음</div>'; }); return; }
+    if (!data) { [sideList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">랭킹 없음</div>'; }); return; }
     const players = Object.entries(data)
       .map(([uid, p]) => ({ uid, nick: p.nick || '?', trophy: p.trophy || 0, wins: p.wins || 0, losses: p.losses || 0, kills: p.kills || 0, games: p.gamesPlayed || 0 }))
       .filter(p => p.games > 0)
       .sort((a, b) => b.trophy - a.trophy)
       .slice(0, 20);
     const rankEmojis = ['🥇','🥈','🥉'];
-    [sideList, mobileList].forEach(list => {
+    [sideList].forEach(list => {
       if (!list) return;
       if (!players.length) { list.innerHTML = '<div class="history-empty">플레이어 없음</div>'; return; }
       list.innerHTML = '';
@@ -2774,7 +2831,7 @@ async function loadRanking() {
     });
   } catch (e) {
     console.warn('랭킹 로드 실패:', e);
-    [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로드 실패</div>'; });
+    [sideList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로드 실패</div>'; });
   }
 }
 
