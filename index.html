@@ -146,6 +146,7 @@
         <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
         <div class="stat-pill" id="profileWL">0승 0패</div>
         <button class="stat-pill stat-btn" id="historyBtn">📋 전적</button>
+        <button class="stat-pill stat-btn" id="rankingBtn">👑 랭킹</button>
       </div>
     </div>
 
@@ -160,6 +161,20 @@
           <div class="history-empty">전적 없음</div>
         </div>
         <button id="historyCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
+      </div>
+    </div>
+
+    <!-- 랭킹 오버레이 -->
+    <div id="rankingOverlay" class="history-overlay hidden">
+      <div class="history-panel" style="width:min(480px,94vw);">
+        <div class="history-header">
+          <h2 class="history-title">👑 트로피 랭킹</h2>
+          <span class="history-note">상위 20명</span>
+        </div>
+        <div id="rankingList" class="history-list">
+          <div class="history-empty">로딩 중...</div>
+        </div>
+        <button id="rankingCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
       </div>
     </div>
 
