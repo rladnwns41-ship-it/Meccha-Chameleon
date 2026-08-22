@@ -186,7 +186,13 @@
       <div id="roomListBox"><div id="roomList"></div></div>
       <div class="room-create-row">
         <input id="newRoomName" placeholder="방 이름" maxlength="20" class="auth-input" style="flex:1">
+        <input id="newRoomPw" placeholder="비번 (선택)" maxlength="10" class="auth-input" style="width:90px">
         <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
+      </div>
+      <div class="room-host-settings">
+        <label><input type="checkbox" id="hostAmmoLimit"> 탄약 제한 (8발)</label>
+        <label><input type="checkbox" id="hostForcedTaunt"> 강제 도발 (30초)</label>
+        <label><input type="checkbox" id="hostPetit"> Petit 모드 허용</label>
       </div>
     </div>
     <button id="roomsBackBtn" class="btn btn-ghost" style="margin-top:12px">← 로그아웃</button>
@@ -228,7 +234,7 @@
 <!-- HUD -->
 <div id="hud">
   <b>WASD</b> 이동 <b>Shift</b> 달리기 <b>Space</b> 점프<br>
-  <b>Q</b> 페인트 <b>R</b> 포즈 <b>H</b> 도발 <b>L</b> 좋아요 <b>C</b> 분신 <b>1</b> 벽고정 <b>Enter</b> 채팅<br>
+  <b>Q</b> 페인트 <b>R</b> 포즈 <b>H</b> 도발 <b>L</b> 좋아요 <b>C</b> 분신 <b>1</b> 벽고정 <b>2</b> Petit <b>Enter</b> 채팅<br>
   <span id="hudShootHint" style="display:none;color:#ff5252;"><b>좌클릭 = 발사</b></span>
   <span style="color:#ffd740;">👍<span id="myLikeCount">0</span></span>
   <span style="color:#ff8a80;">🔍<span id="myCatchCount">0</span></span>
@@ -338,7 +344,16 @@
   <div id="preview-col">
     <div id="preview"></div>
     <input id="hexInput" value="#ffffff" spellcheck="false">
+    <div class="mat-sliders">
+      <div class="mat-row"><label>메탈릭</label><input type="range" id="metallicSlider" min="0" max="100" value="0"><span id="metallicVal">0</span></div>
+      <div class="mat-row"><label>러프니스</label><input type="range" id="roughnessSlider" min="0" max="100" value="100"><span id="roughnessVal">100</span></div>
+    </div>
   </div>
+</div>
+
+<!-- 탄약 HUD (술래용) -->
+<div id="ammoHUD" style="display:none;position:fixed;bottom:80px;right:20px;z-index:20;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;color:#fff;">
+  🔫 <span id="ammoCount">∞</span>
 </div>
 
 <script src="js/boot.js"></script>
