@@ -67,9 +67,13 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
 /* ====================
    AUTH SCREEN
    ==================== */
-.auth-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; position: relative; }
+.auth-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; position: relative; z-index: 1; }
 .auth-brand { text-align: center; margin-bottom: 32px; animation: slideUp .6s ease; }
-.auth-logo { font-size: 52px; line-height: 1; animation: loadSpin 3s linear infinite; margin-bottom: 12px; }
+.auth-logo { display: none; }
+#authCharCanvas {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  z-index: 0; pointer-events: none;
+}
 .auth-title {
   font-family: 'Space Grotesk', sans-serif !important; font-size: clamp(32px,6vw,44px) !important;
   font-weight: 700 !important; color: #00e676 !important; letter-spacing: 8px !important;
@@ -112,89 +116,56 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
 .nick-shell, .nick-hero, .nick-card, .nick-foot, .nick-hero-mark, .nick-hero-copy, .nick-hero-kicker, .game-name, .game-tagline, .nick-hero-chips, .nick-card-head, .nick-card-title, .nick-card-badge, .nick-hint { display: none !important; }
 
 /* ====================
-   ROOMS SCREEN — 3-Column Layout
+   ROOMS — 가로 3패널 (전적 | 방목록 | 랭킹)
    ==================== */
-#scr-rooms { display: flex !important; flex-direction: column !important; align-items: stretch !important; padding: 0 !important; height: 100vh; }
+#scr-rooms { padding: 16px !important; }
 
-.rooms-topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 24px; background: rgba(0,0,0,0.3); backdrop-filter: blur(6px);
-  border-bottom: 1px solid rgba(255,255,255,0.04); flex-shrink: 0;
-  animation: slideUp .3s ease;
+.rooms-row {
+  display: flex; gap: 12px; justify-content: center; align-items: flex-start;
+  max-width: 1100px; margin: 0 auto; width: 100%;
 }
+.rooms-side-panel {
+  width: 220px; flex-shrink: 0;
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 12px; padding: 14px; display: flex; flex-direction: column;
+  max-height: 80vh;
+}
+#historyPanel { animation: slideInLeft .5s ease; }
+#rankingPanel { animation: slideInRight .5s ease; }
+.sp-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.sp-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: #fff; }
+.sp-sub { font-size: 10px; color: rgba(255,255,255,0.2); }
+.sp-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+
+.rooms-main { flex: 1; min-width: 280px; max-width: 480px; display: flex; flex-direction: column; gap: 8px; animation: slideUp .4s ease; }
+.profile-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; }
 .profile-info { display: flex; align-items: center; gap: 8px; }
-.profile-avatar { font-size: 22px; animation: loadSpin 4s linear infinite; }
+.profile-avatar { display: flex; align-items: center; }
+.profile-avatar svg { filter: drop-shadow(0 0 6px rgba(0,230,118,0.3)); }
 .profile-nick { font-weight: 700; font-size: 15px; color: #fff; }
-.profile-stats { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.stat-pill { display: flex; align-items: center; gap: 4px; padding: 4px 10px; background: rgba(255,255,255,0.04); border-radius: 6px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.5); transition: all .15s; }
-.stat-btn { cursor: pointer !important; border: 1px solid rgba(255,255,255,0.06) !important; }
-.stat-btn:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+.profile-stats { display: flex; gap: 6px; flex-wrap: wrap; }
+.stat-pill { display: flex; align-items: center; gap: 4px; padding: 4px 10px; background: rgba(255,255,255,0.04); border-radius: 6px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.5); }
 
-.rooms-3col {
-  display: flex; flex: 1; gap: 0; overflow: hidden; min-height: 0;
+@media (max-width: 800px) {
+  .rooms-row { flex-direction: column; align-items: stretch; }
+  .rooms-side-panel { width: 100%; max-height: 180px; }
+  .rooms-main { max-width: 100%; }
 }
 
-/* 좌/우 사이드 패널 */
-.rooms-side {
-  width: 260px; flex-shrink: 0; padding: 16px 12px; overflow-y: auto;
-  border-right: 1px solid rgba(255,255,255,0.04);
-}
-.rooms-side-right { border-right: none; border-left: 1px solid rgba(255,255,255,0.04); }
-.rooms-side-left { animation: slideInLeft .5s ease; }
-.rooms-side-right { animation: slideInRight .5s ease; }
-
-.side-panel { display: flex; flex-direction: column; height: 100%; }
-.side-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.side-title { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 700; color: #fff; margin: 0; }
-.side-note { font-size: 10px; color: rgba(255,255,255,0.2); }
-.side-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-
-/* 중앙 방 목록 */
-.rooms-center {
-  flex: 1; min-width: 0; padding: 16px 20px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 10px;
-  animation: slideUp .4s ease;
-}
-
-/* 모바일: 3단→1단 (사이드 숨김, 오버레이로 대체) */
-@media (max-width: 900px) {
-  .rooms-3col { flex-direction: column; }
-  .rooms-side { display: none; }
-  .rooms-center { padding: 12px; }
-  /* 모바일에선 프로필바에 전적/랭킹 버튼 추가 */
-  .mobile-side-btns { display: flex !important; }
-}
-@media (min-width: 901px) {
-  .mobile-side-btns { display: none !important; }
-  #historyOverlay, #rankingOverlay { display: none !important; }
-}
-
-/* 전적 row (사이드용 컴팩트) */
-.history-row-compact {
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 10px; border-radius: 6px;
-  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03);
-  font-size: 12px; animation: slideInLeft .3s ease backwards;
-}
-.history-row-compact.win { border-left: 3px solid #00e676; }
-.history-row-compact.lose { border-left: 3px solid #ff5252; }
-.history-row-compact .hr-result { font-weight: 800; min-width: 18px; font-family: 'Space Grotesk', monospace; font-size: 13px; }
+.history-row-compact { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.015); font-size: 11px; }
+.history-row-compact.win { border-left: 2px solid #00e676; }
+.history-row-compact.lose { border-left: 2px solid #ff5252; }
+.history-row-compact .hr-result { font-weight: 800; min-width: 16px; font-family: 'Space Grotesk', monospace; }
 .history-row-compact .hr-result.win { color: #00e676; }
 .history-row-compact .hr-result.lose { color: #ff5252; }
-.history-row-compact .hr-info { flex: 1; color: rgba(255,255,255,0.35); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.history-row-compact .hr-time { color: rgba(255,255,255,0.15); font-size: 10px; white-space: nowrap; }
+.history-row-compact .hr-info { flex: 1; color: rgba(255,255,255,0.3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-row-compact .hr-time { color: rgba(255,255,255,0.15); font-size: 10px; }
 
-/* 랭킹 row (사이드용 컴팩트) */
-.rank-row-compact {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 6px;
-  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03);
-  font-size: 12px; animation: slideInRight .3s ease backwards;
-}
-.rank-row-compact.rank-top { background: rgba(255,215,0,0.03); border-color: rgba(255,215,0,0.08); }
-.rank-row-compact.rank-me { background: rgba(0,230,118,0.04); border-color: rgba(0,230,118,0.1); }
-.rank-row-compact .rk-pos { font-weight: 800; min-width: 22px; text-align: center; font-size: 14px; }
-.rank-row-compact .rk-nick { flex: 1; font-weight: 600; color: #fff; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-row-compact { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.015); font-size: 11px; }
+.rank-row-compact.rank-top { background: rgba(255,215,0,0.03); }
+.rank-row-compact.rank-me { background: rgba(0,230,118,0.04); border: 1px solid rgba(0,230,118,0.1); }
+.rank-row-compact .rk-pos { font-weight: 800; min-width: 20px; text-align: center; font-size: 13px; }
+.rank-row-compact .rk-nick { flex: 1; font-weight: 600; color: #fff; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank-row-compact .rk-trophy { color: #ffd740; font-weight: 700; font-size: 11px; font-family: 'Space Grotesk', monospace; }
 
 .rooms-card { animation: slideInRight .5s ease !important; }
