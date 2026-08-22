@@ -1834,8 +1834,6 @@ POSE_LIST.forEach(poseId => {
     if (poseId === 'stand') {
       if (!currentPoseGlb) switchPose('stand');
       characterTemplate = poseModels.stand;
-      // ★ 로그인 화면 3D 캐릭터 배경 초기화
-      initAuthChar();
     }
     if (poseId in loadProgress) { loadProgress[poseId] = 100; updateLoadingText(); }
   }, xhr => {
@@ -2627,8 +2625,6 @@ let roomUnsub = null;
 
 function showScreen(name) {
   currentScreen = name;
-  // ★ 로그인 화면 벗어나면 3D 배경 정리
-  if (name !== 'nick' && _authRenderer) destroyAuthChar();
   // CSS specificity 우회: inline style 로 직접 강제
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.add('hidden');
@@ -5540,6 +5536,13 @@ const CHAT_COOLDOWN = 1500; // 채팅 1.5초 쿨다운 (스팸 방지)
 async function sendChatMsg() {
   const text = chatInput.value.trim();
   if (!text || !myRoomId || !myUid) return;
+  // ★ 게스트는 채팅 불가
+  if (!fbAuth.currentUser || fbAuth.currentUser.isAnonymous) {
+    chatInput.value = '';
+    const box = document.getElementById('chatMessages');
+    if (box) { const d = document.createElement('div'); d.style.cssText = 'color:#ff5252;font-size:11px;padding:2px 0;'; d.textContent = '⚠️ 회원만 채팅 가능'; box.appendChild(d); box.scrollTop = box.scrollHeight; }
+    return;
+  }
   // 채팅 rate limit
   const nowChat = Date.now();
   if (nowChat - _lastChatTime < CHAT_COOLDOWN) return;
