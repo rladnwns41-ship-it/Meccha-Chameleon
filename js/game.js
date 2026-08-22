@@ -35,9 +35,9 @@ function initAuthChar() {
     _authRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     _authScene = new THREE.Scene();
     // 카메라: 상반신 클로즈업 (하반신은 화면 아래로)
-    _authCamera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 50);
-    _authCamera.position.set(1.5, 1.4, 5);
-    _authCamera.lookAt(1.5, 1.0, 0);
+    _authCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 50);
+    _authCamera.position.set(0, 1.3, 4);
+    _authCamera.lookAt(0, 1.0, 0);
     // 조명
     const amb = new THREE.AmbientLight(0xffffff, 0.8);
     _authScene.add(amb);
@@ -51,25 +51,37 @@ function initAuthChar() {
     _authObj = characterTemplate.clone(true);
     _authObj.visible = true;
     _authObj.traverse(o => { o.visible = true; if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
-    _authObj.position.set(2.5, 0, 0); // 오른쪽에 배치, 바닥 기준
-    _authObj.scale.set(1.2, 1.2, 1.2);
+    // ★ 화면 오른쪽 끝에서 빼꼼 — 화면 비율에 따라 x 위치 계산
+    const aspect = window.innerWidth / window.innerHeight;
+    const peekX = aspect * 2.8; // 화면 오른쪽 가장자리 근처
+    _authObj.position.set(peekX, 0, 1);
+    _authObj.rotation.y = -0.5; // 살짝 왼쪽(화면 안쪽)을 바라봄
+    _authObj.scale.set(1.3, 1.3, 1.3);
     _authScene.add(_authObj);
     // 애니메이션 루프
-    let _rotY = 0;
+    let _peekT = 0;
+    const _peekBaseX = peekX;
     function authLoop() {
       _authRaf = requestAnimationFrame(authLoop);
-      if (currentScreen !== 'nick') { return; } // 다른 화면이면 렌더 스킵
-      _rotY += 0.003;
-      _authObj.rotation.y = Math.sin(_rotY) * 0.4; // 좌우 살짝 회전
+      if (currentScreen !== 'nick') return;
+      _peekT += 0.015;
+      // 빼꼼 모션: 살짝 안으로 들어왔다 나갔다
+      const peekAmt = Math.sin(_peekT) * 0.3;
+      _authObj.position.x = _peekBaseX + peekAmt;
+      // 고개 살짝 갸우뚱
+      _authObj.rotation.z = Math.sin(_peekT * 0.7) * 0.08;
       _authRenderer.render(_authScene, _authCamera);
     }
     authLoop();
     // 리사이즈
     window.addEventListener('resize', () => {
-      if (!_authRenderer) return;
+      if (!_authRenderer || !_authObj) return;
       _authRenderer.setSize(window.innerWidth, window.innerHeight);
       _authCamera.aspect = window.innerWidth / window.innerHeight;
       _authCamera.updateProjectionMatrix();
+      // 빼꼼 위치 재계산
+      const newAspect = window.innerWidth / window.innerHeight;
+      _authObj.position.x = newAspect * 2.8;
     });
   } catch (e) { console.warn('Auth 3D 초기화 실패:', e); }
 }
