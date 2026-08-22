@@ -447,9 +447,11 @@ function setRole(role) {
   // 항상 먼저 뗀 뒤 다시 붙임 (이전 라운드 잔재 방지)
   detachGunFromPlayer();
   if (role === 'seeker') attachGunToPlayer();
-  // ★ Petit 모드 적용
-  if (isPetitMode && roomPetitAllowed) {
+  // ★ Petit 모드 적용 (모드 투표에서 petit 선택 시)
+  const isPetitGame = _cachedRoom?.gameMode === 'petit';
+  if (isPetitGame && role === 'hider') {
     player.scale.set(0.5, 0.5, 0.5);
+    isPetitMode = true;
   } else {
     player.scale.set(1, 1, 1);
     isPetitMode = false;
@@ -856,7 +858,7 @@ addEventListener('keydown', e => {
   if (window._chatTyping) return;
   if (currentScreen !== 'game') return;
   if (myRole === 'seeker') return;
-  if (!roomPetitAllowed) { console.log('🐜 Petit 모드 비활성화 (호스트 미허용)'); return; }
+  if (_cachedRoom?.gameMode !== 'petit') { console.log('🐜 Petit 모드 아님 (모드 투표에서 선택 필요)'); return; }
   isPetitMode = !isPetitMode;
   if (isPetitMode) {
     player.scale.set(0.5, 0.5, 0.5);
@@ -2091,7 +2093,8 @@ let mapLoaded = false;
 const MODES = [
   { id: 'classic',   name: '클래식',  icon: '🎯', desc: '술래 1명이 다 잡음' },
   { id: 'infection', name: '감염',    icon: '☣️', desc: '잡히면 술래 됨' },
-  { id: 'team',      name: '팀',      icon: '⚔️', desc: '술래팀 vs 도망팀' }
+  { id: 'team',      name: '팀',      icon: '⚔️', desc: '술래팀 vs 도망팀' },
+  { id: 'petit',     name: 'Petit',   icon: '🐜', desc: '캐릭터 크기 x0.5' }
 ];
 // 모든 술래 uid 구하기 (원래 술래 + 감염된 애들)
 function getSeekerUids(room) {
@@ -2647,7 +2650,7 @@ function updateProfileHUD() {
 }
 
 // ============ 전적 보기 ============
-const MODE_NAMES = { classic: '클래식', infection: '감염', team: '팀' };
+const MODE_NAMES = { classic: '클래식', infection: '감염', team: '팀', petit: 'Petit' };
 function renderHistory() {
   const list = document.getElementById('historyList');
   if (!list) return;
@@ -3079,7 +3082,6 @@ function subscribeRoomList() {
         let badges = '';
         if (room.ammoLimit) badges += ' 🔫';
         if (room.forcedTaunt) badges += ' 📢';
-        if (room.petitAllowed) badges += ' 🐜';
         if (info.textContent !== infoTxt + badges) info.textContent = infoTxt + badges;
         if (cnt.textContent !== cntTxt) cnt.textContent = cntTxt;
         if (st.textContent !== stTxt) st.textContent = stTxt;
@@ -3111,7 +3113,6 @@ document.getElementById('createRoomBtn').addEventListener('click', async () => {
   const pw = (document.getElementById('newRoomPw')?.value || '').trim();
   const ammoLimit = document.getElementById('hostAmmoLimit')?.checked || false;
   const forcedTaunt = document.getElementById('hostForcedTaunt')?.checked || false;
-  const petitAllowed = document.getElementById('hostPetit')?.checked || false;
   _lastRoomCreateTime = now;
   const roomsRef = ref(fbDb, 'rooms');
   const newRoom = push(roomsRef);
@@ -3125,7 +3126,6 @@ document.getElementById('createRoomBtn').addEventListener('click', async () => {
   if (pw) roomData.password = pw;
   if (ammoLimit) roomData.ammoLimit = true;
   if (forcedTaunt) roomData.forcedTaunt = true;
-  if (petitAllowed) roomData.petitAllowed = true;
   await set(newRoom, roomData);
   console.log('✅ 방 생성:', newRoom.key, '방장=', myUid);
   await set(ref(fbDb, `rooms/${newRoom.key}/players/${myUid}`), {
@@ -3154,7 +3154,6 @@ async function joinRoom(roomId) {
   // ★ 호스트 설정 로컬 저장
   roomAmmoLimit = !!room.ammoLimit;
   roomForcedTaunt = !!room.forcedTaunt;
-  roomPetitAllowed = !!room.petitAllowed;
   const count = Object.keys(room.players || {}).length;
   if (count >= 25) { alert('방이 꽉 참'); _joiningRoom = false; return; }
   if (room.state === 'playing') { alert('이미 게임 중'); _joiningRoom = false; return; }
