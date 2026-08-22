@@ -787,6 +787,30 @@ addEventListener('keydown', e => {
   if (typeof window.createDecoy === 'function') window.createDecoy();
 });
 
+// ★ 1 키로 벽에 고정/해제 (벽 위에서 숨기)
+addEventListener('keydown', e => {
+  if (e.code !== 'Digit1') return;
+  if (window._chatTyping) return;
+  if (currentScreen !== 'game') return;
+  if (paintMode) return;
+  if (window._wallFrozen) {
+    // 해제
+    window._wallFrozen = false;
+    window._frozenPos = null;
+    velocityY = 0;
+    console.log('🧊 벽 고정 해제');
+  } else {
+    // 벽 근처거나 climbing 중일 때만 고정 가능
+    const canFreeze = isClimbing || (!isGrounded && player.position.y > 0.5);
+    if (canFreeze) {
+      window._wallFrozen = true;
+      window._frozenPos = { x: player.position.x, y: player.position.y, z: player.position.z };
+      velocityY = 0;
+      console.log('🧊 벽 고정! 위치:', window._frozenPos);
+    }
+  }
+});
+
 // L 키로 조준한 플레이어에게 좋아요
 addEventListener('keydown', async e => {
   if (e.code !== 'KeyL') return;
@@ -5486,6 +5510,8 @@ function animate() {
     if (keys['KeyD']) mx += 1;
     const mag = Math.hypot(mx, mz);
     if (mag > 0) {
+      // ★ 벽 고정 중 이동하면 자동 해제
+      if (window._wallFrozen) { window._wallFrozen = false; window._frozenPos = null; }
       mx /= mag; mz /= mag;
       const sy = Math.sin(cameraYaw), cy = Math.cos(cameraYaw);
       const wx = mx*cy + mz*sy, wz = -mx*sy + mz*cy;
@@ -5504,6 +5530,15 @@ function animate() {
     const remaining = (_slideEndTime - nowMs) / SLIDE_DURATION_MS; // 1 → 0
     const factor = remaining * remaining; // 처음 빠르고 뒤로 갈수록 느려짐
     tryMove(_slideVX * factor * dt, _slideVZ * factor * dt);
+  }
+
+  // ★ 벽 고정 시스템 — 1키로 현재 위치에 달라붙기/해제
+  if (window._wallFrozen) {
+    // 고정 중: 움직임 완전 차단, 중력 무시
+    player.position.set(window._frozenPos.x, window._frozenPos.y, window._frozenPos.z);
+    velocityY = 0;
+    isGrounded = false;
+    isClimbing = false;
   }
 
   // 벽 타기 판정 — 공중 상태에서 벽 근처 + 스페이스 누를 때만 붙음
