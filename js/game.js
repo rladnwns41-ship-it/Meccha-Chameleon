@@ -2719,44 +2719,72 @@ function updateProfileHUD() {
   if (hc) hc.textContent = myProfile?.trophy || 0;
 }
 
-// ============ 전적 보기 ============
+// ============ 전적 보기 (사이드 패널 + 모바일 오버레이) ============
 const MODE_NAMES = { classic: '클래식', infection: '감염', team: '팀', petit: 'Petit' };
 function renderHistory() {
-  const list = document.getElementById('historyList');
-  if (!list) return;
-  // 24시간 지난 전적 필터링
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const history = (myProfile?.history || []).filter(h => h.at > cutoff);
-  if (!history.length) {
-    list.innerHTML = '<div class="history-empty">전적 없음</div>';
-    return;
-  }
-  list.innerHTML = '';
-  history.forEach(h => {
-    const row = document.createElement('div');
-    row.className = 'history-row ' + (h.result || '');
-    const ago = Math.floor((Date.now() - h.at) / 60000);
-    let timeStr;
-    if (ago < 1) timeStr = '방금';
-    else if (ago < 60) timeStr = ago + '분 전';
-    else timeStr = Math.floor(ago / 60) + '시간 전';
-    const role = h.role === 'seeker' ? '🎯술래' : '🦎숨기';
-    const mode = MODE_NAMES[h.mode] || h.mode || '';
-    row.innerHTML = `
-      <span class="history-result ${h.result}">${h.result === 'win' ? 'W' : 'L'}</span>
-      <div class="history-detail">
-        <span>${role}</span>
-        <span>${h.rank || '?'}/${h.total || '?'}위</span>
-        <span>${h.score || 0}점</span>
-        ${h.kills ? `<span>${h.kills}킬</span>` : ''}
-        <span>${mode}</span>
-      </div>
-      <span class="history-time">${timeStr}</span>
-    `;
-    list.appendChild(row);
+  // 사이드 패널 (데스크탑)
+  const sideList = document.getElementById('historyList');
+  // 모바일 오버레이
+  const mobileList = document.getElementById('historyListMobile');
+  [sideList, mobileList].forEach(list => {
+    if (!list) return;
+    if (!history.length) { list.innerHTML = '<div class="history-empty">전적 없음</div>'; return; }
+    list.innerHTML = '';
+    history.forEach(h => {
+      const ago = Math.floor((Date.now() - h.at) / 60000);
+      let timeStr = ago < 1 ? '방금' : ago < 60 ? ago + '분' : Math.floor(ago / 60) + '시간';
+      const role = h.role === 'seeker' ? '🎯' : '🦎';
+      const mode = MODE_NAMES[h.mode] || '';
+      const row = document.createElement('div');
+      row.className = 'history-row-compact ' + (h.result || '');
+      row.innerHTML = `<span class="hr-result ${h.result}">${h.result === 'win' ? 'W' : 'L'}</span><span class="hr-info">${role} ${h.rank||'?'}/${h.total||'?'}위 ${h.score||0}점${h.kills ? ' '+h.kills+'킬' : ''} ${mode}</span><span class="hr-time">${timeStr}</span>`;
+      list.appendChild(row);
+    });
   });
 }
 
+// 랭킹도 사이드 + 모바일 양쪽에
+async function loadRanking() {
+  const sideList = document.getElementById('rankingList');
+  const mobileList = document.getElementById('rankingListMobile');
+  [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로딩 중...</div>'; });
+  try {
+    const snap = await get(ref(fbDb, 'users'));
+    const data = snap.val();
+    if (!data) { [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">랭킹 없음</div>'; }); return; }
+    const players = Object.entries(data)
+      .map(([uid, p]) => ({ uid, nick: p.nick || '?', trophy: p.trophy || 0, wins: p.wins || 0, losses: p.losses || 0, kills: p.kills || 0, games: p.gamesPlayed || 0 }))
+      .filter(p => p.games > 0)
+      .sort((a, b) => b.trophy - a.trophy)
+      .slice(0, 20);
+    const rankEmojis = ['🥇','🥈','🥉'];
+    [sideList, mobileList].forEach(list => {
+      if (!list) return;
+      if (!players.length) { list.innerHTML = '<div class="history-empty">플레이어 없음</div>'; return; }
+      list.innerHTML = '';
+      players.forEach((p, i) => {
+        const isMe = p.uid === myUid;
+        const row = document.createElement('div');
+        row.className = 'rank-row-compact' + (i < 3 ? ' rank-top' : '') + (isMe ? ' rank-me' : '');
+        row.innerHTML = `<span class="rk-pos">${i < 3 ? rankEmojis[i] : (i+1)}</span><span class="rk-nick">${escHtml(p.nick)}</span><span class="rk-trophy">🏆${p.trophy}</span>`;
+        list.appendChild(row);
+      });
+    });
+  } catch (e) {
+    console.warn('랭킹 로드 실패:', e);
+    [sideList, mobileList].forEach(l => { if (l) l.innerHTML = '<div class="history-empty">로드 실패</div>'; });
+  }
+}
+
+// 방 목록 진입 시 양 사이드 자동 로드
+function loadSidePanels() {
+  renderHistory();
+  loadRanking();
+}
+
+// 모바일용 오버레이 버튼 (historyBtn/rankingBtn이 아직 있으면)
 document.getElementById('historyBtn')?.addEventListener('click', () => {
   renderHistory();
   document.getElementById('historyOverlay')?.classList.remove('hidden');
@@ -2764,53 +2792,15 @@ document.getElementById('historyBtn')?.addEventListener('click', () => {
 document.getElementById('historyCloseBtn')?.addEventListener('click', () => {
   document.getElementById('historyOverlay')?.classList.add('hidden');
 });
-// 오버레이 배경 클릭으로도 닫기
-document.getElementById('historyOverlay')?.addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
-});
-
-// ============ 랭킹 시스템 ============
-async function loadRanking() {
-  const list = document.getElementById('rankingList');
-  if (!list) return;
-  list.innerHTML = '<div class="history-empty">로딩 중...</div>';
-  try {
-    const snap = await get(ref(fbDb, 'users'));
-    const data = snap.val();
-    if (!data) { list.innerHTML = '<div class="history-empty">랭킹 데이터 없음</div>'; return; }
-    const players = Object.entries(data)
-      .map(([uid, p]) => ({ uid, nick: p.nick || '?', trophy: p.trophy || 0, wins: p.wins || 0, losses: p.losses || 0, kills: p.kills || 0, games: p.gamesPlayed || 0 }))
-      .filter(p => p.games > 0) // 한 판이라도 한 사람만
-      .sort((a, b) => b.trophy - a.trophy)
-      .slice(0, 20);
-    if (!players.length) { list.innerHTML = '<div class="history-empty">아직 플레이한 유저 없음</div>'; return; }
-    list.innerHTML = '';
-    const rankEmojis = ['🥇','🥈','🥉'];
-    players.forEach((p, i) => {
-      const row = document.createElement('div');
-      const isMe = p.uid === myUid;
-      row.className = 'rank-row' + (isMe ? ' rank-me' : '') + (i < 3 ? ' rank-top' : '');
-      row.innerHTML = `
-        <span class="rank-pos">${i < 3 ? rankEmojis[i] : (i+1)}</span>
-        <span class="rank-nick">${escHtml(p.nick)}</span>
-        <span class="rank-trophy">🏆 ${p.trophy}</span>
-        <span class="rank-stat">${p.wins}W ${p.losses}L</span>
-        <span class="rank-stat">${p.kills}킬</span>
-      `;
-      list.appendChild(row);
-    });
-  } catch (e) {
-    console.warn('랭킹 로드 실패:', e);
-    list.innerHTML = '<div class="history-empty">랭킹 불러오기 실패</div>';
-  }
-}
-
 document.getElementById('rankingBtn')?.addEventListener('click', () => {
   loadRanking();
   document.getElementById('rankingOverlay')?.classList.remove('hidden');
 });
 document.getElementById('rankingCloseBtn')?.addEventListener('click', () => {
   document.getElementById('rankingOverlay')?.classList.add('hidden');
+});
+document.getElementById('historyOverlay')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
 });
 document.getElementById('rankingOverlay')?.addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
@@ -3117,7 +3107,8 @@ function showCoinEarned(amount) {
 
 // ============ 방 목록 ============
 function subscribeRoomList() {
-  updateProfileHUD(); // 프로필 바 갱신
+  updateProfileHUD();
+  loadSidePanels(); // ★ 좌측 전적 + 우측 랭킹 로드
   const roomsRef = ref(fbDb, 'rooms');
   if (roomListUnsub) roomListUnsub();
   let _rlThrottle = 0;
