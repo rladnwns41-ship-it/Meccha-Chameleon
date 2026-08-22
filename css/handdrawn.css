@@ -577,3 +577,18 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
 .history-detail { flex: 1; color: rgba(255,255,255,0.5); display: flex; gap: 8px; flex-wrap: wrap; }
 .history-detail span { white-space: nowrap; }
 .history-time { color: rgba(255,255,255,0.2); font-size: 11px; white-space: nowrap; }
+
+/* ---- 랭킹 ---- */
+.rank-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 8px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.04);
+  font-size: 13px;
+}
+.rank-row.rank-top { background: rgba(255,215,0,0.04); border-color: rgba(255,215,0,0.1); }
+.rank-row.rank-me { background: rgba(0,230,118,0.06); border-color: rgba(0,230,118,0.15); }
+.rank-pos { font-weight: 800; min-width: 28px; text-align: center; font-size: 15px; }
+.rank-nick { flex: 1; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-trophy { font-weight: 700; color: #ffd740; min-width: 70px; }
+.rank-stat { color: rgba(255,255,255,0.35); font-size: 12px; min-width: 45px; text-align: right; }
