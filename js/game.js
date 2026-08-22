@@ -2617,6 +2617,53 @@ document.getElementById('historyOverlay')?.addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
 });
 
+// ============ 랭킹 시스템 ============
+async function loadRanking() {
+  const list = document.getElementById('rankingList');
+  if (!list) return;
+  list.innerHTML = '<div class="history-empty">로딩 중...</div>';
+  try {
+    const snap = await get(ref(fbDb, 'users'));
+    const data = snap.val();
+    if (!data) { list.innerHTML = '<div class="history-empty">랭킹 데이터 없음</div>'; return; }
+    const players = Object.entries(data)
+      .map(([uid, p]) => ({ uid, nick: p.nick || '?', trophy: p.trophy || 0, wins: p.wins || 0, losses: p.losses || 0, kills: p.kills || 0, games: p.gamesPlayed || 0 }))
+      .filter(p => p.games > 0) // 한 판이라도 한 사람만
+      .sort((a, b) => b.trophy - a.trophy)
+      .slice(0, 20);
+    if (!players.length) { list.innerHTML = '<div class="history-empty">아직 플레이한 유저 없음</div>'; return; }
+    list.innerHTML = '';
+    const rankEmojis = ['🥇','🥈','🥉'];
+    players.forEach((p, i) => {
+      const row = document.createElement('div');
+      const isMe = p.uid === myUid;
+      row.className = 'rank-row' + (isMe ? ' rank-me' : '') + (i < 3 ? ' rank-top' : '');
+      row.innerHTML = `
+        <span class="rank-pos">${i < 3 ? rankEmojis[i] : (i+1)}</span>
+        <span class="rank-nick">${escHtml(p.nick)}</span>
+        <span class="rank-trophy">🏆 ${p.trophy}</span>
+        <span class="rank-stat">${p.wins}W ${p.losses}L</span>
+        <span class="rank-stat">${p.kills}킬</span>
+      `;
+      list.appendChild(row);
+    });
+  } catch (e) {
+    console.warn('랭킹 로드 실패:', e);
+    list.innerHTML = '<div class="history-empty">랭킹 불러오기 실패</div>';
+  }
+}
+
+document.getElementById('rankingBtn')?.addEventListener('click', () => {
+  loadRanking();
+  document.getElementById('rankingOverlay')?.classList.remove('hidden');
+});
+document.getElementById('rankingCloseBtn')?.addEventListener('click', () => {
+  document.getElementById('rankingOverlay')?.classList.add('hidden');
+});
+document.getElementById('rankingOverlay')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+});
+
 // 홈 화면 버튼들
 document.getElementById('homePlayBtn').addEventListener('click', () => {
   showScreen('rooms');
