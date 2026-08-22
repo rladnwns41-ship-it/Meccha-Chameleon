@@ -528,3 +528,52 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
   backdrop-filter: blur(6px);
   border-bottom: 1px solid rgba(255,255,255,0.05) !important;
 }
+
+/* ---- 전적 ---- */
+.stat-btn {
+  cursor: pointer !important; transition: all .12s !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+}
+.stat-btn:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+
+.history-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; animation: fadeIn .2s ease;
+}
+.history-overlay.hidden { display: none !important; }
+.history-panel {
+  background: #0d0f15; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px; padding: 24px; width: min(440px, 94vw);
+  max-height: 80vh; display: flex; flex-direction: column;
+  animation: slideUp .3s ease;
+}
+.history-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.history-title {
+  font-family: 'Space Grotesk', sans-serif; font-size: 18px;
+  font-weight: 700; color: #fff; margin: 0;
+}
+.history-note { font-size: 11px; color: rgba(255,255,255,0.2); }
+.history-list {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+  max-height: 50vh;
+}
+.history-empty { color: rgba(255,255,255,0.2); text-align: center; padding: 32px 0; font-size: 13px; }
+.history-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-radius: 8px;
+  background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.04);
+  font-size: 13px; gap: 8px;
+}
+.history-row.win { border-left: 3px solid #00e676; }
+.history-row.lose { border-left: 3px solid #ff5252; }
+.history-result { font-weight: 700; min-width: 28px; }
+.history-result.win { color: #00e676; }
+.history-result.lose { color: #ff5252; }
+.history-detail { flex: 1; color: rgba(255,255,255,0.5); display: flex; gap: 8px; flex-wrap: wrap; }
+.history-detail span { white-space: nowrap; }
+.history-time { color: rgba(255,255,255,0.2); font-size: 11px; white-space: nowrap; }
