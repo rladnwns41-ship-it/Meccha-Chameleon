@@ -34,7 +34,9 @@
 <div id="scr-nick" class="screen hidden">
   <div class="auth-wrapper">
     <div class="auth-brand">
-      <div class="auth-logo">🦎</div>
+      <div class="auth-logo" id="authLogo"></div>
+      <!-- 3D 캐릭터 배경 -->
+      <canvas id="authCharCanvas"></canvas>
       <h1 class="auth-title">CHAMELEON</h1>
       <p class="auth-sub">숨어라, 색을 감춰라</p>
       <div class="auth-online"><span class="dot-live"></span><span id="authOnlineCount">0</span>명 플레이 중</div>
@@ -136,34 +138,25 @@
 
 <!-- ===== 방 목록 ===== -->
 <div id="scr-rooms" class="screen hidden">
-  <!-- 상단 프로필 바 (풀너비) -->
-  <div class="rooms-topbar">
-    <div class="profile-info">
-      <span class="profile-avatar">🦎</span>
-      <span class="profile-nick" id="profileNick">—</span>
+  <div class="rooms-row">
+    <!-- 좌: 전적 -->
+    <div class="rooms-side-panel" id="historyPanel">
+      <div class="sp-head"><span class="sp-title">📋 전적</span><span class="sp-sub">24h</span></div>
+      <div id="historyList" class="sp-body"></div>
     </div>
-    <div class="profile-stats">
-      <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
-      <div class="stat-pill" id="profileWL">0승 0패</div>
-      <button id="roomsBackBtn" class="stat-pill stat-btn">← 로그아웃</button>
-    </div>
-  </div>
 
-  <!-- 3단 레이아웃 -->
-  <div class="rooms-3col">
-    <!-- 좌측: 내 전적 -->
-    <div class="rooms-side rooms-side-left">
-      <div class="side-panel">
-        <div class="side-header">
-          <h3 class="side-title">📋 전적</h3>
-          <span class="side-note">24h 후 삭제</span>
+    <!-- 중: 방 목록 (기존) -->
+    <div class="rooms-main">
+      <div class="profile-bar">
+        <div class="profile-info">
+          <span class="profile-avatar" id="logoMark"></span>
+          <span class="profile-nick" id="profileNick">—</span>
         </div>
-        <div id="historyList" class="side-list"></div>
+        <div class="profile-stats">
+          <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
+          <div class="stat-pill" id="profileWL">0승 0패</div>
+        </div>
       </div>
-    </div>
-
-    <!-- 중앙: 방 목록 -->
-    <div class="rooms-center">
       <button id="quickMatchBtn" class="quick-match-btn">⚡ 빠른 매칭</button>
       <div class="ui-card rooms-card">
         <div class="rooms-header">
@@ -181,36 +174,14 @@
           <label><input type="checkbox" id="hostForcedTaunt"> 📢 강제 도발</label>
         </div>
       </div>
+      <button id="roomsBackBtn" class="btn btn-ghost" style="margin-top:6px;width:100%">← 로그아웃</button>
     </div>
 
-    <!-- 우측: 랭킹 -->
-    <div class="rooms-side rooms-side-right">
-      <div class="side-panel">
-        <div class="side-header">
-          <h3 class="side-title">👑 랭킹</h3>
-          <span class="side-note">TOP 20</span>
-        </div>
-        <div id="rankingList" class="side-list">
-          <div class="history-empty">로딩 중...</div>
-        </div>
-      </div>
+    <!-- 우: 랭킹 -->
+    <div class="rooms-side-panel" id="rankingPanel">
+      <div class="sp-head"><span class="sp-title">👑 랭킹</span><span class="sp-sub">TOP 20</span></div>
+      <div id="rankingList" class="sp-body"></div>
     </div>
-  </div>
-</div>
-
-<!-- 전적/랭킹 오버레이 (모바일 폴백 — 좁은 화면용) -->
-<div id="historyOverlay" class="history-overlay hidden">
-  <div class="history-panel">
-    <div class="history-header"><h2 class="history-title">📋 전적</h2><span class="history-note">24시간 후 삭제</span></div>
-    <div id="historyListMobile" class="history-list"><div class="history-empty">전적 없음</div></div>
-    <button id="historyCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
-  </div>
-</div>
-<div id="rankingOverlay" class="history-overlay hidden">
-  <div class="history-panel" style="width:min(480px,94vw);">
-    <div class="history-header"><h2 class="history-title">👑 랭킹</h2><span class="history-note">TOP 20</span></div>
-    <div id="rankingListMobile" class="history-list"><div class="history-empty">로딩 중...</div></div>
-    <button id="rankingCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
   </div>
 </div>
 
