@@ -457,11 +457,68 @@ function setRole(role) {
     isPetitMode = false;
   }
   switchPose(currentPose);
+  // ★ 역할 뱃지 표시 + HUD 페이드 시작
+  showRoleBadge(role);
+  startHudFade();
 }
 
 // ============================================================
 // 라운드 시스템 (타이머, 슈팅, 점수, 사망)
 // ============================================================
+
+// ★ UI 유틸: 킬/사망 팝업
+function showKillPopup(text, type) {
+  const el = document.createElement('div');
+  el.className = 'kill-popup ' + type;
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+// ★ UI 유틸: 역할 뱃지 (상단 중앙)
+function showRoleBadge(role) {
+  let badge = document.getElementById('roleBadgeUI');
+  if (!badge) { badge = document.createElement('div'); badge.id = 'roleBadgeUI'; document.body.appendChild(badge); }
+  badge.className = 'role-badge ' + (role === 'seeker' ? 'seeker' : 'hider');
+  badge.textContent = role === 'seeker' ? '🔫 술래' : '🦎 숨는 자';
+  badge.style.display = '';
+  setTimeout(() => { badge.style.display = 'none'; }, 4000);
+}
+
+// ★ UI 유틸: HUD 10초 후 페이드
+let _hudFadeTimer = null;
+function startHudFade() {
+  const hud = document.getElementById('hud');
+  if (!hud) return;
+  hud.classList.remove('faded');
+  if (_hudFadeTimer) clearTimeout(_hudFadeTimer);
+  _hudFadeTimer = setTimeout(() => hud.classList.add('faded'), 10000);
+}
+
+// ★ UI 유틸: 타이머 긴급 (30초 이하 빨간색)
+function updateTimerUrgency(seconds) {
+  const el = document.getElementById('roundTimer');
+  if (!el) return;
+  if (seconds <= 30) { if (!el.classList.contains('urgent')) el.classList.add('urgent'); }
+  else { el.classList.remove('urgent'); }
+}
+
+// ★ UI 유틸: MVP 별 파티클
+function spawnMVPStars() {
+  const container = document.createElement('div');
+  container.className = 'mvp-stars';
+  document.body.appendChild(container);
+  for (let i = 0; i < 20; i++) {
+    const star = document.createElement('div');
+    star.className = 'mvp-star';
+    star.textContent = ['⭐','✨','🌟'][Math.floor(Math.random()*3)];
+    star.style.left = Math.random() * 100 + '%';
+    star.style.animationDelay = Math.random() * 1.5 + 's';
+    star.style.animationDuration = (1.5 + Math.random()) + 's';
+    container.appendChild(star);
+  }
+  setTimeout(() => container.remove(), 3500);
+}
 const ROUND_DURATION_MS = 180000; // 3분
 const SHOOT_RANGE = 40;
 const VISION_FOV_COS = Math.cos(THREE.MathUtils.degToRad(35)); // 시야 각도 35도
@@ -757,6 +814,7 @@ function updateRoundTimer(room) {
   const mm = String(Math.floor(s/60)).padStart(2,'0');
   const ss = String(s%60).padStart(2,'0');
   el.textContent = mm + ':' + ss;
+  updateTimerUrgency(s); // ★ 30초 이하 빨간색 깜빡임
 }
 function startRoundTimer() {
   
@@ -1163,6 +1221,8 @@ async function killPlayer(uid) {
   const catchCount = (_cachedRoom?.catches?.[myUid] || 0) + 1;
   await set(ref(fbDb, `rooms/${myRoomId}/catches/${myUid}`), catchCount)
     .catch(e => console.warn('catches:', e.code));
+  // ★ 킬 팝업 연출
+  showKillPopup('🎯 명중!', 'kill');
 }
 
 // ============ 사망 먼지 애니메이션 (모두가 봄) ============
@@ -1267,6 +1327,14 @@ function showInfectionPopup() {
 
 function onIDied() {
   console.log('💀 내가 죽음 → 관전 전환');
+  // ★ 사망 팝업 + 화면 흔들림 + 빨간 플래시
+  showKillPopup('💀 잡혔다!', 'death');
+  const flash = document.createElement('div');
+  flash.className = 'screen-flash';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 300);
+  document.body.style.animation = 'screenShake 0.4s ease';
+  setTimeout(() => { document.body.style.animation = ''; }, 400);
   // 3초 후 관전 모드로 전환
   const ds = document.getElementById('deathScreen');
   ds.classList.remove('hidden');
@@ -1432,6 +1500,8 @@ async function showScoreboard() {
     box.appendChild(row);
   });
   showScreen('scoreboard');
+  // ★ 1등이면 MVP 별 파티클
+  if (rows[0]?.uid === myUid) setTimeout(() => spawnMVPStars(), 500);
 }
 
 // 결과 화면에서 방으로 돌아가기
@@ -2790,6 +2860,24 @@ document.addEventListener('click', (ev) => {
 }, true);
 document.getElementById('homeClosetBtn')?.addEventListener('click', openCloset);
 document.getElementById('homePoseBtn')?.addEventListener('click', openPoseShop);
+
+// ★ 빠른 매칭 — 대기 상태 방 중 랜덤 입장
+document.getElementById('quickMatchBtn')?.addEventListener('click', async () => {
+  if (!myUid) { alert('로그인 대기중...'); return; }
+  try {
+    const snap = await get(ref(fbDb, 'rooms'));
+    const data = snap.val() || {};
+    const lobbies = Object.entries(data).filter(([id, r]) => {
+      if (!r || r.state !== 'lobby') return false;
+      if (r.password) return false; // 비번 방 제외
+      const count = Object.keys(r.players || {}).length;
+      return count < 25 && count > 0;
+    });
+    if (!lobbies.length) { alert('대기 중인 방이 없어요. 방을 만들어 보세요!'); return; }
+    const [roomId] = lobbies[Math.floor(Math.random() * lobbies.length)];
+    joinRoom(roomId);
+  } catch(e) { console.warn('빠른 매칭 실패:', e); }
+});
 
 // ============ 홈 3D 캐릭터 프리뷰 ============
 // ★ 홈 캐릭터 미리보기 — 메인 renderer 재활용 (별도 WebGL 컨텍스트 생성 안 함)
