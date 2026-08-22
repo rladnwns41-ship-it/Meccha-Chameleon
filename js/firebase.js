@@ -1,6 +1,3 @@
-// ============================================================
-// firebase.js — Firebase 초기화 + 인증 (게스트 자동 / 이메일 선택)
-// ============================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -26,12 +23,10 @@ export const fbDb   = getDatabase(fbApp);
 export let myUid = null;
 export let myProfile = null;
 
-// 프로필 기본값
 function defaultProfile(nick, isGuest) {
   return { nick: nick || '카멜레온' + Math.floor(Math.random()*999), trophy: 0, wins: 0, losses: 0, kills: 0, gamesPlayed: 0, createdAt: Date.now(), isGuest: !!isGuest };
 }
 
-// 프로필 로드 (실패해도 크래시 안 남)
 async function loadOrCreateProfile(uid, displayName, isGuest) {
   try {
     const snap = await get(ref(fbDb, `users/${uid}`));
@@ -42,14 +37,14 @@ async function loadOrCreateProfile(uid, displayName, isGuest) {
       await set(ref(fbDb, `users/${uid}`), myProfile).catch(() => {});
     }
   } catch (e) {
-    console.warn('프로필 로드 실패 (규칙 미배포?):', e.code || e.message);
+    console.warn('프로필 로드 실패:', e.code || e.message);
     myProfile = defaultProfile(displayName, isGuest);
   }
 }
 
 export async function saveProfile() {
   if (!myUid || !myProfile) return;
-  try { await update(ref(fbDb, `users/${myUid}`), myProfile); } catch(e) { console.warn('프로필 저장 실패:', e.code); }
+  try { await update(ref(fbDb, `users/${myUid}`), myProfile); } catch(e) {}
 }
 
 export async function recordMatch(result) {
@@ -67,25 +62,25 @@ export async function addKills(n) {
   await saveProfile();
 }
 
-// 게스트 로그인 (익명)
+// ★ 게스트 로그인 — 실패 시 가짜 UID 안 만듦, 에러 표시
 export async function loginAsGuest() {
   try {
     const cred = await signInAnonymously(fbAuth);
     myUid = cred.user.uid;
+    console.log('✅ 익명 로그인 성공:', myUid);
     await loadOrCreateProfile(myUid, null, true);
     return { ok: true };
   } catch (e) {
-    myUid = 'guest_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
-    myProfile = defaultProfile(null, true);
-    return { ok: true };
+    console.error('❌ 익명 로그인 실패:', e.code, e.message);
+    return { ok: false, error: '익명 로그인 실패: ' + (e.code || e.message) };
   }
 }
 
-// 이메일 로그인
 export async function loginWithEmail(email, password) {
   try {
     const cred = await signInWithEmailAndPassword(fbAuth, email, password);
     myUid = cred.user.uid;
+    console.log('✅ 이메일 로그인 성공:', myUid);
     await loadOrCreateProfile(myUid, cred.user.displayName, false);
     return { ok: true };
   } catch (e) {
@@ -93,12 +88,12 @@ export async function loginWithEmail(email, password) {
   }
 }
 
-// 회원가입
 export async function signUpWithEmail(email, password, nick) {
   try {
     const cred = await createUserWithEmailAndPassword(fbAuth, email, password);
     try { await updateProfile(cred.user, { displayName: nick }); } catch(e) {}
     myUid = cred.user.uid;
+    console.log('✅ 회원가입 성공:', myUid);
     myProfile = defaultProfile(nick, false);
     await set(ref(fbDb, `users/${myUid}`), myProfile).catch(() => {});
     return { ok: true };
@@ -116,22 +111,17 @@ export async function logOut() {
   myUid = null; myProfile = null;
 }
 
-// ★ 자동 인증 복원 (새로고침 시 이전 세션 자동 복원)
-// 이전 세션 없으면 자동으로 익명 로그인
+// ★ 자동 인증 복원 (새로고침 시)
 onAuthStateChanged(fbAuth, async (u) => {
   if (u) {
     myUid = u.uid;
-    await loadOrCreateProfile(myUid, u.displayName, u.isAnonymous);
     console.log('✅ 인증 복원:', myUid, u.isAnonymous ? '(게스트)' : '(계정)');
+    await loadOrCreateProfile(myUid, u.displayName, u.isAnonymous);
+    // ★ 이미 인증됐으면 자동으로 방 목록 진입 가능하도록 표시
+    document.body.setAttribute('data-auth', 'ready');
+  } else {
+    console.log('⚠️ 인증 없음 — 로그인 필요');
   }
 });
-
-// ★ 첫 방문: 아직 인증 안 돼있으면 자동 익명 로그인
-setTimeout(async () => {
-  if (!myUid) {
-    console.log('⏳ 자동 게스트 로그인...');
-    await loginAsGuest();
-  }
-}, 2000);
 
 document.getElementById('scr-nick').classList.remove('hidden');
