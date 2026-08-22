@@ -35,23 +35,24 @@ function initAuthChar() {
     _authRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     _authScene = new THREE.Scene();
     // 카메라: 상반신 클로즈업 (하반신은 화면 아래로)
-    _authCamera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 50);
-    _authCamera.position.set(0, 1.8, 4);
-    _authCamera.lookAt(0, 1.2, 0);
+    _authCamera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 50);
+    _authCamera.position.set(1.5, 1.4, 5);
+    _authCamera.lookAt(1.5, 1.0, 0);
     // 조명
-    const amb = new THREE.AmbientLight(0xffffff, 0.6);
+    const amb = new THREE.AmbientLight(0xffffff, 0.8);
     _authScene.add(amb);
-    const dir = new THREE.DirectionalLight(0x00e676, 1.2);
-    dir.position.set(2, 4, 3);
+    const dir = new THREE.DirectionalLight(0x00e676, 1.5);
+    dir.position.set(3, 5, 4);
     _authScene.add(dir);
-    const rim = new THREE.DirectionalLight(0x4488ff, 0.5);
+    const rim = new THREE.DirectionalLight(0x4488ff, 0.6);
     rim.position.set(-3, 2, -2);
     _authScene.add(rim);
     // 캐릭터 복제
     _authObj = characterTemplate.clone(true);
     _authObj.visible = true;
     _authObj.traverse(o => { o.visible = true; if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
-    _authObj.position.set(0.8, -0.5, 0); // 약간 오른쪽 + 아래로 (하반신 가림)
+    _authObj.position.set(2.5, 0, 0); // 오른쪽에 배치, 바닥 기준
+    _authObj.scale.set(1.2, 1.2, 1.2);
     _authScene.add(_authObj);
     // 애니메이션 루프
     let _rotY = 0;
