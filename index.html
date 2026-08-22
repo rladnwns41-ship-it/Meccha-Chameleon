@@ -136,67 +136,81 @@
 
 <!-- ===== 방 목록 ===== -->
 <div id="scr-rooms" class="screen hidden">
-  <div class="rooms-shell">
-    <!-- 프로필 바 -->
-    <div class="profile-bar">
-      <div class="profile-info">
-        <span class="profile-avatar">🦎</span>
-        <span class="profile-nick" id="profileNick">—</span>
-      </div>
-      <div class="profile-stats">
-        <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
-        <div class="stat-pill" id="profileWL">0승 0패</div>
-        <button class="stat-pill stat-btn" id="historyBtn">📋 전적</button>
-        <button class="stat-pill stat-btn" id="rankingBtn">👑 랭킹</button>
+  <!-- 상단 프로필 바 (풀너비) -->
+  <div class="rooms-topbar">
+    <div class="profile-info">
+      <span class="profile-avatar">🦎</span>
+      <span class="profile-nick" id="profileNick">—</span>
+    </div>
+    <div class="profile-stats">
+      <div class="stat-pill"><span>🏆</span><span id="profileTrophy">0</span></div>
+      <div class="stat-pill" id="profileWL">0승 0패</div>
+      <button id="roomsBackBtn" class="stat-pill stat-btn">← 로그아웃</button>
+    </div>
+  </div>
+
+  <!-- 3단 레이아웃 -->
+  <div class="rooms-3col">
+    <!-- 좌측: 내 전적 -->
+    <div class="rooms-side rooms-side-left">
+      <div class="side-panel">
+        <div class="side-header">
+          <h3 class="side-title">📋 전적</h3>
+          <span class="side-note">24h 후 삭제</span>
+        </div>
+        <div id="historyList" class="side-list"></div>
       </div>
     </div>
 
-    <!-- 전적 오버레이 -->
-    <div id="historyOverlay" class="history-overlay hidden">
-      <div class="history-panel">
-        <div class="history-header">
-          <h2 class="history-title">전적 기록</h2>
-          <span class="history-note">24시간 후 자동 삭제</span>
+    <!-- 중앙: 방 목록 -->
+    <div class="rooms-center">
+      <button id="quickMatchBtn" class="quick-match-btn">⚡ 빠른 매칭</button>
+      <div class="ui-card rooms-card">
+        <div class="rooms-header">
+          <h2 class="rooms-title">방 목록</h2>
+          <div class="rooms-badge"><span class="dot-live"></span>LIVE</div>
         </div>
-        <div id="historyList" class="history-list">
-          <div class="history-empty">전적 없음</div>
+        <div id="roomListBox"><div id="roomList"></div></div>
+        <div class="room-create-row">
+          <input id="newRoomName" placeholder="방 이름" maxlength="20" class="auth-input" style="flex:1">
+          <input id="newRoomPw" placeholder="비번" maxlength="10" class="auth-input" style="width:72px">
+          <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
         </div>
-        <button id="historyCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
+        <div class="room-host-settings">
+          <label><input type="checkbox" id="hostAmmoLimit"> 🔫 탄약 제한</label>
+          <label><input type="checkbox" id="hostForcedTaunt"> 📢 강제 도발</label>
+        </div>
       </div>
     </div>
 
-    <!-- 랭킹 오버레이 -->
-    <div id="rankingOverlay" class="history-overlay hidden">
-      <div class="history-panel" style="width:min(480px,94vw);">
-        <div class="history-header">
-          <h2 class="history-title">👑 트로피 랭킹</h2>
-          <span class="history-note">상위 20명</span>
+    <!-- 우측: 랭킹 -->
+    <div class="rooms-side rooms-side-right">
+      <div class="side-panel">
+        <div class="side-header">
+          <h3 class="side-title">👑 랭킹</h3>
+          <span class="side-note">TOP 20</span>
         </div>
-        <div id="rankingList" class="history-list">
+        <div id="rankingList" class="side-list">
           <div class="history-empty">로딩 중...</div>
         </div>
-        <button id="rankingCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
       </div>
     </div>
+  </div>
+</div>
 
-    <div class="ui-card rooms-card">
-      <div class="rooms-header">
-        <h2 class="rooms-title">방 목록</h2>
-        <div class="rooms-badge"><span class="dot-live"></span>LIVE</div>
-      </div>
-      <div id="roomListBox"><div id="roomList"></div></div>
-      <div class="room-create-row">
-        <input id="newRoomName" placeholder="방 이름" maxlength="20" class="auth-input" style="flex:1">
-        <input id="newRoomPw" placeholder="비번 (선택)" maxlength="10" class="auth-input" style="width:90px">
-        <button class="btn btn-green" id="createRoomBtn">+ 만들기</button>
-      </div>
-      <div class="room-host-settings">
-        <label><input type="checkbox" id="hostAmmoLimit"> 탄약 제한 (8발)</label>
-        <label><input type="checkbox" id="hostForcedTaunt"> 강제 도발 (30초)</label>
-      </div>
-    </div>
-    <button id="roomsBackBtn" class="btn btn-ghost" style="margin-top:8px">← 로그아웃</button>
-    <button id="quickMatchBtn" class="quick-match-btn">⚡ 빠른 매칭</button>
+<!-- 전적/랭킹 오버레이 (모바일 폴백 — 좁은 화면용) -->
+<div id="historyOverlay" class="history-overlay hidden">
+  <div class="history-panel">
+    <div class="history-header"><h2 class="history-title">📋 전적</h2><span class="history-note">24시간 후 삭제</span></div>
+    <div id="historyListMobile" class="history-list"><div class="history-empty">전적 없음</div></div>
+    <button id="historyCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
+  </div>
+</div>
+<div id="rankingOverlay" class="history-overlay hidden">
+  <div class="history-panel" style="width:min(480px,94vw);">
+    <div class="history-header"><h2 class="history-title">👑 랭킹</h2><span class="history-note">TOP 20</span></div>
+    <div id="rankingListMobile" class="history-list"><div class="history-empty">로딩 중...</div></div>
+    <button id="rankingCloseBtn" class="btn btn-ghost" style="margin-top:12px;width:100%">닫기</button>
   </div>
 </div>
 
