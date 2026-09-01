@@ -615,7 +615,7 @@ setInterval(async () => {
       if (!room || room.hostUid !== myUid) continue; // ★ 내 방만
       const count = Object.keys(room.players || {}).length;
       const age = room.createdAt ? Date.now() - room.createdAt : 0;
-      if (count === 0 || age > 10 * 60 * 1000) {
+      if (count === 0 && age > 10 * 60 * 1000) {
         await remove(ref(fbDb, `rooms/${rid}`)).catch(() => {});
         console.log('🧹 자동 방 삭제:', rid);
       }
