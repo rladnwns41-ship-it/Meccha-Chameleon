@@ -124,6 +124,13 @@ paintTexture.flipY = false;
 
 let characterMeshes = []; // paintable meshes
 
+// ★ 페인트 영속 상태 — 포즈를 바꾸면 모델(지오메트리)이 통째로 교체되므로
+//   칠한 색이 사라지던 문제 해결용. 내가 칠한 내역을 들고 있다가 새 모델에 다시 칠함.
+//   포즈별 GLB 는 정점 수/좌표계가 완전히 달라서 스트로크에 포즈 이름(p)을 같이 기록한다.
+const PAINT_LOG_MAX = 400;
+let _myPaintBase = null;   // 페인트통(전체 채우기) 색 — 포즈 무관 전체 적용
+const _myPaintLog = [];    // [{p,m,x,y,z,r,c,t}] 내가 칠한 브러시 스트로크
+
 // GLB 로드 (base64 → ArrayBuffer)
 const draco = new DRACOLoader();
 draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/gltf/');
@@ -572,22 +579,6 @@ function updateTimerUrgency(seconds) {
   else { el.classList.remove('urgent'); }
 }
 
-// ★ UI 유틸: MVP 별 파티클
-function spawnMVPStars() {
-  const container = document.createElement('div');
-  container.className = 'mvp-stars';
-  document.body.appendChild(container);
-  for (let i = 0; i < 20; i++) {
-    const star = document.createElement('div');
-    star.className = 'mvp-star';
-    star.textContent = ['⭐','✨','🌟'][Math.floor(Math.random()*3)];
-    star.style.left = Math.random() * 100 + '%';
-    star.style.animationDelay = Math.random() * 1.5 + 's';
-    star.style.animationDuration = (1.5 + Math.random()) + 's';
-    container.appendChild(star);
-  }
-  setTimeout(() => container.remove(), 3500);
-}
 const ROUND_DURATION_MS = 180000; // 3분
 const SHOOT_RANGE = 40;
 const VISION_FOV_COS = Math.cos(THREE.MathUtils.degToRad(35)); // 시야 각도 35도
@@ -1564,8 +1555,6 @@ async function showScoreboard() {
     box.appendChild(row);
   });
   showScreen('scoreboard');
-  // ★ 1등이면 MVP 별 파티클
-  if (rows[0]?.uid === myUid) setTimeout(() => spawnMVPStars(), 500);
 }
 
 // 결과 화면에서 방으로 돌아가기
@@ -1589,6 +1578,8 @@ document.getElementById('backToLobbyBtn').addEventListener('click', async () => 
   if (scoreTimer) { clearInterval(scoreTimer); scoreTimer = null; }
   // prevAlive 리셋
   Object.keys(_prevAlive).forEach(k => delete _prevAlive[k]);
+  // ★ 페인트 리셋 (Firebase paint 노드가 지워지므로 로컬 모델도 흰색으로 되돌림)
+  resetMyPaint();
   // 방장이 상태 리셋
   if (await uid_is_host_by_id(myRoomId)) {
     await update(ref(fbDb, `rooms/${myRoomId}`), {
@@ -1759,6 +1750,8 @@ function switchPose(poseName) {
   currentPoseGlb.traverse(o => {
     if (o.isMesh) characterMeshes.push(o);
   });
+  // ★ 새 포즈 모델은 흰색 상태 → 지금까지 칠한 색을 다시 입힌다 (포즈 바꾸면 색 날아가던 문제)
+  repaintMeshes(characterMeshes, poseName, _myPaintBase, _myPaintLog);
   console.log('👤 포즈 전환:', poseName, '/ 죽음=', iAmDead, '/ mesh 수:', characterMeshes.length);
   // 애니메이션 재생
   playSelfPoseAnim(poseName);
@@ -4063,13 +4056,16 @@ function getGroundHeight(x, z) {
 }
 
 const rc = new THREE.Raycaster();
+rc.firstHitOnly = true; // ★ BVH 최적화: 전체 교차 수집·정렬 없이 최근접 1개만
 const ro = new THREE.Vector3(), rd = new THREE.Vector3();
 const _sideOrigin = new THREE.Vector3(); // 어깨(캡슐 옆면) 광선 원점
-const PR = 0.42; // 벽 통과 방지: 0.35→0.42 (좁은 문틈은 희생하되 벽 파고들기 방지)
-// ★ 4단 높이: 무릎(0.5)/허리(1.0)/가슴(1.4)/머리(1.8)
-//   발끝 광선(0.05) 제거 → 낮은 턱·계단·문턱은 자연스럽게 걸어 넘어감
-//   벽은 위쪽 높이의 광선이 잡으니 뚫림 X
-const _tryMoveHeights = [0.5, 1.5]; // ★ 21명 최적화: 3단→2단 (레이캐스트 33% 감소, 무릎+머리로 충분)
+const PR = 0.42;
+// ★★ 벽 밀착 이동 (sweep) ★★
+//   기존: "앞에 벽이 있으면 그 축 이동을 통째로 취소" → 항상 0.34m 떨어져서 멈춤 = 벽과 빈 공간
+//   변경: 광선이 맞은 거리까지 "밀어 넣고" 벽 앞 WALL_GAP 에서 정지 → 빈틈 없이 딱 붙음
+//   sweep 방식이라 고속 이동(슬라이드 22m/s)에서도 벽을 통과할 수 없음
+const WALL_GAP = 0.10;   // 캐릭터 중심이 벽면에 가장 가까이 갈 수 있는 거리
+const _tryMoveHeights = [0.25, 0.95, 1.6]; // 낮은 턱~머리까지 3단 (firstHitOnly 로 비용 상쇄)
 // ★ 캡슐 어깨 오프셋 (몸 폭의 60%) — 대각선 벽 검출하되 너무 넓지 않게
 const CAPSULE_SHOULDER = PR * 0.85; // 어깨 폭 확대 → 대각/모서리 벽 통과 방지
 const _safeDirs = [
@@ -4077,8 +4073,9 @@ const _safeDirs = [
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
 ];
 const _safeRc = new THREE.Raycaster();
+_safeRc.firstHitOnly = true; // ★ BVH 최적화: 가장 가까운 1개만 찾고 즉시 종료
 const _safeOrigin = new THREE.Vector3();
-const SAFE_MARGIN = 0.18; // 파묻힘 판정 강화: 0.12→0.18 더 일찍 감지해 롤백
+const SAFE_MARGIN = 0.085; // ★ WALL_GAP 보다 작게 — 벽에 딱 붙은 상태를 '파묻힘' 으로 오판하지 않게
 // 안전망은 발/허리 2단계 (머리는 벽 뚫리기 힘든 위치)
 const _safeHeights = [0.4, 1.0];
 
@@ -4138,6 +4135,32 @@ function isPositionSafe() {
   return blockedCount < totalChecks - 1;
 }
 
+// ★ 한 축 스윕: 이동 가능한 실제 거리를 돌려줌 (0 이면 벽에 닿아 있음)
+function _sweepAxis(mx, mz) {
+  const d = Math.hypot(mx, mz);
+  if (d < 0.00001) return 0;
+  rd.set(mx, 0, mz).normalize();
+  // 이동 방향에 수직 = 캡슐 어깨 (대각선 벽·얇은 기둥·모서리 검출)
+  const sx = -rd.z * CAPSULE_SHOULDER, sz = rd.x * CAPSULE_SHOULDER;
+  const far = d + WALL_GAP + 0.02;
+  let allowed = d;
+  for (let hi = 0; hi < _tryMoveHeights.length; hi++) {
+    const py = player.position.y + _tryMoveHeights[hi];
+    for (let sgn = -1; sgn <= 1; sgn++) { // 왼어깨 / 중심 / 오른어깨
+      ro.set(player.position.x + sx * sgn, py, player.position.z + sz * sgn);
+      rc.set(ro, rd);
+      rc.far = far;
+      const h = rc.intersectObjects(_nearbyColliders, false);
+      if (h.length) {
+        const a = h[0].distance - WALL_GAP;
+        if (a < allowed) allowed = a;
+        if (allowed <= 0) return 0;
+      }
+    }
+  }
+  return allowed > 0 ? allowed : 0;
+}
+
 function tryMove(dx, dz) {
   if (!collidableMeshes.length) {
     player.position.x += dx;
@@ -4145,52 +4168,24 @@ function tryMove(dx, dz) {
     return;
   }
   refreshNearbyColliders();
-  // ★ 캡슐 스윕 체크: 중심 + 좌/우 어깨 3광선 × 5높이 = 15 광선
-  //   단일 광선은 대각선 벽/얇은 기둥/모서리를 놓칠 수 있음
-  //   좌우 어깨 광선이 몸의 폭을 커버해서 어떤 각도의 벽도 검출
-  const check = (mx, mz) => {
-    const d = Math.hypot(mx, mz);
-    if (d < 0.0001) return true;
-    rd.set(mx, 0, mz).normalize();
-    // 이동 방향에 수직인 벡터 = 캡슐 옆면 (어깨)
-    const perpX = -rd.z, perpZ = rd.x;
-    const sx = perpX * CAPSULE_SHOULDER, sz = perpZ * CAPSULE_SHOULDER;
-    // ★ 앞 검사 거리: 이동거리 + 살짝만 (몸반경 절반). 너무 크면 벽 옆 지나갈 때도 멈춤
-    const farDist = d + PR * 0.8; // 감지 거리 확대 → 고속 이동 시 벽 통과 방지
-    for (const hY of _tryMoveHeights) {
-      const py = player.position.y + hY;
-      // 중심 광선
-      ro.set(player.position.x, py, player.position.z);
-      rc.set(ro, rd); rc.far = farDist;
-      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
-      // 왼쪽 어깨 광선
-      _sideOrigin.set(player.position.x + sx, py, player.position.z + sz);
-      rc.set(_sideOrigin, rd); rc.far = farDist;
-      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
-      // 오른쪽 어깨 광선
-      _sideOrigin.set(player.position.x - sx, py, player.position.z - sz);
-      rc.set(_sideOrigin, rd); rc.far = farDist;
-      if (rc.intersectObjects(_nearbyColliders, false).length) return false;
-    }
-    return true;
-  };
   const origX = player.position.x, origZ = player.position.z;
-  // X 축
-  if (check(dx, 0)) {
-    const nx = player.position.x + dx;
-    if (!worldBounds || (nx >= worldBounds.minX && nx <= worldBounds.maxX)) {
-      player.position.x = nx;
+  // X 축 — 벽 직전까지 밀어 넣기
+  if (dx !== 0) {
+    const ax = _sweepAxis(dx, 0);
+    if (ax > 0) {
+      const nx = player.position.x + (dx > 0 ? ax : -ax);
+      if (!worldBounds || (nx >= worldBounds.minX && nx <= worldBounds.maxX)) player.position.x = nx;
     }
   }
   // Z 축
-  if (check(0, dz)) {
-    const nz = player.position.z + dz;
-    if (!worldBounds || (nz >= worldBounds.minZ && nz <= worldBounds.maxZ)) {
-      player.position.z = nz;
+  if (dz !== 0) {
+    const az = _sweepAxis(0, dz);
+    if (az > 0) {
+      const nz = player.position.z + (dz > 0 ? az : -az);
+      if (!worldBounds || (nz >= worldBounds.minZ && nz <= worldBounds.maxZ)) player.position.z = nz;
     }
   }
-  // ★ 최종 위치에서 안전망 (8방향 × 3높이) — 이동 발생했을 때만
-  //   조금이라도 파묻혔으면 완전 롤백. 절대 벽 안으로 안 들어감.
+  // 최종 안전망 (정말 파묻혔을 때만 롤백)
   if ((player.position.x !== origX || player.position.z !== origZ) && !isPositionSafe()) {
     player.position.x = origX;
     player.position.z = origZ;
@@ -4215,28 +4210,35 @@ function clampPlayerToBounds() {
 //     - 어떤 이동/등반 로직이 실수해도 다음 프레임에 즉시 회복 → 절대 낑기지 않음
 let _lastSafePos = null;
 let _lastSafePosT = 0;
+// ★ 반드시 "마주보는 방향끼리" 짝지어 배치 (i, i+1 이 정반대)
 const _stuckCheckDirs = [
   new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
   new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
-  new THREE.Vector3(0.7071, 0, 0.7071), new THREE.Vector3(-0.7071, 0, 0.7071),
-  new THREE.Vector3(0.7071, 0, -0.7071), new THREE.Vector3(-0.7071, 0, -0.7071),
+  new THREE.Vector3(0.7071, 0, 0.7071), new THREE.Vector3(-0.7071, 0, -0.7071),
+  new THREE.Vector3(-0.7071, 0, 0.7071), new THREE.Vector3(0.7071, 0, -0.7071),
 ];
 const _stuckCheckRc = new THREE.Raycaster();
+_stuckCheckRc.firstHitOnly = true;
 const _stuckCheckOrigin = new THREE.Vector3();
-const STUCK_PENETRATION_DIST = 0.14; // 파묻힘 감지 거리 확대: 0.08→0.14
-const STUCK_THRESHOLD = 5;            // 8방향 중 5개 이상 파묻힘 = 갇힘 판정 (더 민감하게)
+const STUCK_PENETRATION_DIST = 0.085; // ★ WALL_GAP 보다 작게 — 벽에 붙어 숨는 걸 방해하지 않음
+const STUCK_THRESHOLD = 3;            // 마주보는 4쌍 중 3쌍이 "양쪽 다" 막힘 = 진짜 갇힘
 function _isCurrentlyPenetrating() {
   if (!_nearbyColliders || !_nearbyColliders.length) return false;
-  // ★ 두 높이(허리 0.9m, 무릎 0.4m)에서 검사 → 낮은 구조물도 정확히 잡음
-  let hits = 0;
+  // ★ 한쪽 벽에 딱 붙어 있는 건 정상(= 숨는 중) 이므로 갇힘이 아니다.
+  //   "마주보는 두 방향이 동시에" 막힌 축만 세서, 몸이 실제로 구조물 안에 낀 경우만 잡는다.
+  //   반대쪽을 검사하기 전에 한쪽이 비면 건너뛰므로 레이캐스트 수도 절반 이하로 줄어든다.
   for (const hY of [0.4, 0.9]) {
     _stuckCheckOrigin.set(player.position.x, player.position.y + hY, player.position.z);
-    for (const d of _stuckCheckDirs) {
-      _stuckCheckRc.set(_stuckCheckOrigin, d);
+    let pairs = 0;
+    for (let i = 0; i < _stuckCheckDirs.length; i += 2) {
+      _stuckCheckRc.set(_stuckCheckOrigin, _stuckCheckDirs[i]);
       _stuckCheckRc.far = STUCK_PENETRATION_DIST;
-      if (_stuckCheckRc.intersectObjects(_nearbyColliders, false).length > 0) hits++;
-      if (hits >= STUCK_THRESHOLD) return true;
+      if (!_stuckCheckRc.intersectObjects(_nearbyColliders, false).length) continue;
+      _stuckCheckRc.set(_stuckCheckOrigin, _stuckCheckDirs[i + 1]);
+      _stuckCheckRc.far = STUCK_PENETRATION_DIST;
+      if (_stuckCheckRc.intersectObjects(_nearbyColliders, false).length) pairs++;
     }
+    if (pairs >= STUCK_THRESHOLD) return true;
   }
   return false;
 }
@@ -4304,25 +4306,240 @@ const _paintDirtyMeshes = new Set(); // paint 후 updateRange 리셋 대상 추�
 const _tmpMat = new THREE.Matrix4();
 const _tmpVec = new THREE.Vector3();
 
-function bucketFill() {
-  const c = new THREE.Color(currentColor);
-  const cr = c.r, cg = c.g, cb = c.b;
-  characterMeshes.forEach(mesh => {
-    const colors = mesh.geometry.attributes.color;
-    if (!colors) return;
-    // ★ typed array 직접 fill (setXYZ 루프보다 10배 빠름)
+// ★ three r159+ 는 updateRange 가 deprecated + 한 프레임에 여러 번 칠하면
+//   마지막 범위만 GPU 로 올라가서 칠한 자국이 군데군데 빠지던 문제가 있었음.
+//   addUpdateRange 는 범위를 누적하므로 한 프레임에 몇 번을 칠해도 전부 반영된다.
+function _markColorRange(colors, minIdx, maxIdx) {
+  const start = minIdx * 3;
+  const count = (maxIdx - minIdx + 1) * 3;
+  if (typeof colors.addUpdateRange === 'function') colors.addUpdateRange(start, count);
+  else { colors.updateRange.offset = start; colors.updateRange.count = count; }
+  colors.needsUpdate = true;
+}
+function _markColorFull(colors) {
+  if (typeof colors.clearUpdateRanges === 'function') colors.clearUpdateRanges();
+  else { colors.updateRange.offset = 0; colors.updateRange.count = -1; }
+  colors.needsUpdate = true;
+}
+
+// ★★ 페인트 최적화: 정점 공간 격자(uniform grid) ★★
+//   기존엔 붓질 1회마다 메쉬 전 정점(46,000~61,000개)을 전부 거리 검사했다.
+//   한 프레임에 보간 6회 + 남 스트로크까지 들어오면 수십만 번 → 렉의 주범.
+//   격자를 만들어 붓 반경에 닿는 칸의 정점만 보면 수백 개로 줄어든다(100배 이상).
+//   ※ key 가 position 속성 자체라, 같은 포즈를 쓰는 모든 플레이어 클론이 격자 1개를 공유한다.
+const _paintGridCache = new WeakMap();
+function _getPaintGrid(positions) {
+  let g = _paintGridCache.get(positions);
+  if (g !== undefined) return g;
+  g = null;
+  try {
+    const arr = positions.array, n = positions.count;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      const x = arr[i3], y = arr[i3+1], z = arr[i3+2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    const ex = maxX - minX, ey = maxY - minY, ez = maxZ - minZ;
+    const longest = Math.max(ex, ey, ez);
+    if (!isFinite(longest) || longest <= 0) { _paintGridCache.set(positions, null); return null; }
+    const cs = longest / 28;
+    const nx = Math.max(1, Math.min(64, Math.ceil(ex / cs) + 1));
+    const ny = Math.max(1, Math.min(64, Math.ceil(ey / cs) + 1));
+    const nz = Math.max(1, Math.min(64, Math.ceil(ez / cs) + 1));
+    const cellCount = nx * ny * nz;
+    const starts = new Int32Array(cellCount + 1);
+    const cellOf = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      let cx = ((arr[i3]   - minX) / cs) | 0; if (cx >= nx) cx = nx - 1; if (cx < 0) cx = 0;
+      let cy = ((arr[i3+1] - minY) / cs) | 0; if (cy >= ny) cy = ny - 1; if (cy < 0) cy = 0;
+      let cz = ((arr[i3+2] - minZ) / cs) | 0; if (cz >= nz) cz = nz - 1; if (cz < 0) cz = 0;
+      const ci = (cx * ny + cy) * nz + cz;
+      cellOf[i] = ci;
+      starts[ci + 1]++;
+    }
+    for (let c = 0; c < cellCount; c++) starts[c + 1] += starts[c];
+    const items = new Int32Array(n);
+    const cursor = new Int32Array(cellCount);
+    for (let i = 0; i < n; i++) {
+      const ci = cellOf[i];
+      items[starts[ci] + cursor[ci]++] = i;
+    }
+    g = { cs, nx, ny, nz, minX, minY, minZ, starts, items };
+  } catch (e) { g = null; }
+  _paintGridCache.set(positions, g);
+  return g;
+}
+
+// ★ 구(sphere) 안의 정점을 칠하는 공용 루틴 (내 붓 / 남 스트로크 / 분신 전부 사용)
+function _paintSphereIntoAttr(colors, positions, lx, ly, lz, radius, pr, pg, pb, deferUpload) {
+  const posArr = positions.array, colArr = colors.array;
+  const rSq = radius * radius;
+  const n = positions.count;
+  let minD = n, maxD = -1;
+  const grid = _getPaintGrid(positions);
+  if (!grid) {
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      const dx = posArr[i3] - lx, dy = posArr[i3+1] - ly, dz = posArr[i3+2] - lz;
+      if (dx*dx + dy*dy + dz*dz < rSq) {
+        colArr[i3] = pr; colArr[i3+1] = pg; colArr[i3+2] = pb;
+        if (i < minD) minD = i;
+        if (i > maxD) maxD = i;
+      }
+    }
+  } else {
+    const cs = grid.cs, nx = grid.nx, ny = grid.ny, nz = grid.nz;
+    const starts = grid.starts, items = grid.items;
+    let x0 = Math.floor((lx - radius - grid.minX) / cs), x1 = Math.floor((lx + radius - grid.minX) / cs);
+    let y0 = Math.floor((ly - radius - grid.minY) / cs), y1 = Math.floor((ly + radius - grid.minY) / cs);
+    let z0 = Math.floor((lz - radius - grid.minZ) / cs), z1 = Math.floor((lz + radius - grid.minZ) / cs);
+    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (z0 < 0) z0 = 0;
+    if (x1 >= nx) x1 = nx - 1; if (y1 >= ny) y1 = ny - 1; if (z1 >= nz) z1 = nz - 1;
+    if (x1 < x0 || y1 < y0 || z1 < z0) return false;
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cy = y0; cy <= y1; cy++) {
+        const rowBase = (cx * ny + cy) * nz;
+        for (let cz = z0; cz <= z1; cz++) {
+          const ci = rowBase + cz;
+          const end = starts[ci + 1];
+          for (let k = starts[ci]; k < end; k++) {
+            const i = items[k], i3 = i * 3;
+            const dx = posArr[i3] - lx, dy = posArr[i3+1] - ly, dz = posArr[i3+2] - lz;
+            if (dx*dx + dy*dy + dz*dz < rSq) {
+              colArr[i3] = pr; colArr[i3+1] = pg; colArr[i3+2] = pb;
+              if (i < minD) minD = i;
+              if (i > maxD) maxD = i;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (maxD < 0) return false;
+  if (!deferUpload) _markColorRange(colors, minD, maxD);
+  return true;
+}
+
+// ★ 메모리/스폰 최적화: position·normal·index 는 원본 버퍼를 그대로 "공유" 하고
+//   페인트용 color 만 개인 소유로 만든다.
+//   기존 geometry.clone() 은 플레이어 1명당 1~1.7MB 를 복사했다 (25명이면 수십 MB + 스폰 렉).
+function makePaintableGeometry(src) {
+  const g = new THREE.BufferGeometry();
+  for (const name in src.attributes) {
+    if (name === 'color') continue;
+    g.setAttribute(name, src.attributes[name]);
+  }
+  if (src.index) g.setIndex(src.index);
+  const count = src.attributes.position.count;
+  const cAttr = new THREE.BufferAttribute(new Float32Array(count * 3).fill(1), 3);
+  cAttr.setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute('color', cAttr);
+  if (src.boundingSphere) g.boundingSphere = src.boundingSphere.clone();
+  if (src.boundingBox) g.boundingBox = src.boundingBox.clone();
+  if (src.groups && src.groups.length) g.groups = src.groups.map(gr => ({ ...gr }));
+  return g;
+}
+
+// ★ 페인트 적용 공용 함수 (내 캐릭터 / 다른 플레이어 / 분신 전부 같은 코드 사용)
+const _applyColor = new THREE.Color();
+function fillMeshesWithColor(meshes, hex) {
+  if (!hex || !meshes) return;
+  _applyColor.set(hex);
+  const cr = _applyColor.r, cg = _applyColor.g, cb = _applyColor.b;
+  for (let k = 0; k < meshes.length; k++) {
+    const colors = meshes[k].geometry?.attributes?.color;
+    if (!colors) continue;
     const arr = colors.array;
-    const n3 = arr.length;
-    for (let i = 0; i < n3; i += 3) { arr[i] = cr; arr[i+1] = cg; arr[i+2] = cb; }
-    colors.updateRange.offset = 0;
-    colors.updateRange.count = n3;
-    colors.needsUpdate = true;
+    for (let i = 0; i < arr.length; i += 3) { arr[i] = cr; arr[i+1] = cg; arr[i+2] = cb; }
+    _markColorFull(colors); // 전체 버퍼 업로드
+  }
+}
+
+// stroke = {p:포즈, m:메쉬인덱스, x,y,z:로컬좌표, r:반경, c:색}
+// deferUpload=true 면 GPU 업로드 표시를 생략 (대량 replay 후 한 번에 올리기 위함)
+function applyStrokeToMeshes(meshes, stroke, pose, deferUpload) {
+  if (!stroke || !meshes || !meshes.length) return;
+  if (stroke.bucket) { fillMeshesWithColor(meshes, stroke.c); return; }
+  // ★ 포즈마다 GLB 가 완전히 다른 모델(정점 수·좌표계 전부 다름)이라
+  //   다른 포즈에서 칠한 스트로크를 그대로 찍으면 엉뚱한 곳이 칠해진다 → 스킵.
+  if (stroke.p && pose && stroke.p !== pose) return;
+  const mesh = meshes[stroke.m] || meshes[0];
+  if (!mesh) return;
+  const colors = mesh.geometry?.attributes?.color;
+  const positions = mesh.geometry?.attributes?.position;
+  if (!colors || !positions) return;
+  if (!isFinite(stroke.x) || !isFinite(stroke.y) || !isFinite(stroke.z) || !(stroke.r > 0)) return;
+  _applyColor.set(stroke.c || '#ffffff');
+  _paintSphereIntoAttr(colors, positions, stroke.x, stroke.y, stroke.z, stroke.r,
+                       _applyColor.r, _applyColor.g, _applyColor.b, deferUpload);
+}
+
+// ★ 모델이 새로 만들어졌을 때(포즈 전환·스폰·분신) 지금까지의 페인트를 통째로 다시 칠함
+function repaintMeshes(meshes, pose, baseColor, log) {
+  if (!meshes || !meshes.length) return;
+  if (baseColor) fillMeshesWithColor(meshes, baseColor);
+  if (log && log.length) {
+    for (let i = 0; i < log.length; i++) applyStrokeToMeshes(meshes, log[i], pose, true);
+    for (let k = 0; k < meshes.length; k++) {
+      const colors = meshes[k].geometry?.attributes?.color;
+      if (colors) _markColorFull(colors); // replay 후 한 번에 업로드
+    }
+  }
+}
+
+// ★ 스트로크 키: Firebase push 키(-O...)는 타임스탬프 키보다 사전순으로 앞서서
+//   페인트통/브러시 순서가 뒤섞이고 limitToLast 에서 먼저 잘려나갔음.
+//   전부 "타임스탬프_시퀀스" 고정 포맷으로 통일해 순서를 보장한다.
+let _paintKeySeq = 0;
+function _makeStrokeKey() {
+  return `${Date.now()}_${String(_paintKeySeq++).padStart(6, '0')}`;
+}
+
+// ★ 라운드가 끝나 방으로 돌아갈 때 내 캐릭터를 흰색으로 초기화
+function resetMyPaint() {
+  _myPaintBase = null;
+  _myPaintLog.length = 0;
+  _paintStrokeQueue.length = 0;
+  if (_paintFlushTimer) { clearTimeout(_paintFlushTimer); _paintFlushTimer = null; }
+  Object.values(poseModels).forEach(model => {
+    if (!model) return;
+    model.traverse(o => {
+      const colors = o.isMesh && o.geometry?.attributes?.color;
+      if (!colors) return;
+      colors.array.fill(1);
+      _markColorFull(colors);
+    });
   });
+}
+
+function bucketFill() {
+  // ★ 페인트통은 "캐릭터 전체 색" 이므로 현재 포즈뿐 아니라 로드된 모든 포즈 모델에 적용
+  //   (안 그러면 포즈 바꾸는 순간 흰색으로 돌아감)
+  const allMeshes = [];
+  Object.values(poseModels).forEach(model => {
+    if (model) model.traverse(o => { if (o.isMesh) allMeshes.push(o); });
+  });
+  if (!allMeshes.length) characterMeshes.forEach(m => allMeshes.push(m));
+  fillMeshesWithColor(allMeshes, currentColor);
+  // 로컬 상태 갱신: 전체를 덮었으므로 이전 스트로크 기록은 의미 없음
+  _myPaintBase = currentColor;
+  _myPaintLog.length = 0;
+  _paintStrokeQueue.length = 0;
   addRecentColor(currentColor);
-  // Firebase 로 브로드캐스트 (특수 스트로크)
+  // ★ Firebase: base 노드에 "고정 저장" + 낡은 스트로크 제거 (한 번의 update 로 원자 처리)
+  //   base 는 limitToLast 로 잘려나가지 않아서 나중에 들어온 사람도 무조건 받는다.
   if (myRoomId && myUid) {
-    const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
-    push(strokesRef, { bucket: true, c: currentColor, t: Date.now() });
+    try {
+      update(ref(fbDb, `rooms/${myRoomId}/paint/${myUid}`), {
+        base: { c: currentColor, t: Date.now() },
+        strokes: null
+      });
+    } catch (e) { console.warn('페인트통 동기화 실패', e); }
   }
 }
 
@@ -4548,6 +4765,20 @@ function pickColor(clientX, clientY) {
   setTool('brush');
 }
 
+// ★ 캐릭터 메쉬 BVH: 붓질 한 번마다 수만 개 삼각형을 전수 검사하던 raycast 를 가속한다.
+//   포즈 모델당 1회만 생성되고, 첫 붓질 직전에 지연 생성해서 로딩 시간을 늘리지 않는다.
+function ensureCharacterBVH() {
+  for (let i = 0; i < characterMeshes.length; i++) {
+    const m = characterMeshes[i];
+    const geo = m.geometry;
+    if (!geo || geo.boundsTree) continue;
+    try {
+      geo.boundsTree = new MeshBVH(geo);
+      m.raycast = acceleratedRaycast;
+    } catch (e) { geo.boundsTree = null; }
+  }
+}
+
 const _paintMv = new THREE.Vector2(); // ★ 재사용 (paint 호출당 GC 압박 제거)
 function paint(clientX, clientY) {
   if (!characterMeshes.length) { return; }
@@ -4558,6 +4789,7 @@ function paint(clientX, clientY) {
   );
   paintRc.camera = camera;
   paintRc.setFromCamera(_paintMv, camera);
+  ensureCharacterBVH();
   // ★ characterMeshes는 Mesh만 있으므로 스프라이트 충돌 없음
   const hits = paintRc.intersectObjects(characterMeshes, true);
   if (!hits.length) return;
@@ -4581,41 +4813,20 @@ function paint(clientX, clientY) {
   const worldScale = mesh.getWorldScale(_tmpVec).x || 1;
   let radiusLocal = brushSize * 0.008 / worldScale;
   if (radiusLocal < 0.006) radiusLocal = 0.006;
-  const radiusSq = radiusLocal * radiusLocal;
   
   const paintColor = _paintColor.set(currentTool === 'eraser' ? '#ffffff' : currentColor);
   const pr = paintColor.r, pg = paintColor.g, pb = paintColor.b;
   const lx = localPoint.x, ly = localPoint.y, lz = localPoint.z;
 
-  // ★ typed array 직접 접근 (getX/Y/Z 호출 오버헤드 제거 — 매 정점 6회 메서드 → 0)
-  const posArr = positions.array;
-  const colArr = colors.array;
-  const n = positions.count;
-  let minDirty = n, maxDirty = -1;
-  for (let i = 0; i < n; i++) {
-    const i3 = i * 3;
-    const dx = posArr[i3]   - lx;
-    const dy = posArr[i3+1] - ly;
-    const dz = posArr[i3+2] - lz;
-    if (dx*dx + dy*dy + dz*dz < radiusSq) {
-      colArr[i3]   = pr;
-      colArr[i3+1] = pg;
-      colArr[i3+2] = pb;
-      if (i < minDirty) minDirty = i;
-      if (i > maxDirty) maxDirty = i;
-    }
-  }
-  // ★ dirty range 기반 부분 업로드 (변경된 구간만 GPU로 전송 — 전체 업로드 X)
-  if (maxDirty >= 0) {
-    colors.updateRange.offset = minDirty * 3;
-    colors.updateRange.count  = (maxDirty - minDirty + 1) * 3;
-    colors.needsUpdate = true;
+  // ★ 공간 격자 기반 부분 검사 + dirty range 부분 업로드
+  if (_paintSphereIntoAttr(colors, positions, lx, ly, lz, radiusLocal, pr, pg, pb, false)) {
     _paintDirtyMeshes.add(mesh);
     // ★ 메탈릭/러프니스 적용 — 원본 Meccha Chameleon 핵심 기능
-    if (mesh.material) {
-      if (mesh.material.metalness !== undefined) mesh.material.metalness = paintMetallic;
-      if (mesh.material.roughness !== undefined) mesh.material.roughness = paintRoughness;
-      mesh.material.needsUpdate = true;
+    //   (needsUpdate 는 셔이더 재컴파일을 유발함. 둘 다 유니폼이라 필요 없음 → 붓질 렉 제거)
+    const mat = mesh.material;
+    if (mat && mat.metalness !== undefined) {
+      mat.metalness = paintMetallic;
+      if (mat.roughness !== undefined) mat.roughness = paintRoughness;
     }
   }
   addRecentColor(currentColor);
@@ -4631,22 +4842,27 @@ function paint(clientX, clientY) {
     const strokeColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
     // dedup: 큐 마지막 스트로크와 거의 같은 위치·같은 색·같은 mesh면 스킵 (붓 정지 스팸 방지)
     let skip = false;
-    if (_paintStrokeQueue.length > 0) {
-      const last = _paintStrokeQueue[_paintStrokeQueue.length - 1];
-      if (last.m === meshIdx && last.c === strokeColor) {
+    if (_myPaintLog.length > 0) {
+      const last = _myPaintLog[_myPaintLog.length - 1];
+      if (last.m === meshIdx && last.c === strokeColor && last.p === currentPose) {
         const ddx = last.x - cx, ddy = last.y - cy, ddz = last.z - cz;
         const dedupR = radiusLocal * 0.35;
         if (ddx*ddx + ddy*ddy + ddz*ddz < dedupR * dedupR) skip = true;
       }
     }
     if (!skip) {
-      _paintStrokeQueue.push({
+      const strokeData = {
         x: cx, y: cy, z: cz,
         c: strokeColor,
         r: +radiusLocal.toFixed(3),
         m: meshIdx,
+        p: currentPose,   // ★ 어느 포즈 모델에 칠한 건지 (포즈마다 지오메트리가 다름)
         t: Date.now()
-      });
+      };
+      _paintStrokeQueue.push(strokeData);
+      // ★ 내 기록에도 남겨서 포즈를 바꿔도 되돌아왔을 때 색이 유지되게
+      _myPaintLog.push(strokeData);
+      if (_myPaintLog.length > PAINT_LOG_MAX) _myPaintLog.splice(0, _myPaintLog.length - PAINT_LOG_MAX);
       _schedulePaintFlush();
     }
   }
@@ -4671,14 +4887,14 @@ function _flushPaintQueue() {
   const batch = _paintStrokeQueue.splice(0);
   try {
     const strokesRef = ref(fbDb, `rooms/${myRoomId}/paint/${myUid}/strokes`);
-    // ★ push key 대신 타임스탬프+카운터 키 사용 (Firebase push().key 호출 비용 제거)
+    // ★ 타임스탬프+전역 시퀀스 키: 같은 ms 에 두 번 flush 돼도 키가 겹쳐
+    //   먼저 보낸 스트로크가 덮어써지던 문제 해결 (= 남 화면에 빈 자국)
     const updates = {};
-    const base = Date.now();
     for (let i = 0; i < batch.length; i++) {
-      updates[`${base}_${i}`] = batch[i];
+      updates[_makeStrokeKey()] = batch[i];
     }
     update(strokesRef, updates);
-  } catch(e) { /* 로컬은 이미 반영됨 */ }
+  } catch(e) { console.warn('페인트 전송 실패', e); }
   // 큐에 뭐 더 쌓였으면 다시 예약
   if (_paintStrokeQueue.length > 0) _schedulePaintFlush();
 }
@@ -4826,6 +5042,9 @@ document.getElementById('roughnessSlider')?.addEventListener('input', e => {
 });
 
 function addRecentColor(color) {
+  // ★ 최적화: 이미 맨 앞이면 DOM 을 다시 안 만든다
+  //   (붓질 1회마다 호출되므로 초당 수백 개의 DOM 요소+리스너가 생성되고 있었음)
+  if (recentColors[0] === color) return;
   recentColors = [color, ...recentColors.filter(c => c !== color)].slice(0, 6);
   const rc = document.getElementById('recent');
   rc.innerHTML = '';
@@ -4897,79 +5116,73 @@ function startFirebaseSync(room) {
       });
     }, 100);
 
-    // 다른 플레이어 페인트 스트로크 수신 (uid별 개별 listen - 전체 노드 X)
-    const _remoteColor = new THREE.Color();
-    const _paintListeners = {}; // uid → unsub
-    // 재사용 가능한 mesh 페인팅 유틸 (다른 플레이어 + 분신 공용)
-    function applyStrokeToMeshes(meshes, stroke) {
-      if (stroke.bucket) {
-        _remoteColor.set(stroke.c);
-        const br = _remoteColor.r, bg = _remoteColor.g, bb = _remoteColor.b;
-        meshes.forEach(mesh => {
-          const colors = mesh.geometry.attributes.color;
-          if (!colors) return;
-          const arr = colors.array;
-          for (let i = 0; i < arr.length; i += 3) { arr[i] = br; arr[i+1] = bg; arr[i+2] = bb; }
-          colors.updateRange.offset = 0; colors.updateRange.count = arr.length;
-          colors.needsUpdate = true;
-        });
-        return;
-      }
-      const mesh = meshes[stroke.m] || meshes[0];
-      if (!mesh) return;
-      const colors = mesh.geometry.attributes.color;
-      const positions = mesh.geometry.attributes.position;
-      if (!colors || !positions) return;
-      _remoteColor.set(stroke.c);
-      const rr = _remoteColor.r, rg = _remoteColor.g, rb = _remoteColor.b;
-      const rSq = stroke.r * stroke.r;
-      const lx = stroke.x, ly = stroke.y, lz = stroke.z;
-      // ★ typed array 직접 접근
-      const posArr = positions.array;
-      const colArr = colors.array;
-      const n = positions.count;
-      let minD = n, maxD = -1;
-      for (let i = 0; i < n; i++) {
-        const i3 = i * 3;
-        const dx = posArr[i3]   - lx;
-        const dy = posArr[i3+1] - ly;
-        const dz = posArr[i3+2] - lz;
-        if (dx*dx + dy*dy + dz*dz < rSq) {
-          colArr[i3] = rr; colArr[i3+1] = rg; colArr[i3+2] = rb;
-          if (i < minD) minD = i; if (i > maxD) maxD = i;
-        }
-      }
-      if (maxD >= 0) {
-        colors.updateRange.offset = minD * 3;
-        colors.updateRange.count  = (maxD - minD + 1) * 3;
-        colors.needsUpdate = true;
-      }
-    }
-    function applyRemotePaint(uid, stroke) {
-      const ot = otherPlayers[uid];
-      if (!ot) return;
+    // 다른 플레이어 페인트 수신 (uid별 개별 listen - 전체 노드 X)
+    // ★ applyStrokeToMeshes / fillMeshesWithColor / repaintMeshes 는 Painting 섹션의 공용 함수 사용
+    const _paintListeners = {}; // uid → { strokes, base }
+    const PAINT_HISTORY_LIMIT = 100; // 늦게 들어온 사람도 그림이 거의 그대로 보이도록
+
+    // uid 의 현재 모델 메쉬 목록 (포즈 바뀌면 _meshCache 가 null 로 초기화됨)
+    function _remoteMeshes(ot) {
+      if (!ot || !ot.charMesh) return null;
       if (!ot._meshCache) {
         ot._meshCache = [];
         ot.charMesh.traverse(o => { if (o.isMesh) ot._meshCache.push(o); });
       }
-      applyStrokeToMeshes(ot._meshCache, stroke);
+      return ot._meshCache;
     }
+    // 모델이 새로 생겼을 때 그 사람 페인트 전체 재적용 (스폰/포즈 전환)
+    function repaintRemotePlayer(uid) {
+      const ot = otherPlayers[uid];
+      const meshes = _remoteMeshes(ot);
+      if (!meshes) return;
+      repaintMeshes(meshes, ot.currentPose, ot._paintBase, ot._paintLog);
+    }
+    window._repaintRemotePlayer = repaintRemotePlayer;
+
+    function applyRemotePaint(uid, stroke) {
+      const ot = otherPlayers[uid];
+      if (!ot) return;
+      if (!ot._paintLog) ot._paintLog = [];
+      // 페인트통(base)보다 오래된 스트로크는 어차피 덮인 것 → 버림
+      if (ot._paintBaseT && stroke.t && stroke.t <= ot._paintBaseT) return;
+      ot._paintLog.push(stroke);
+      if (ot._paintLog.length > PAINT_LOG_MAX) ot._paintLog.splice(0, ot._paintLog.length - PAINT_LOG_MAX);
+      const meshes = _remoteMeshes(ot);
+      if (meshes) applyStrokeToMeshes(meshes, stroke, ot.currentPose);
+    }
+
     function subscribePaintForUid(uid) {
       if (_paintListeners[uid]) return;
-      // ★ 25명 최적화: 리스너당 50개만 (200→50, 25명×200=5000 → 25명×50=1250 노드)
-      const q = query(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/strokes`), limitToLast(50));
+      const q = query(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/strokes`), limitToLast(PAINT_HISTORY_LIMIT));
       const _seen = new Set();
-      const unsub = onChildAdded(q, snap => {
+      const unsubStrokes = onChildAdded(q, snap => {
         const key = snap.key;
         if (_seen.has(key)) return;
+        if (_seen.size > 1200) _seen.clear(); // 메모리 누수 방지
         _seen.add(key);
         const stroke = snap.val();
         if (stroke) applyRemotePaint(uid, stroke);
       });
-      _paintListeners[uid] = unsub;
+      // ★ 페인트통(전체 채우기)은 별도 base 노드로 수신 — limitToLast 에 잘리지 않아
+      //   늦게 들어와도, 포즈를 바꿔도 항상 반영된다 (페인트통이 공유 안 되던 문제)
+      const unsubBase = onValue(ref(fbDb, `rooms/${myRoomId}/paint/${uid}/base`), snap => {
+        const base = snap.val();
+        const ot = otherPlayers[uid];
+        if (!ot || !base || !base.c) return;
+        if (ot._paintBaseT === base.t && ot._paintBase === base.c) return;
+        ot._paintBase = base.c;
+        ot._paintBaseT = base.t || 0;
+        if (ot._paintLog) ot._paintLog = ot._paintLog.filter(s => !s.t || s.t > ot._paintBaseT);
+        repaintRemotePlayer(uid);
+      });
+      _paintListeners[uid] = { strokes: unsubStrokes, base: unsubBase };
     }
     function unsubPaintForUid(uid) {
-      if (_paintListeners[uid]) { _paintListeners[uid](); delete _paintListeners[uid]; }
+      const l = _paintListeners[uid];
+      if (!l) return;
+      try { l.strokes(); } catch(e) {}
+      try { l.base(); } catch(e) {}
+      delete _paintListeners[uid];
     }
 
     // ============ 따봉(좋아요) 시스템 ============
@@ -5049,12 +5262,7 @@ function startFirebaseSync(room) {
       clone.traverse(o => {
         o.visible = true;
         if (o.isMesh) {
-          o.geometry = o.geometry.clone();
-          const posCount = o.geometry.attributes.position.count;
-          const ca = new Float32Array(posCount * 3).fill(1);
-          const cAttr = new THREE.BufferAttribute(ca, 3);
-          cAttr.setUsage(THREE.DynamicDrawUsage);
-          o.geometry.setAttribute('color', cAttr);
+          o.geometry = makePaintableGeometry(o.geometry);
           o.material = new THREE.MeshLambertMaterial({
             color: 0xffffff,
             vertexColors: true,
@@ -5121,6 +5329,18 @@ function startFirebaseSync(room) {
       // ★ owner의 페인트 스트로크 전체 재생 → 분신 색상 진짜와 동일
       const decoyMeshes = [];
       clone.traverse(o => { if (o.isMesh) decoyMeshes.push(o); });
+      // ★ 페인트통(base) + 스트로크 둘 다 반영 (분신도 진짜와 같은 색)
+      const _decoyLog = [];
+      let _decoyBase = null, _decoyBaseT = 0;
+      const basePaintOff = onValue(ref(fbDb, `rooms/${myRoomId}/paint/${d.owner}/base`), snap => {
+        const base = snap.val();
+        if (!base || !base.c) return;
+        _decoyBase = base.c; _decoyBaseT = base.t || 0;
+        for (let i = _decoyLog.length - 1; i >= 0; i--) {
+          if (_decoyLog[i].t && _decoyLog[i].t <= _decoyBaseT) _decoyLog.splice(i, 1);
+        }
+        repaintMeshes(decoyMeshes, poseName, _decoyBase, _decoyLog);
+      });
       const paintQ = query(ref(fbDb, `rooms/${myRoomId}/paint/${d.owner}/strokes`), limitToLast(200));
       const _decoySeen = new Set();
       const paintOff = onChildAdded(paintQ, snap => {
@@ -5128,7 +5348,11 @@ function startFirebaseSync(room) {
         if (_decoySeen.has(k)) return;
         _decoySeen.add(k);
         const stroke = snap.val();
-        if (stroke) applyStrokeToMeshes(decoyMeshes, stroke);
+        if (!stroke) return;
+        if (_decoyBaseT && stroke.t && stroke.t <= _decoyBaseT) return;
+        _decoyLog.push(stroke);
+        if (_decoyLog.length > PAINT_LOG_MAX) _decoyLog.splice(0, _decoyLog.length - PAINT_LOG_MAX);
+        applyStrokeToMeshes(decoyMeshes, stroke, poseName);
       });
 
       // 주인한테만 "분" 표시 (자기 분신 위치 파악용)
@@ -5148,13 +5372,14 @@ function startFirebaseSync(room) {
         grp.add(sp);
       }
       scene.add(grp);
-      decoys[key] = { group: grp, ownerUid: d.owner, likeOff, paintOff, mixer: decoyMixer };
+      decoys[key] = { group: grp, ownerUid: d.owner, likeOff, paintOff, basePaintOff, mixer: decoyMixer };
     }
     function despawnDecoy(key) {
       const d = decoys[key];
       if (!d) return;
       if (d.likeOff)  { try { d.likeOff();  } catch(e){} }
       if (d.paintOff) { try { d.paintOff(); } catch(e){} }
+      if (d.basePaintOff) { try { d.basePaintOff(); } catch(e){} }
       if (d.mixer) { try { d.mixer.stopAllAction(); } catch(e){} }
       scene.remove(d.group);
       delete decoys[key];
@@ -5210,19 +5435,18 @@ function startFirebaseSync(room) {
 
     function _spawnOtherPlayer(uid, p) {
       if (uid === myUid || otherPlayers[uid]) return;
-      const templatePose = (p.p === 'crouch' && poseModels.crouch) ? poseModels.crouch : (poseModels.stand || characterTemplate);
+      // ★ 모든 포즈 지원 (기존엔 stand/crouch 만 → 다른 포즈로 들어온 사람은 계속 엉뚱한 모델로
+      //   보이고, 모델이 다르니 페인트 스트로크도 전혀 안 맞았음)
+      const poseName = (p.p && poseModels[p.p]) ? p.p : 'stand';
+      const templatePose = poseModels[poseName] || poseModels.stand || characterTemplate;
       if (!templatePose) return;
-      const clone = templatePose.clone(true);
+      // ★ SkeletonUtils.clone: 스킨드 메쉬도 정상 복제 (clone(true) 는 스켈레톤이 깨짐)
+      const clone = SkeletonUtils.clone(templatePose);
       clone.visible = true;
       clone.traverse(o => {
         o.visible = true;
         if (o.isMesh) {
-          o.geometry = o.geometry.clone();
-          const posCount = o.geometry.attributes.position.count;
-          const ca = new Float32Array(posCount * 3).fill(1);
-          const cAttr = new THREE.BufferAttribute(ca, 3);
-          cAttr.setUsage(THREE.DynamicDrawUsage);
-          o.geometry.setAttribute('color', cAttr);
+          o.geometry = makePaintableGeometry(o.geometry);
           o.material = _sharedPlayerMat.clone(); // 페인트용 개별 재질 (vertexColors 독립)
           o.castShadow = false;
           o.frustumCulled = true;
@@ -5257,7 +5481,16 @@ function startFirebaseSync(room) {
       likeSp.position.y = 2.9;
       grp.add(likeSp);
       scene.add(grp);
-      otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: p.p || 'stand', nickSprite: sp, likeSprite: likeSp, likeCount: 0 };
+      // ★ 스폰 시점에도 포즈 애니메이션 재생 (기존엔 포즈를 바꾸기 전까지 멈춰 있었음)
+      const spawnAnims = templatePose.userData && templatePose.userData.animations;
+      if (spawnAnims && spawnAnims.length) {
+        const mixer = new THREE.AnimationMixer(clone);
+        const action = mixer.clipAction(spawnAnims[0]);
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.play();
+        otherMixers.set(uid, { mixer, action });
+      }
+      otherPlayers[uid] = { group: grp, charMesh: clone, currentPose: poseName, nickSprite: sp, likeSprite: likeSp, likeCount: 0, _paintLog: [], _paintBase: null, _paintBaseT: 0 };
       if (typeof updateNickLikeLabels === 'function' && _cachedRoom) updateNickLikeLabels(_cachedRoom);
       invalidatePickerCache();
       subscribePaintForUid(uid);
@@ -5304,12 +5537,7 @@ function startFirebaseSync(room) {
         clone.traverse(o => {
           o.visible = true;
           if (o.isMesh) {
-            o.geometry = o.geometry.clone();
-            const posCount = o.geometry.attributes.position.count;
-            const ca = new Float32Array(posCount * 3).fill(1);
-            const cAttr = new THREE.BufferAttribute(ca, 3);
-            cAttr.setUsage(THREE.DynamicDrawUsage);
-            o.geometry.setAttribute('color', cAttr);
+            o.geometry = makePaintableGeometry(o.geometry);
             o.material = _sharedPlayerMat.clone();
             o.castShadow = false;
             o.frustumCulled = true;
@@ -5328,6 +5556,8 @@ function startFirebaseSync(room) {
         ot._meshes = null;
         ot._meshCache = null;
         ot.currentPose = p.p;
+        // ★ 포즈 전환으로 새 모델(흰색)이 붙었으니 그 사람 페인트를 다시 입힌다
+        repaintRemotePlayer(uid);
         if (_cachedRoom?.seekerUid === uid && !ot.gun) attachGunToOther(uid);
       }
     }
@@ -6019,10 +6249,8 @@ function animate() {
   // ★ paint 모드 끝났을 때 GPU 버퍼 정리 (누적 updateRange 리셋)
   if (!paintMode && _paintDirtyMeshes.size > 0) {
     for (const mesh of _paintDirtyMeshes) {
-      if (mesh.geometry?.attributes?.color) {
-        mesh.geometry.attributes.color.updateRange.offset = 0;
-        mesh.geometry.attributes.color.updateRange.count = -1;
-      }
+      const colors = mesh.geometry?.attributes?.color;
+      if (colors) _markColorFull(colors); // 남은 범위 정리 + 전체 1회 업로드
     }
     _paintDirtyMeshes.clear();
   }
