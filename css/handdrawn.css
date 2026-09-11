@@ -19,7 +19,6 @@ body { font-family: 'Inter', -apple-system, sans-serif !important; background: #
 @keyframes rainbowText { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(360deg)} }
 @keyframes countPop { 0%{transform:scale(2);opacity:0} 20%{transform:scale(1);opacity:1} 80%{opacity:1} 100%{opacity:0;transform:scale(0.8)} }
 @keyframes screenShake { 0%,100%{transform:none} 20%{transform:translate(-4px,2px)} 40%{transform:translate(4px,-2px)} 60%{transform:translate(-2px,4px)} 80%{transform:translate(2px,-4px)} }
-@keyframes starFall { 0%{transform:translateY(-100px) rotate(0);opacity:1} 100%{transform:translateY(100vh) rotate(720deg);opacity:0} }
 @keyframes ripple { to{transform:scale(4);opacity:0} }
 @keyframes loadSpin { 0%{transform:rotate(0);filter:hue-rotate(0)} 100%{transform:rotate(360deg);filter:hue-rotate(360deg)} }
 @keyframes glowPulse { 0%,100%{text-shadow:0 0 10px rgba(0,230,118,0.3)} 50%{text-shadow:0 0 30px rgba(0,230,118,0.6)} }
@@ -343,10 +342,6 @@ input::placeholder { color: rgba(255,255,255,0.2) !important; }
 .score-trophy-change { display: inline-block; font-size: 12px; font-weight: 700; margin-left: 8px; animation: popIn .4s ease; }
 .score-trophy-change.positive { color: #00e676; }
 .score-trophy-change.negative { color: #ff5252; }
-
-/* MVP stars */
-.mvp-stars { position: fixed; inset: 0; z-index: 160; pointer-events: none; overflow: hidden; }
-.mvp-star { position: absolute; font-size: 20px; animation: starFall 2s linear forwards; }
 
 /* Player list HUD */
 #playerListHUD { font-family: 'Inter', sans-serif !important; background: rgba(0,0,0,0.5) !important; backdrop-filter: blur(6px); border-radius: 8px !important; border: 1px solid rgba(255,255,255,0.05) !important; }
