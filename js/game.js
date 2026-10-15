@@ -879,7 +879,10 @@ function startRoundTimer() {
   let _scoreTick = 0;
   scoreTimer = setInterval(() => {
     if (!myRoomId || !myAlive || myRole !== 'hider') return;
-    const bonus = isVisibleToSeeker() ? 5 : 1;
+    // ★ 점수 밸런스: 숨는 시간(술래 못 움직임)·라운드 종료 후엔 점수 X
+    if (_cachedRoom?.state !== 'playing') return;
+    if (_cachedRoom.hidePhaseCountdown != null && _cachedRoom.hidePhaseCountdown > 0) return;
+    const bonus = isVisibleToSeeker() ? 2 : 1;
     _scoreAccum += bonus;
     myScore += bonus;
     document.getElementById('myScore').textContent = myScore;
@@ -1253,7 +1256,7 @@ async function killPlayer(uid) {
 
   const isInfection = _cachedRoom.gameMode === 'infection';
   const scores = Object.assign({}, _cachedRoom?.round?.scores || {});
-  scores[myUid] = (scores[myUid] || 0) + 50;
+  scores[myUid] = (scores[myUid] || 0) + 200; // ★ 점수 밸런스: 50→200 (1명 잡기 ≈ 끝까지 생존)
 
   if (isInfection) {
     // 감염: alive=false 안 하고 술래 목록에 추가
