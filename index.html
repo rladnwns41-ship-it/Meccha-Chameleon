@@ -48,6 +48,7 @@
       <button id="showLoginBtn" class="auth-btn auth-btn-outline">로그인</button>
       <button id="showSignupBtn" class="auth-btn auth-btn-outline">회원가입</button>
       <p class="auth-note">회원가입 시 전적과 트로피가 저장됩니다</p>
+      <p class="auth-note">게스트로 시작해도 <a href="terms.html#terms" target="_blank" rel="noopener">이용약관</a>과 <a href="terms.html#privacy" target="_blank" rel="noopener">개인정보처리방침</a>이 적용돼요. 만 14세 미만은 부모님과 함께 읽어 주세요.</p>
     </div>
 
     <!-- 로그인 패널 -->
@@ -66,6 +67,20 @@
       <input id="signupNick" type="text" placeholder="닉네임" maxlength="16" autocomplete="off" class="auth-input">
       <input id="signupEmail" type="email" placeholder="이메일" autocomplete="email" class="auth-input">
       <input id="signupPw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password" class="auth-input">
+      <div class="terms-box">
+        <label class="terms-row terms-all"><input type="checkbox" id="termsAll"><span>약관 전체 동의</span></label>
+        <div class="terms-line"><label class="terms-row"><input type="checkbox" id="termsTos"><span><b>[필수]</b> 이용약관 동의</span></label><a href="terms.html#terms" target="_blank" rel="noopener">보기</a></div>
+        <div class="terms-line"><label class="terms-row"><input type="checkbox" id="termsPriv"><span><b>[필수]</b> 개인정보 수집·이용 및 국외 이전 동의 <em>(이메일·닉네임·비밀번호)</em></span></label><a href="terms.html#privacy" target="_blank" rel="noopener">보기</a></div>
+        <div class="terms-age-title"><b>[필수]</b> 나이 확인</div>
+        <div class="terms-age">
+          <input type="radio" name="termsAge" id="termsAgeOver" value="over"><label for="termsAgeOver">만 14세 이상</label>
+          <input type="radio" name="termsAge" id="termsAgeUnder" value="under"><label for="termsAgeUnder">만 14세 미만</label>
+        </div>
+        <div id="termsParentBox" class="terms-parent" style="display:none">
+          <p>만 14세 미만은 <b>부모님(법정대리인)과 함께</b> <a href="terms.html#kids" target="_blank" rel="noopener">이용약관과 개인정보처리방침</a>을 읽고, 부모님이 동의하셔야 가입할 수 있어요.</p>
+          <label class="terms-row"><input type="checkbox" id="termsParent"><span><b>[필수]</b> 부모님(법정대리인)이 약관을 함께 읽고 가입에 동의하셨어요</span></label>
+        </div>
+      </div>
       <div id="signupError" class="auth-error"></div>
       <button id="signupSubmitBtn" class="auth-btn auth-btn-primary">가입하기</button>
       <button id="signupBackBtn" class="auth-btn auth-btn-ghost">← 돌아가기</button>

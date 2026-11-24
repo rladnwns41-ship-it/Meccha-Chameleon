@@ -2741,16 +2741,49 @@ document.getElementById('signupBackBtn')?.addEventListener('click', () => {
   document.getElementById('authPanel').style.display = '';
   document.getElementById('signupError').textContent = '';
 });
+// ── 회원가입 약관 동의 (terms.html) ──
+const TERMS_VERSION = '2026-11-25';
+const termsEl = id => document.getElementById(id);
+function termsAge() { return termsEl('termsAgeOver')?.checked ? 'over' : termsEl('termsAgeUnder')?.checked ? 'under' : ''; }
+function syncTermsUI() {
+  const under = termsAge() === 'under';
+  termsEl('termsParentBox').style.display = under ? '' : 'none';
+  if (!under) termsEl('termsParent').checked = false;
+  termsEl('termsAll').checked = termsEl('termsTos').checked && termsEl('termsPriv').checked;
+  termsEl('signupError').textContent = '';
+}
+// '전체 동의'는 약관 두 개만 체크한다. 나이와 부모님 동의는 반드시 따로 직접 골라야 한다
+termsEl('termsAll')?.addEventListener('change', e => {
+  termsEl('termsTos').checked = e.target.checked;
+  termsEl('termsPriv').checked = e.target.checked;
+  syncTermsUI();
+});
+['termsTos', 'termsPriv', 'termsAgeOver', 'termsAgeUnder', 'termsParent'].forEach(id => termsEl(id)?.addEventListener('change', syncTermsUI));
+function checkSignupTerms() {
+  if (!termsEl('termsTos').checked || !termsEl('termsPriv').checked) return '필수 약관(이용약관, 개인정보 수집·이용)에 동의해 주세요';
+  const age = termsAge();
+  if (!age) return '만 14세 이상인지 미만인지 골라 주세요';
+  if (age === 'under' && !termsEl('termsParent').checked) return '만 14세 미만은 부모님과 함께 약관을 읽고, 부모님 동의 항목에 체크해야 가입할 수 있어요';
+  return '';
+}
+function saveSignupTermsRecord() {
+  const age = termsAge();
+  try { localStorage.setItem('wc_terms_v1', JSON.stringify({ v: TERMS_VERSION, at: Date.now(), tos: true, privacy: true, under14: age === 'under', guardian: age === 'under' })); } catch (e) {}
+}
+
 document.getElementById('signupSubmitBtn')?.addEventListener('click', async () => {
   const nick = document.getElementById('signupNick')?.value?.trim();
   const email = document.getElementById('signupEmail')?.value?.trim();
   const pw = document.getElementById('signupPw')?.value;
   if (!nick || !email || !pw) return;
+  const termsErr = checkSignupTerms();
+  if (termsErr) { document.getElementById('signupError').textContent = termsErr; return; }
   const btn = document.getElementById('signupSubmitBtn');
   btn.disabled = true;
   const res = await signUpWithEmail(email, pw, nick);
   btn.disabled = false;
   if (!res.ok) { document.getElementById('signupError').textContent = res.error; return; }
+  saveSignupTermsRecord();
   myNick = nick;
   try { localStorage.setItem('wc_nick_v1', myNick); } catch(e){}
   showScreen('rooms');
