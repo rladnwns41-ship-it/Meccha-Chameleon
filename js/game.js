@@ -2760,10 +2760,10 @@ termsEl('termsAll')?.addEventListener('change', e => {
 });
 ['termsTos', 'termsPriv', 'termsAgeOver', 'termsAgeUnder', 'termsParent'].forEach(id => termsEl(id)?.addEventListener('change', syncTermsUI));
 function checkSignupTerms() {
-  if (!termsEl('termsTos').checked || !termsEl('termsPriv').checked) return '필수 약관(이용약관, 개인정보 수집·이용)에 동의해 주세요';
+  if (!termsEl('termsTos').checked || !termsEl('termsPriv').checked) return '필수 약관(이용약관, 개인정보 수집·이용)에 동의하여 주십시오.';
   const age = termsAge();
-  if (!age) return '만 14세 이상인지 미만인지 골라 주세요';
-  if (age === 'under' && !termsEl('termsParent').checked) return '만 14세 미만은 부모님과 함께 약관을 읽고, 부모님 동의 항목에 체크해야 가입할 수 있어요';
+  if (!age) return '나이 확인 항목을 선택하여 주십시오.';
+  if (age === 'under' && !termsEl('termsParent').checked) return '만 14세 미만은 법정대리인의 동의가 필요합니다. 법정대리인 동의 항목을 확인하여 주십시오.';
   return '';
 }
 function saveSignupTermsRecord() {
